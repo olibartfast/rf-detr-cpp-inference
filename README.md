@@ -10,8 +10,6 @@
 ---
 
 ## Table of Contents
-
-- [Features](#features)
 - [Dependencies](#dependencies)
 - [Model Setup](#model-setup)
 - [Installation](#installation)
@@ -19,17 +17,6 @@
 - [Building and Testing](#building-and-testing)
 - [Project Structure](#project-structure)
 - [Acknowledgements](#acknowledgements)
-
----
-
-## Features
-
-- **Object Detection**: Run inference on images using the RF-DETR model with ONNX Runtime.  
-- **Image Preprocessing**: Resize, normalize, and convert images for model input using OpenCV.  
-- **Post-Processing**: Process model outputs to extract bounding boxes, scores, and class labels.  
-- **Visualization**: Draw bounding boxes and labels on images with OpenCV.  
-- **Configurable Parameters**: Adjust resolution, confidence threshold, and normalization parameters via a Config struct.  
-- **Testing**: Includes unit and integration tests with Google Test.
 
 ---
 
@@ -50,7 +37,7 @@ This project uses the RF-DETR model from Roboflow.
 
 1. **Visit the RF-DETR Repository**:
    - Go to the [RF-DETR GitHub repository](https://github.com/roboflow/rf-detr) for model details.
-   - Read the Roboflow blog post for an overview.
+   - Read the [Roboflow blog](https://blog.roboflow.com/rf-detr/) for an overview.
 
 2. **Download the ONNX Model**:
    - Follow instructions in the RF-DETR repo to get the model in ONNX format.
@@ -173,6 +160,4 @@ rfdetr_inference/
 
 ## Acknowledgements
 
-- The RF-DETR model used in this project is sourced from **Roboflow**.
-- Special thanks to the Roboflow team — check out their [GitHub repository](https://github.com/roboflow/rf-detr) and blog post.
-- This project uses **ONNX Runtime** for model inference and **OpenCV** for image processing.
+- The RF-DETR model used in this project is sourced from **Roboflow**, special thanks to the Roboflow team — check out their [GitHub repository](https://github.com/roboflow/rf-detr) and [site](https://blog.roboflow.com/rf-detr/).
