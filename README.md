@@ -3,7 +3,6 @@
 [![C++](https://img.shields.io/badge/language-C++20-blue.svg)](https://en.cppreference.com/w/cpp)
 [![CMake](https://img.shields.io/badge/build%20system-CMake-blue.svg)](https://cmake.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/<your-username>/rfdetr_inference/actions)
 
 **`rfdetr_inference`** is a C++ project for performing object detection inference using the RF-DETR model with ONNX Runtime and OpenCV. It provides a pipeline to preprocess images, run inference, post-process results, and visualize detections. The project includes unit and integration tests using Google Test.
 
@@ -130,30 +129,6 @@ This builds:
 
 ```bash
 ninja -C build run_tests
-```
-
----
-
-## Project Structure
-
-```
-rfdetr_inference/
-├── CMakeLists.txt
-├── README.md
-├── src/
-│   ├── rfdetr_inference.hpp
-│   ├── rfdetr_inference.cpp
-│   └── main.cpp
-├── tests/
-│   ├── unit/
-│   │   └── test_rfdetr_inference.cpp
-│   └── integration/
-│       └── integration_test_rfdetr_inference.cpp
-├── data/
-│   ├── test_image.jpg
-│   ├── test_labels.txt
-│   └── test_output.jpg
-└── build/
 ```
 
 ---
