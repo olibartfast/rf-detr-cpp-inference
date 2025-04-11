@@ -103,13 +103,6 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug \
 ninja -C build
 ```
 
-This builds:
-
-- `inference_app`
-- `unit_tests`
-- `integration_tests`
-
-
 ---
 
 ## Acknowledgements
