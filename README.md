@@ -12,7 +12,7 @@
 - [Model Setup](#model-setup)
 - [Installation](#installation)
 - [Usage](#usage)
-- [Building and Testing](#building-and-testing)
+- [Building](#building)
 - [Acknowledgements](#acknowledgements)
 
 ---
@@ -87,7 +87,7 @@ After building the project (see below), run:
 
 ---
 
-## Building and Testing
+## Building 
 
 ### Configure the Build
 
@@ -109,25 +109,6 @@ This builds:
 - `unit_tests`
 - `integration_tests`
 
-### Run Unit Tests
-
-```bash
-./build/unit_tests
-```
-
-### Run Integration Tests
-
-```bash
-./build/integration_tests
-```
-
-> Note: Ensure the ONNX model path in `integration_test_rfdetr_inference.cpp` is correct.
-
-### Run All Tests
-
-```bash
-ninja -C build run_tests
-```
 
 ---
 
