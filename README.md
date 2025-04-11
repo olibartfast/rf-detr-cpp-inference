@@ -13,7 +13,6 @@
 - [Installation](#installation)
 - [Usage](#usage)
 - [Building and Testing](#building-and-testing)
-- [Project Structure](#project-structure)
 - [Acknowledgements](#acknowledgements)
 
 ---
