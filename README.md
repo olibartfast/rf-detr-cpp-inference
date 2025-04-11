@@ -4,8 +4,7 @@
 [![CMake](https://img.shields.io/badge/build%20system-CMake-blue.svg)](https://cmake.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**`rfdetr_inference`** is a C++ project for performing object detection inference using the RF-DETR model with ONNX Runtime and OpenCV. It provides a pipeline to preprocess images, run inference, post-process results, and visualize detections. The project includes unit and integration tests using Google Test.
-
+**`rfdetr_inference`** is a C++ project for performing object detection inference using the RF-DETR model with ONNX Runtime and OpenCV. 
 ---
 
 ## Table of Contents
