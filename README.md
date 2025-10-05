@@ -139,6 +139,10 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug \
 ### Build the Project
 
 ```bash
+# Using cmake (works with any generator)
+cd build && cmake --build . --parallel
+
+# Or using ninja directly (if configured with -G Ninja)
 ninja -C build
 ```
 
