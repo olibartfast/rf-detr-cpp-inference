@@ -7,6 +7,7 @@ Follow the procedure listed at https://github.com/roboflow/rf-detr?tab=readme-ov
 > [!IMPORTANT]
 > - Python version: **3.11 or lower** (onnxsim currently requires Python <= 3.11)
 > - Starting with RF-DETR 1.2.0, you must run `pip install rfdetr[onnxexport]` before exporting
+> - **Tested version**: `rfdetr[onnxexport]==1.3.0`
 
 ### Setup Virtual Environment
 
@@ -15,8 +16,8 @@ Follow the procedure listed at https://github.com/roboflow/rf-detr?tab=readme-ov
 python3.11 -m venv rfdetr_venv
 source rfdetr_venv/bin/activate
 
-# Install RF-DETR with export dependencies
-pip install rfdetr[onnxexport]
+# Install RF-DETR with export dependencies (tested version)
+pip install rfdetr[onnxexport]==1.3.0
 ```
 
 ---
