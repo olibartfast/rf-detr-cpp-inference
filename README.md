@@ -1,4 +1,4 @@
-# RFDETR Inference
+# RF-DETR Inference
 
 [![C++](https://img.shields.io/badge/language-C++20-blue.svg)](https://en.cppreference.com/w/cpp)
 [![CMake](https://img.shields.io/badge/build%20system-CMake-blue.svg)](https://cmake.org/)
