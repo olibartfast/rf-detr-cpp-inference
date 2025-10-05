@@ -108,3 +108,4 @@ ninja -C build
 ## Acknowledgements
 
 - The RF-DETR model used in this project is sourced from **Roboflow**, special thanks to the Roboflow team — check out their [GitHub repository](https://github.com/roboflow/rf-detr) and [site](https://blog.roboflow.com/rf-detr/).
+- If you use RF-DETR in your research or projects, please cite the original authors as described in their [repository](https://github.com/roboflow/rf-detr#citation).
