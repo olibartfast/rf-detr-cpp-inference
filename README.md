@@ -4,7 +4,7 @@
 [![CMake](https://img.shields.io/badge/build%20system-CMake-blue.svg)](https://cmake.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-C++ project for performing object detection inference using the RF-DETR model with ONNX Runtime and OpenCV. 
+C++ project for performing object detection and instance segmentation inference using the RF-DETR model with ONNX Runtime and OpenCV. 
 ---
 
 ## Table of Contents
@@ -30,14 +30,16 @@ C++ project for performing object detection inference using the RF-DETR model wi
 
 ## Model Setup
 
-This project uses the RF-DETR model from Roboflow.
+This project supports both RF-DETR detection and segmentation models from Roboflow.
 
 1. **Visit the RF-DETR Repository**:
    - Go to the [RF-DETR GitHub repository](https://github.com/roboflow/rf-detr) for model details.
    - Read the [Roboflow blog](https://blog.roboflow.com/rf-detr/) for an overview.
 
 2. **Download the ONNX Model**:
-   - Follow instructions in the RF-DETR repo to get the model in ONNX format.
+   - Follow instructions in the [export documentation](docs/export.md) to export models in ONNX format.
+   - **Detection models**: Export with standard configuration (outputs: `dets`, `labels`)
+   - **Segmentation models**: Export with segmentation configuration (outputs: `dets`, `labels`, `masks`)
    - Place the model (e.g., `inference_model.onnx`) in a chosen directory.
 
 3. **Prepare the COCO Labels**:
@@ -78,12 +80,48 @@ Ensure `clang++-15` is available as your compiler.
 
 After building the project (see below), run:
 
+#### Object Detection
+
 ```bash
-./build/inference_app /path/to/inference_model.onnx /path/to/image.jpg /path/to/coco-labels-91.txt
+./build/inference_app /path/to/model.onnx /path/to/image.jpg /path/to/coco-labels-91.txt
 ```
 
+#### Instance Segmentation
+
+```bash
+./build/inference_app /path/to/model.onnx /path/to/image.jpg /path/to/coco-labels-91.txt --segmentation
+```
+
+**Features:**
 - The output image is saved as `output_image.jpg`
-- Detection results (bounding boxes, labels, and scores) are printed to the console.
+- Detection/segmentation results (bounding boxes, labels, scores, and mask pixels) are printed to the console
+- Input resolution is automatically detected from the model (supports 432x432, 560x560, etc.)
+- Segmentation mode draws colored masks with transparency overlays
+- Uses top-k selection (default: 300 detections) for efficient processing
+
+---
+
+## Configuration
+
+The inference engine supports various configuration options that can be modified in `src/main.cpp`:
+
+- **Model Type**: `ModelType::DETECTION` or `ModelType::SEGMENTATION`
+- **Resolution**: Set to `0` for auto-detection from model, or specify manually (e.g., `432`, `560`)
+- **Confidence Threshold**: Default `0.5` (adjustable in `Config::threshold`)
+- **Max Detections**: Default `300` for top-k selection (adjustable in `Config::max_detections`)
+- **Mask Threshold**: Default `0.0` for binary mask generation (adjustable in `Config::mask_threshold`)
+- **Normalization**: ImageNet mean `[0.485, 0.456, 0.406]` and std `[0.229, 0.224, 0.225]`
+
+### Example Custom Configuration
+
+```cpp
+Config config;
+config.resolution = 0;              // Auto-detect
+config.threshold = 0.6f;            // Higher confidence threshold
+config.max_detections = 100;        // Fewer detections
+config.mask_threshold = 0.5f;       // More conservative masks
+config.model_type = ModelType::SEGMENTATION;
+```
 
 ---
 
@@ -102,6 +140,48 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug \
 ```bash
 ninja -C build
 ```
+
+---
+
+## Technical Details
+
+### Model Outputs
+
+#### Detection Model
+- **dets**: `float32[batch, num_queries, 4]` - Bounding boxes in `cxcywh` format (normalized)
+- **labels**: `float32[batch, num_queries, num_classes]` - Class logits
+
+#### Segmentation Model
+- **dets**: `float32[batch, num_queries, 4]` - Bounding boxes in `cxcywh` format (normalized)
+- **labels**: `float32[batch, num_queries, num_classes]` - Class logits
+- **masks**: `float32[batch, num_queries, mask_h, mask_w]` - Segmentation masks (e.g., 108x108)
+
+### Processing Pipeline
+
+1. **Preprocessing**:
+   - Resize image to model input resolution (auto-detected)
+   - Convert BGR to RGB
+   - Normalize with ImageNet statistics
+   - Convert to CHW format
+
+2. **Inference**:
+   - Run ONNX Runtime session
+   - Auto-detect output tensor names from model
+
+3. **Postprocessing**:
+   - **Detection**: Select predictions above confidence threshold
+   - **Segmentation**: 
+     - Apply sigmoid to class logits
+     - Top-k selection across all classes and queries
+     - Resize masks to original image dimensions using bilinear interpolation
+     - Apply threshold to create binary masks
+   - Convert bounding boxes from `cxcywh` to `xyxy` format
+   - Scale coordinates to original image size
+
+4. **Visualization**:
+   - Draw bounding boxes with class labels
+   - Overlay segmentation masks with transparency (alpha = 0.5)
+   - Use deterministic colors based on class IDs
 
 ---
 
