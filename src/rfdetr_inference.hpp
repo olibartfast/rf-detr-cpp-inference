@@ -8,11 +8,19 @@
 #include <optional>
 #include <filesystem>
 
+enum class ModelType {
+    DETECTION,
+    SEGMENTATION
+};
+
 struct Config {
     int resolution{560};
     float threshold{0.5f};
     std::array<float, 3> means{0.485f, 0.456f, 0.406f};
     std::array<float, 3> stds{0.229f, 0.224f, 0.225f};
+    ModelType model_type{ModelType::DETECTION};
+    int max_detections{300};
+    float mask_threshold{0.0f};
 };
 
 
@@ -22,7 +30,7 @@ class RFDETRInference {
         RFDETRInference(
             const std::filesystem::path& model_path,
             const std::filesystem::path& label_file_path,
-            const Config& config
+            const Config& config = Config{}
         );
         ~RFDETRInference() = default;
     
@@ -32,7 +40,7 @@ class RFDETRInference {
         // Run inference
         std::vector<Ort::Value> run_inference(std::span<const float> input_data);
     
-        // Post-process the inference outputs
+        // Post-process the inference outputs for detection
         void postprocess_outputs(
             std::span<const Ort::Value> output_tensors,
             float scale_w, float scale_h,
@@ -41,12 +49,32 @@ class RFDETRInference {
             std::vector<std::vector<float>>& boxes
         );
     
+        // Post-process the inference outputs for segmentation
+        void postprocess_segmentation_outputs(
+            std::span<const Ort::Value> output_tensors,
+            float scale_w, float scale_h,
+            int orig_h, int orig_w,
+            std::vector<float>& scores,
+            std::vector<int>& class_ids,
+            std::vector<std::vector<float>>& boxes,
+            std::vector<cv::Mat>& masks
+        );
+    
         // Draw detections on the image
         void draw_detections(
             cv::Mat& image,
             std::span<const std::vector<float>> boxes,
             std::span<const int> class_ids,
             std::span<const float> scores
+        );
+    
+        // Draw segmentation masks on the image
+        void draw_segmentation_masks(
+            cv::Mat& image,
+            std::span<const std::vector<float>> boxes,
+            std::span<const int> class_ids,
+            std::span<const float> scores,
+            std::span<const cv::Mat> masks
         );
     
         // Save the output image
@@ -77,9 +105,13 @@ class RFDETRInference {
     
         // Model parameters
         std::vector<std::string> coco_labels_;
-        const Config config_;  // No in-class initialization
+        const Config config_;
         std::vector<int64_t> input_shape_;
         const char* input_name_ = "input";
-        const std::array<const char*, 2> output_names_ = {"dets", "labels"};
+        std::vector<std::string> output_name_strings_;  // Store actual strings
+        std::vector<const char*> output_names_;          // Pointers to strings above
+    
+        // Helper methods
+        cv::Scalar get_color_for_class(int class_id) const noexcept;
     };
     
