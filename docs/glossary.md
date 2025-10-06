@@ -68,8 +68,6 @@ This glossary explains technical terms used in the RF-DETR Inference project REA
 
 **ImageNet**: A large-scale image dataset commonly used for training computer vision models. ImageNet statistics (mean `[0.485, 0.456, 0.406]` and std `[0.229, 0.224, 0.225]`) are widely used for normalizing images before feeding them to pretrained models.
 
-**Auto-detection**: The automatic determination of model parameters (like input resolution or output tensor names) by inspecting the model file, eliminating the need for manual configuration.
-
 **Alpha Blending**: A technique for compositing images by combining foreground and background colors using an alpha (transparency) value, typically ranging from 0 (fully transparent) to 1 (fully opaque). Used to overlay segmentation masks on images.
 
 **Softmax**: An activation function that converts a vector of logits into a probability distribution where all values sum to 1. Used for multi-class classification where each instance belongs to exactly one class. Formula: $\text{softmax}(x_i) = \frac{e^{x_i}}{\sum_j e^{x_j}}$.
