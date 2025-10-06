@@ -1,7 +1,6 @@
 # **RF-DETR Export Instructions**  
 
-Follow the procedure listed at https://github.com/roboflow/rf-detr?tab=readme-ov-file#onnx-export
-
+Follow the procedure listed at https://rfdetr.roboflow.com/learn/deploy/
 ## Requirements
 
 > [!IMPORTANT]
