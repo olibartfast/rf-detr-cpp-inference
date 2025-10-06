@@ -193,4 +193,6 @@ ninja -C build
 ## Acknowledgements
 
 - The RF-DETR model used in this project is sourced from **Roboflow**, special thanks to the Roboflow team — check out their [GitHub repository](https://github.com/roboflow/rf-detr) and [site](https://blog.roboflow.com/rf-detr/).
-- If you use RF-DETR in your research or projects, please cite the original authors as described in their [repository](https://github.com/roboflow/rf-detr#citation).
+- **Postprocessing implementation** is based on Roboflow's reference implementations:
+  - Detection postprocessing: [benchmark_rfdetr.py](https://github.com/roboflow/single_artifact_benchmarking/blob/main/sab/models/benchmark_rfdetr.py)
+  - Instance segmentation postprocessing: [benchmark_rfdetr_seg.py](https://github.com/roboflow/single_artifact_benchmarking/blob/main/sab/models/benchmark_rfdetr_seg.py)
