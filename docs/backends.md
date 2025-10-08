@@ -141,9 +141,9 @@ ls $TENSORRT_ROOT/lib/libnvinfer.so
 
 | Backend | Platform | Latency | Throughput | Setup Time |
 |---------|----------|---------|------------|------------|
-| ONNX Runtime | CPU | ~50-200ms | Medium | Instant |
-| ONNX Runtime | GPU | ~10-30ms | High | Instant |
-| TensorRT | GPU | ~5-15ms | Very High | First run: 1-5 min (cached) |
+| ONNX Runtime | CPU | TBD | Medium | Instant |
+| ONNX Runtime | GPU | TBD | High | Instant |
+| TensorRT | GPU | TBD | High | First run: 1-5 min (cached) |
 
 ## Troubleshooting
 
@@ -187,8 +187,3 @@ Each backend implements:
 - `get_output_data()` - Retrieve results
 - `get_output_shape()` - Get tensor dimensions
 
-This design allows:
-- ✅ Easy addition of new backends
-- ✅ Runtime backend selection
-- ✅ Conditional compilation (build only what you need)
-- ✅ Clean separation of concerns
