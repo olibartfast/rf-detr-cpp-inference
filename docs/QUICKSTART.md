@@ -71,11 +71,12 @@ sudo apt-get install cuda
 
 # 2. Download TensorRT from NVIDIA
 # Visit: https://developer.nvidia.com/tensorrt
-# Download: TensorRT 8.x GA for Linux x86_64 (tar package)
+# Download: TensorRT 10.x GA for Linux x86_64 (tar package)
+#          (TensorRT 8.x+ also supported)
 
 # 3. Extract and setup
-tar -xzvf TensorRT-8.*.tar.gz
-export TENSORRT_ROOT=$(pwd)/TensorRT-8.*
+tar -xzvf TensorRT-10.*.tar.gz
+export TENSORRT_ROOT=$(pwd)/TensorRT-10.*
 export LD_LIBRARY_PATH=$TENSORRT_ROOT/lib:$LD_LIBRARY_PATH
 
 # 4. Verify
@@ -127,7 +128,7 @@ CMD ["./build/inference_app", "model.onnx", "image.jpg", "labels.txt", "--backen
 ### "TensorRT not found"
 ```bash
 # Set TENSORRT_ROOT
-export TENSORRT_ROOT=/path/to/TensorRT-8.x
+export TENSORRT_ROOT=/path/to/TensorRT-10.x
 cmake -S . -B build -G Ninja -DUSE_TENSORRT=ON
 ```
 

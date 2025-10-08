@@ -106,7 +106,7 @@ The backend is compiled into the executable, so there's no `--backend` flag. Sim
 
 ### Ubuntu/Debian
 
-1. Install CUDA Toolkit:
+1. Install CUDA Toolkit (12.x recommended, 11.x+ supported):
 ```bash
 wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb
 sudo dpkg -i cuda-keyring_1.0-1_all.deb
@@ -114,12 +114,13 @@ sudo apt-get update
 sudo apt-get install cuda
 ```
 
-2. Download and install TensorRT from [NVIDIA's website](https://developer.nvidia.com/tensorrt)
+2. Download and install TensorRT 10.x from [NVIDIA's website](https://developer.nvidia.com/tensorrt)
+   (TensorRT 8.x+ also supported)
 
 3. Extract and set environment variables:
 ```bash
-tar -xzvf TensorRT-*.tar.gz
-export TENSORRT_ROOT=/path/to/TensorRT-*
+tar -xzvf TensorRT-10.*.tar.gz
+export TENSORRT_ROOT=/path/to/TensorRT-10.*
 export LD_LIBRARY_PATH=$TENSORRT_ROOT/lib:$LD_LIBRARY_PATH
 ```
 

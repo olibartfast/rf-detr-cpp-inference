@@ -7,10 +7,10 @@
 C++ project for performing object detection and instance segmentation inference using the RF-DETR model with **multiple inference backends** (ONNX Runtime and TensorRT) and OpenCV.
 
 **🎯 Features:**
-- 🔄 **Multiple Backends**: ONNX Runtime (CPU/GPU) and TensorRT (GPU)
+- 🔄 **Multiple Backends**: ONNX Runtime (CPU/GPU) and TensorRT 10.x (GPU)
 - 🎨 **Strategy Pattern**: Clean architecture with compile-time backend selection
 - 📦 **Flexible Build**: Choose backend at compile time for optimal performance
-- 🚀 **High Performance**: TensorRT optimization for NVIDIA GPUs
+- 🚀 **High Performance**: TensorRT 10.x optimization for NVIDIA GPUs (8.x+ also supported)
 - 🔧 **Auto-detection**: Automatic input resolution and output tensor detection
 - 🏗️ **Clean Architecture**: Organized namespace structure (`rfdetr::backend`) 
 ---
@@ -43,8 +43,8 @@ C++ project for performing object detection and instance segmentation inference 
 - **Acceleration**: CPU and GPU (CUDA/DirectML)
 
 #### TensorRT Backend (Optional)
-- **TensorRT**: Version 8.x or later
-- **CUDA Toolkit**: Version 11.x or later
+- **TensorRT**: Version 10.x (8.x+ also supported)
+- **CUDA Toolkit**: Version 12.x or later (11.x+ also supported)
 - **Platform**: Linux with NVIDIA GPU
 - **Acceleration**: NVIDIA GPU only
 
@@ -197,6 +197,8 @@ cmake --build build --parallel
 
 **Note**: Requires TensorRT and CUDA installed. See [backends documentation](docs/backends.md) for setup.
 
+> **🆕 TensorRT 10.x Support**: The project now supports TensorRT 10.x with automatic API compatibility. See [TensorRT 10.x Migration Guide](docs/TENSORRT_10_MIGRATION.md) for installation and upgrade instructions.
+
 ### Build Options
 
 - `-DUSE_ONNX_RUNTIME=ON/OFF` - Enable ONNX Runtime backend (default: ON)
@@ -208,6 +210,7 @@ cmake --build build --parallel
 For detailed build instructions and troubleshooting, see:
 - [Backends Documentation](docs/backends.md) - Backend comparison and setup
 - [Compile-Time Backend Guide](docs/COMPILE_TIME_BACKEND.md) - Understanding compile-time selection
+- [TensorRT 10.x Migration Guide](docs/TENSORRT_10_MIGRATION.md) - TensorRT 10.x support and migration
 
 ---
 

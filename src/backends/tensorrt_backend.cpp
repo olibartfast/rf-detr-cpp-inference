@@ -72,15 +72,30 @@ std::vector<int64_t> TensorRTBackend::initialize(
     }
 
     // Get input/output binding information
-    const int num_bindings = engine_->getNbBindings();
+    // Note: getNbBindings() was deprecated in TensorRT 8.5 and removed in 10.0
+    // For TensorRT 10+, we use getNbIOTensors()
+    #if NV_TENSORRT_MAJOR >= 10
+        const int num_bindings = engine_->getNbIOTensors();
+    #else
+        const int num_bindings = engine_->getNbBindings();
+    #endif
     std::cout << "[TensorRT] Model has " << num_bindings << " bindings" << std::endl;
 
     std::vector<int64_t> detected_shape = input_shape;
     
     for (int i = 0; i < num_bindings; ++i) {
-        const char* name = engine_->getBindingName(i);
-        auto dims = engine_->getBindingDimensions(i);
-        bool is_input = engine_->bindingIsInput(i);
+        #if NV_TENSORRT_MAJOR >= 10
+            // TensorRT 10+ API
+            const char* name = engine_->getIOTensorName(i);
+            auto dims = engine_->getTensorShape(name);
+            auto io_mode = engine_->getTensorIOMode(name);
+            bool is_input = (io_mode == nvinfer1::TensorIOMode::kINPUT);
+        #else
+            // TensorRT 8.x API
+            const char* name = engine_->getBindingName(i);
+            auto dims = engine_->getBindingDimensions(i);
+            bool is_input = engine_->bindingIsInput(i);
+        #endif
 
         std::cout << "  Binding " << i << ": " << name 
                   << (is_input ? " (input)" : " (output)") << " - Shape: [";
@@ -185,8 +200,13 @@ bool TensorRTBackend::build_engine_from_onnx(
         return false;
     }
 
-    // Set max workspace size (1GB)
-    config->setMaxWorkspaceSize(1ULL << 30);
+    // Set memory pool limit for workspace (1GB)
+    // Note: setMaxWorkspaceSize() was deprecated in TensorRT 8.4 and removed in 10.0
+    #if NV_TENSORRT_MAJOR >= 10 || (NV_TENSORRT_MAJOR == 8 && NV_TENSORRT_MINOR >= 4)
+        config->setMemoryPoolLimit(nvinfer1::MemoryPoolType::kWORKSPACE, 1ULL << 30);
+    #else
+        config->setMaxWorkspaceSize(1ULL << 30);
+    #endif
 
     // Enable FP16 mode if supported
     if (builder->platformHasFastFp16()) {
@@ -258,9 +278,25 @@ std::vector<void*> TensorRTBackend::run_inference(
                input_size, cudaMemcpyHostToDevice);
 
     // Execute inference
-    if (!context_->executeV2(device_buffers_.data())) {
-        throw std::runtime_error("TensorRT inference execution failed");
-    }
+    // Note: executeV2() was deprecated in TensorRT 8.5 and removed in 10.0
+    #if NV_TENSORRT_MAJOR >= 10
+        // TensorRT 10+ uses enqueueV3 with tensor addresses set via setTensorAddress
+        // For simple synchronous execution, we still use the bindings array approach
+        // but need to set tensor addresses explicitly in newer versions
+        for (int i = 0; i < static_cast<int>(device_buffers_.size()); ++i) {
+            const char* name = engine_->getIOTensorName(i);
+            context_->setTensorAddress(name, device_buffers_[i]);
+        }
+        if (!context_->enqueueV3(0)) {  // 0 = CUDA stream (nullptr equivalent)
+            throw std::runtime_error("TensorRT inference execution failed");
+        }
+        cudaStreamSynchronize(0);  // Synchronize since we're not using async
+    #else
+        // TensorRT 8.x API
+        if (!context_->executeV2(device_buffers_.data())) {
+            throw std::runtime_error("TensorRT inference execution failed");
+        }
+    #endif
 
     // Copy output data from device to host
     for (size_t i = 0; i < output_binding_indices_.size(); ++i) {
