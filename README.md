@@ -6,13 +6,6 @@
 
 C++ project for performing object detection and instance segmentation inference using the RF-DETR model with **multiple inference backends** (ONNX Runtime and TensorRT) and OpenCV.
 
-**🎯 Features:**
-- 🔄 **Multiple Backends**: ONNX Runtime (CPU/GPU) and TensorRT 10.x (GPU)
-- 🎨 **Strategy Pattern**: Clean architecture with compile-time backend selection
-- 📦 **Flexible Build**: Choose backend at compile time for optimal performance
-- 🚀 **High Performance**: TensorRT 10.x optimization for NVIDIA GPUs (8.x+ also supported)
-- 🔧 **Auto-detection**: Automatic input resolution and output tensor detection
-- 🏗️ **Clean Architecture**: Organized namespace structure (`rfdetr::backend`) 
 ---
 
 ## Table of Contents
