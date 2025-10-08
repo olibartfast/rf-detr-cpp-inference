@@ -174,15 +174,6 @@ This is normal on first run. The engine is cached as `model.trt` and reused on s
 ./build/inference_app model.onnx dog.jpg coco-labels-91.txt --segmentation
 ```
 
-### Detection with TensorRT
-```bash
-./build/inference_app model.onnx dog.jpg coco-labels-91.txt --backend tensorrt
-```
-
-### Segmentation with TensorRT
-```bash
-./build/inference_app model.onnx dog.jpg coco-labels-91.txt --segmentation --backend tensorrt
-```
 
 ## Getting Help
 
