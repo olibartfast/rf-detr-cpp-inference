@@ -331,9 +331,3 @@ OpenCV (all paths) ─────┘
 libopencv_*.so
 ```
 
-This architecture provides:
-- ✅ Clean separation of concerns
-- ✅ Easy extensibility
-- ✅ Runtime flexibility
-- ✅ Compile-time optimization
-- ✅ Minimal coupling between components
