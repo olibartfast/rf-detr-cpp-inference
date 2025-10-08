@@ -1,12 +1,17 @@
 #include "rfdetr_inference.hpp"
 #include <iostream>
 #include <cstring>
+#include <algorithm>
 
 int main(int argc, char* argv[]) {
     if (argc < 4 || argc > 5) {
-        std::cerr << "Usage: " << argv[0] << " <path_to_onnx_model> <path_to_image> <path_to_coco_labels> [--segmentation]" << std::endl;
-        std::cerr << "Example (detection): " << argv[0] << " ./model.onnx ./image.jpg ./coco_labels.txt" << std::endl;
-        std::cerr << "Example (segmentation): " << argv[0] << " ./model.onnx ./image.jpg ./coco_labels.txt --segmentation" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <path_to_model> <path_to_image> <path_to_coco_labels> [--segmentation]" << std::endl;
+        std::cerr << "Examples:" << std::endl;
+        std::cerr << "  Detection:    " << argv[0] << " ./model.onnx ./image.jpg ./coco_labels.txt" << std::endl;
+        std::cerr << "  Segmentation: " << argv[0] << " ./model.onnx ./image.jpg ./coco_labels.txt --segmentation" << std::endl;
+        std::cerr << std::endl;
+        std::cerr << "Note: Backend (ONNX Runtime or TensorRT) is selected at compile time." << std::endl;
+        std::cerr << "      Build with -DUSE_ONNX_RUNTIME=ON or -DUSE_TENSORRT=ON" << std::endl;
         return 1;
     }
 
@@ -14,10 +19,13 @@ int main(int argc, char* argv[]) {
     const std::filesystem::path image_path = argv[2];
     const std::filesystem::path label_file_path = argv[3];
     
-    // Check if segmentation mode is enabled
+    // Parse optional arguments
     bool use_segmentation = false;
-    if (argc == 5 && std::strcmp(argv[4], "--segmentation") == 0) {
-        use_segmentation = true;
+    
+    for (int i = 4; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--segmentation") == 0) {
+            use_segmentation = true;
+        }
     }
 
     try {
@@ -27,6 +35,7 @@ int main(int argc, char* argv[]) {
         config.model_type = use_segmentation ? ModelType::SEGMENTATION : ModelType::DETECTION;
         config.max_detections = 300;
         config.mask_threshold = 0.0f;
+        
         RFDETRInference inference(model_path, label_file_path, config);
 
         // Preprocess the image
@@ -34,7 +43,7 @@ int main(int argc, char* argv[]) {
         std::vector<float> input_data = inference.preprocess_image(image_path, orig_h, orig_w);
 
         // Run inference
-        std::vector<Ort::Value> output_tensors = inference.run_inference(input_data);
+        inference.run_inference(input_data);
 
         // Post-process the outputs
         std::vector<float> scores;
@@ -45,10 +54,10 @@ int main(int argc, char* argv[]) {
         const float scale_h = static_cast<float>(orig_h) / inference.get_resolution();
         
         if (use_segmentation) {
-            inference.postprocess_segmentation_outputs(output_tensors, scale_w, scale_h, orig_h, orig_w, 
+            inference.postprocess_segmentation_outputs(scale_w, scale_h, orig_h, orig_w, 
                                                        scores, class_ids, boxes, masks);
         } else {
-            inference.postprocess_outputs(output_tensors, scale_w, scale_h, scores, class_ids, boxes);
+            inference.postprocess_outputs(scale_w, scale_h, scores, class_ids, boxes);
         }
 
         // Load the original image for drawing

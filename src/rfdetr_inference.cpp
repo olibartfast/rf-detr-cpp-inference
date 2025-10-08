@@ -4,72 +4,39 @@
 #include <cmath>
 #include <numeric>
 #include <algorithm>
+#include <iostream>
 
 RFDETRInference::RFDETRInference(
     const std::filesystem::path& model_path,
     const std::filesystem::path& label_file_path,
     const Config& config
 )
-    : env_(std::make_unique<Ort::Env>(ORT_LOGGING_LEVEL_WARNING, "RFDETRInference")),
-      memory_info_(Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)),
-      config_(config),
+    : config_(config),
       input_shape_({1, 3, config_.resolution, config_.resolution}) {
-    // Validate model path
-    if (!std::filesystem::exists(model_path)) {
-        throw std::runtime_error("Model file does not exist: " + model_path.string());
-    }
-
-    // Initialize ONNX Runtime session
-    Ort::SessionOptions session_options;
-    session_options.SetIntraOpNumThreads(1);
-    session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_EXTENDED);
-    session_ = std::make_unique<Ort::Session>(*env_, model_path.c_str(), session_options);
-
-    // Auto-detect input shape from model if resolution is set to 0
-    if (config_.resolution == 0) {
-        Ort::TypeInfo input_type_info = session_->GetInputTypeInfo(0);
-        auto tensor_info = input_type_info.GetTensorTypeAndShapeInfo();
-        auto shape = tensor_info.GetShape();
-        
-        if (shape.size() == 4 && shape[2] == shape[3] && shape[2] > 0) {
-            const_cast<Config&>(config_).resolution = static_cast<int>(shape[2]);
-            input_shape_ = {1, 3, shape[2], shape[3]};
-            std::cout << "Auto-detected model input resolution: " << config_.resolution << "x" << config_.resolution << std::endl;
-        } else {
-            throw std::runtime_error("Could not auto-detect valid input resolution from model. Please specify resolution in config.");
-        }
-    } else {
-        input_shape_ = {1, 3, config_.resolution, config_.resolution};
-    }
-
-    // Auto-detect output names from model
-    const size_t num_outputs = session_->GetOutputCount();
-    std::cout << "Model has " << num_outputs << " outputs:" << std::endl;
     
-    // Validate we have the expected number of outputs
-    if (config_.model_type == ModelType::SEGMENTATION && num_outputs < 3) {
-        throw std::runtime_error("Segmentation model requires 3 outputs, but model has only " + 
-                                 std::to_string(num_outputs));
-    }
-    if (config_.model_type == ModelType::DETECTION && num_outputs < 2) {
-        throw std::runtime_error("Detection model requires 2 outputs, but model has only " + 
-                                 std::to_string(num_outputs));
-    }
+    // Create inference backend (determined at compile time)
+    backend_ = create_backend();
+    std::cout << "Using backend: " << backend_->get_backend_name() << std::endl;
+
+    // Initialize backend
+    input_shape_ = backend_->initialize(model_path, input_shape_);
     
-    // Store output names - first collect all strings, then get pointers
+    // Update resolution if auto-detected
+    if (config_.resolution == 0 && input_shape_.size() == 4) {
+        config_.resolution = static_cast<int>(input_shape_[2]);
+        std::cout << "Auto-detected model input resolution: " << config_.resolution << "x" << config_.resolution << std::endl;
+    }
+
+    // Validate number of outputs
+    const size_t num_outputs = backend_->get_output_count();
     const size_t num_expected = config_.model_type == ModelType::SEGMENTATION ? 3 : 2;
-    output_name_strings_.reserve(num_expected); // Prevent reallocation
     
-    for (size_t i = 0; i < num_expected; ++i) {
-        Ort::AllocatedStringPtr output_name_ptr = session_->GetOutputNameAllocated(i, allocator_);
-        std::string output_name(output_name_ptr.get());
-        std::cout << "  Output " << i << ": " << output_name << std::endl;
-        output_name_strings_.push_back(output_name);
-    }
-    
-    // Now get pointers after all strings are stored (vector won't reallocate)
-    for (const auto& name : output_name_strings_) {
-        output_names_.push_back(name.c_str());
+    if (num_outputs < num_expected) {
+        throw std::runtime_error(
+            (config_.model_type == ModelType::SEGMENTATION ? "Segmentation" : "Detection") +
+            std::string(" model requires ") + std::to_string(num_expected) +
+            " outputs, but model has only " + std::to_string(num_outputs)
+        );
     }
 
     // Load COCO labels
@@ -138,55 +105,46 @@ std::vector<float> RFDETRInference::preprocess_image(const std::filesystem::path
     return input_tensor_values;
 }
 
-std::vector<Ort::Value> RFDETRInference::run_inference(std::span<const float> input_data) {
-    Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
-        memory_info_,
-        const_cast<float*>(input_data.data()),
-        input_data.size(),
-        input_shape_.data(),
-        input_shape_.size()
-    );
-    if (!input_tensor.IsTensor()) {
-        throw std::runtime_error("Failed to create input tensor");
+void RFDETRInference::run_inference(std::span<const float> input_data) {
+    // Run inference through backend
+    backend_->run_inference(input_data, input_shape_);
+    
+    // Cache output data and shapes for postprocessing
+    const size_t num_outputs = backend_->get_output_count();
+    output_data_cache_.clear();
+    output_shapes_cache_.clear();
+    
+    for (size_t i = 0; i < num_outputs; ++i) {
+        auto shape = backend_->get_output_shape(i);
+        size_t size = 1;
+        for (auto dim : shape) {
+            size *= dim;
+        }
+        
+        std::vector<float> data(size);
+        backend_->get_output_data(i, data.data(), size);
+        
+        output_data_cache_.push_back(std::move(data));
+        output_shapes_cache_.push_back(std::move(shape));
     }
-
-    return session_->Run(
-        Ort::RunOptions{nullptr},
-        &input_name_,
-        &input_tensor,
-        1,
-        output_names_.data(),
-        output_names_.size()
-    );
 }
 
 void RFDETRInference::postprocess_outputs(
-    std::span<const Ort::Value> output_tensors,
     float scale_w, float scale_h,
     std::vector<float>& scores,
     std::vector<int>& class_ids,
     std::vector<std::vector<float>>& boxes
 ) {
-    if (output_tensors.size() != output_names_.size()) {
-        throw std::runtime_error("Expected " + std::to_string(output_names_.size()) +
-                                 " output tensors, got " + std::to_string(output_tensors.size()));
+    if (output_data_cache_.size() < 2) {
+        throw std::runtime_error("Expected at least 2 output tensors, got " + 
+                                 std::to_string(output_data_cache_.size()));
     }
 
-    const Ort::Value& dets_tensor = output_tensors[0];
-    if (!dets_tensor.IsTensor()) {
-        throw std::runtime_error("dets output is not a tensor");
-    }
-    Ort::TensorTypeAndShapeInfo dets_info = dets_tensor.GetTensorTypeAndShapeInfo();
-    const auto dets_shape = dets_info.GetShape();
-    const float* dets_data = dets_tensor.GetTensorData<float>();
+    const auto& dets_data = output_data_cache_[0];
+    const auto& dets_shape = output_shapes_cache_[0];
 
-    const Ort::Value& labels_tensor = output_tensors[1];
-    if (!labels_tensor.IsTensor()) {
-        throw std::runtime_error("labels output is not a tensor");
-    }
-    Ort::TensorTypeAndShapeInfo labels_info = labels_tensor.GetTensorTypeAndShapeInfo();
-    const auto labels_shape = labels_info.GetShape();
-    const float* labels_data = labels_tensor.GetTensorData<float>();
+    const auto& labels_data = output_data_cache_[1];
+    const auto& labels_shape = output_shapes_cache_[1];
 
     const size_t num_detections = dets_shape[1];
     const size_t num_classes = labels_shape[2];
@@ -230,7 +188,6 @@ void RFDETRInference::postprocess_outputs(
 }
 
 void RFDETRInference::postprocess_segmentation_outputs(
-    std::span<const Ort::Value> output_tensors,
     float scale_w, float scale_h,
     int orig_h, int orig_w,
     std::vector<float>& scores,
@@ -238,36 +195,22 @@ void RFDETRInference::postprocess_segmentation_outputs(
     std::vector<std::vector<float>>& boxes,
     std::vector<cv::Mat>& masks
 ) {
-    if (output_tensors.size() != 3) {
-        throw std::runtime_error("Expected 3 output tensors for segmentation, got " + std::to_string(output_tensors.size()));
+    if (output_data_cache_.size() != 3) {
+        throw std::runtime_error("Expected 3 output tensors for segmentation, got " + 
+                                 std::to_string(output_data_cache_.size()));
     }
 
-    // Get bounding boxes tensor
-    const Ort::Value& dets_tensor = output_tensors[0];
-    if (!dets_tensor.IsTensor()) {
-        throw std::runtime_error("dets output is not a tensor");
-    }
-    Ort::TensorTypeAndShapeInfo dets_info = dets_tensor.GetTensorTypeAndShapeInfo();
-    const auto dets_shape = dets_info.GetShape();
-    const float* dets_data = dets_tensor.GetTensorData<float>();
+    // Get bounding boxes data
+    const auto& dets_data = output_data_cache_[0];
+    const auto& dets_shape = output_shapes_cache_[0];
 
-    // Get labels tensor
-    const Ort::Value& labels_tensor = output_tensors[1];
-    if (!labels_tensor.IsTensor()) {
-        throw std::runtime_error("labels output is not a tensor");
-    }
-    Ort::TensorTypeAndShapeInfo labels_info = labels_tensor.GetTensorTypeAndShapeInfo();
-    const auto labels_shape = labels_info.GetShape();
-    const float* labels_data = labels_tensor.GetTensorData<float>();
+    // Get labels data
+    const auto& labels_data = output_data_cache_[1];
+    const auto& labels_shape = output_shapes_cache_[1];
 
-    // Get masks tensor
-    const Ort::Value& masks_tensor = output_tensors[2];
-    if (!masks_tensor.IsTensor()) {
-        throw std::runtime_error("masks output is not a tensor");
-    }
-    Ort::TensorTypeAndShapeInfo masks_info = masks_tensor.GetTensorTypeAndShapeInfo();
-    const auto masks_shape = masks_info.GetShape();
-    const float* masks_data = masks_tensor.GetTensorData<float>();
+    // Get masks data
+    const auto& masks_data = output_data_cache_[2];
+    const auto& masks_shape = output_shapes_cache_[2];
 
     const size_t num_detections = dets_shape[1];
     const size_t num_classes = labels_shape[2];
@@ -330,7 +273,7 @@ void RFDETRInference::postprocess_segmentation_outputs(
         // Get mask for this detection and resize to original image size
         const size_t mask_offset = detection_idx * mask_h * mask_w;
         cv::Mat mask_small(mask_h, mask_w, CV_32F);
-        std::memcpy(mask_small.data, masks_data + mask_offset, mask_h * mask_w * sizeof(float));
+        std::memcpy(mask_small.data, masks_data.data() + mask_offset, mask_h * mask_w * sizeof(float));
 
         // Resize mask to original image size using bilinear interpolation
         cv::Mat mask_resized;
