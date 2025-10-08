@@ -210,7 +210,6 @@ cmake --build build --parallel
 For detailed build instructions and troubleshooting, see:
 - [Backends Documentation](docs/backends.md) - Backend comparison and setup
 - [Compile-Time Backend Guide](docs/COMPILE_TIME_BACKEND.md) - Understanding compile-time selection
-- [TensorRT 10.x Migration Guide](docs/TENSORRT_10_MIGRATION.md) - TensorRT 10.x support and migration
 
 ---
 
