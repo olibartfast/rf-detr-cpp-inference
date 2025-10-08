@@ -4,9 +4,15 @@
 
 #include "inference_backend.hpp"
 #include <NvInfer.h>
+#include <NvInferVersion.h>
 #include <NvOnnxParser.h>
 #include <cuda_runtime_api.h>
 #include <memory>
+
+// Check TensorRT version compatibility
+#if NV_TENSORRT_MAJOR < 8
+    #error "TensorRT 8.0 or newer is required"
+#endif
 
 namespace rfdetr {
 namespace backend {
