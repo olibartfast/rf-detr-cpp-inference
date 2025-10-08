@@ -4,13 +4,22 @@
 [![CMake](https://img.shields.io/badge/build%20system-CMake-blue.svg)](https://cmake.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-C++ project for performing object detection and instance segmentation inference using the RF-DETR model with ONNX Runtime and OpenCV. 
+C++ project for performing object detection and instance segmentation inference using the RF-DETR model with **multiple inference backends** (ONNX Runtime and TensorRT) and OpenCV.
+
+**🎯 Features:**
+- 🔄 **Multiple Backends**: ONNX Runtime (CPU/GPU) and TensorRT (GPU)
+- 🎨 **Strategy Pattern**: Clean architecture with compile-time backend selection
+- 📦 **Flexible Build**: Choose backend at compile time for optimal performance
+- 🚀 **High Performance**: TensorRT optimization for NVIDIA GPUs
+- 🔧 **Auto-detection**: Automatic input resolution and output tensor detection
+- 🏗️ **Clean Architecture**: Organized namespace structure (`rfdetr::backend`) 
 ---
 
 ## Table of Contents
 - [Dependencies](#dependencies)
 - [Model Setup](#model-setup)
 - [Installation](#installation)
+- [Backend Selection](#backend-selection)
 - [Usage](#usage)
 - [Building](#building)
 - [Acknowledgements](#acknowledgements)
@@ -19,12 +28,27 @@ C++ project for performing object detection and instance segmentation inference 
 
 ## Dependencies
 
+### Required (All Backends)
 - **C++20 Compiler**: Clang++ 15 or compatible (e.g., `clang++-15`)
 - **CMake**: Version 3.12 or higher
-- **ONNX Runtime**: Version 1.21.0 (automatically downloaded during build)
 - **OpenCV**: Version 4.x (e.g., install via `sudo apt-get install libopencv-dev` on Ubuntu)
 - **Google Test**: Version 1.12.1 (automatically fetched during build)
 - **Ninja**: Optional but recommended (`sudo apt-get install ninja-build`)
+
+### Backend-Specific Dependencies
+
+#### ONNX Runtime Backend (Default)
+- **ONNX Runtime**: Version 1.21.0 (automatically downloaded during build)
+- **Platform**: Linux, Windows, macOS
+- **Acceleration**: CPU and GPU (CUDA/DirectML)
+
+#### TensorRT Backend (Optional)
+- **TensorRT**: Version 8.x or later
+- **CUDA Toolkit**: Version 11.x or later
+- **Platform**: Linux with NVIDIA GPU
+- **Acceleration**: NVIDIA GPU only
+
+See [backends documentation](docs/backends.md) for detailed installation instructions.
 
 ---
 
@@ -69,6 +93,21 @@ Ensure `clang++-15` is available as your compiler.
 
 ---
 
+## Backend Selection
+
+This project uses **compile-time backend selection**. Choose the backend when building, not at runtime:
+
+| Backend | Best For | Pros | Cons |
+|---------|----------|------|------|
+| **ONNX Runtime** | Development, CPU inference | Cross-platform, easy setup | Slower than TensorRT on GPU |
+| **TensorRT** | Production on NVIDIA GPUs | Maximum performance | GPU-only, requires CUDA/TensorRT |
+
+**Key Advantage**: Compile-time selection results in smaller binaries, faster startup, and no runtime overhead.
+
+See [backends documentation](docs/backends.md) and [compile-time backend guide](docs/COMPILE_TIME_BACKEND.md) for detailed information.
+
+---
+
 ## Usage
 
 ### Prepare Input Files
@@ -79,7 +118,7 @@ Ensure `clang++-15` is available as your compiler.
 
 ### Run Inference
 
-After building the project (see below), run:
+After building the project (see below), run the inference application. **Note**: The backend is selected at compile time, not runtime.
 
 #### Object Detection
 
@@ -92,6 +131,8 @@ After building the project (see below), run:
 ```bash
 ./build/inference_app /path/to/model.onnx /path/to/image.jpg /path/to/coco-labels-91.txt --segmentation
 ```
+
+**Note**: The backend (ONNX Runtime or TensorRT) was selected when you built the executable. To use a different backend, rebuild the project with different CMake flags.
 
 **Features:**
 - The output image is saved as `output_image.jpg`
@@ -128,23 +169,45 @@ config.model_type = ModelType::SEGMENTATION;
 
 ## Building 
 
-### Configure the Build
+### Quick Start: Build with ONNX Runtime (Default)
 
 ```bash
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug \
--DCMAKE_C_COMPILER=/usr/bin/clang-15 \
--DCMAKE_CXX_COMPILER=/usr/bin/clang++-15
+cmake -S . -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER=/usr/bin/clang-15 \
+  -DCMAKE_CXX_COMPILER=/usr/bin/clang++-15
+
+cmake --build build --parallel
 ```
 
-### Build the Project
+This builds an executable with ONNX Runtime backend compiled in.
+
+### Build with TensorRT Backend
 
 ```bash
-# Using cmake (works with any generator)
-cd build && cmake --build . --parallel
+cmake -S . -B build -G Ninja \
+  -DUSE_ONNX_RUNTIME=OFF \
+  -DUSE_TENSORRT=ON \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER=/usr/bin/clang-15 \
+  -DCMAKE_CXX_COMPILER=/usr/bin/clang++-15
 
-# Or using ninja directly (if configured with -G Ninja)
-ninja -C build
+cmake --build build --parallel
 ```
+
+**Note**: Requires TensorRT and CUDA installed. See [backends documentation](docs/backends.md) for setup.
+
+### Build Options
+
+- `-DUSE_ONNX_RUNTIME=ON/OFF` - Enable ONNX Runtime backend (default: ON)
+- `-DUSE_TENSORRT=ON/OFF` - Enable TensorRT backend (default: OFF)
+- `-DCMAKE_BUILD_TYPE=Release/Debug` - Build configuration
+
+**Important**: Only ONE backend can be enabled at a time. The backend is compiled into the binary for optimal performance.
+
+For detailed build instructions and troubleshooting, see:
+- [Backends Documentation](docs/backends.md) - Backend comparison and setup
+- [Compile-Time Backend Guide](docs/COMPILE_TIME_BACKEND.md) - Understanding compile-time selection
 
 ---
 
