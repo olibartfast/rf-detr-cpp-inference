@@ -190,8 +190,6 @@ cmake --build build --parallel
 
 **Note**: Requires TensorRT and CUDA installed. See [backends documentation](docs/backends.md) for setup.
 
-> **🆕 TensorRT 10.x Support**: The project now supports TensorRT 10.x with automatic API compatibility. See [TensorRT 10.x Migration Guide](docs/TENSORRT_10_MIGRATION.md) for installation and upgrade instructions.
-
 ### Build Options
 
 - `-DUSE_ONNX_RUNTIME=ON/OFF` - Enable ONNX Runtime backend (default: ON)
