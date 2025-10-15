@@ -11,6 +11,13 @@ Follow the procedure listed at https://rfdetr.roboflow.com/learn/deploy/
 ### Setup Virtual Environment
 
 ```bash
+# install python3.11 on Ubuntu 24.04
+sudo add-apt-repository ppa:deadsnakes/ppa
+sudo apt update
+sudo apt install python3.11
+
+sudo apt install python3.11-venv python3.11-distutils -y
+
 # Create virtual environment with Python 3.11
 python3.11 -m venv rfdetr_venv
 source rfdetr_venv/bin/activate
