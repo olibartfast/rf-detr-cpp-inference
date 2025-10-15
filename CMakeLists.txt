@@ -86,33 +86,62 @@ endif()
 if(USE_TENSORRT)
     message(STATUS "Configuring TensorRT backend...")
     
-    # Try to find TensorRT installation
-    find_path(TENSORRT_INCLUDE_DIR NvInfer.h
-        HINTS 
-            /usr/include/x86_64-linux-gnu
-            /usr/local/cuda/include
-            /usr/include
-            $ENV{TENSORRT_ROOT}/include
-        PATH_SUFFIXES include
-    )
+    # TensorRT version configuration
+    set(TRT_MAJOR "10")
+    set(TRT_MINOR ".7")
+    set(TRT_PATCH ".0")
+    set(TRT_BUILD ".23")
+    set(TRT_VERSION "${TRT_MAJOR}${TRT_MINOR}${TRT_PATCH}${TRT_BUILD}")
+    set(TRT_CUDA_VERSION "12.6")
     
-    find_library(TENSORRT_LIBRARY nvinfer
-        HINTS
-            /usr/lib/x86_64-linux-gnu
-            /usr/local/cuda/lib64
-            /usr/lib
-            $ENV{TENSORRT_ROOT}/lib
-        PATH_SUFFIXES lib lib64
-    )
+    set(TRT_ARCHIVE_BASENAME "TensorRT-${TRT_VERSION}.Linux.x86_64-gnu.cuda-${TRT_CUDA_VERSION}")
+    set(TRT_ARCHIVE_NAME "${TRT_ARCHIVE_BASENAME}.tar.gz")
+    set(TRT_URL "https://developer.nvidia.com/downloads/compute/machine-learning/tensorrt/${TRT_MAJOR}${TRT_MINOR}${TRT_PATCH}/tars/${TRT_ARCHIVE_NAME}")
     
-    find_library(TENSORRT_ONNX_PARSER nvonnxparser
-        HINTS
-            /usr/lib/x86_64-linux-gnu
-            /usr/local/cuda/lib64
-            /usr/lib
-            $ENV{TENSORRT_ROOT}/lib
-        PATH_SUFFIXES lib lib64
-    )
+    set(TRT_DEPS_DIR "${CMAKE_BINARY_DIR}/_deps")
+    set(TRT_DOWNLOAD_PATH "${TRT_DEPS_DIR}/${TRT_ARCHIVE_NAME}")
+    set(TRT_EXTRACT_DIR "${TRT_DEPS_DIR}")
+    set(TRT_INSTALL_DIR "${TRT_EXTRACT_DIR}/TensorRT-${TRT_VERSION}")
+    
+    if(NOT EXISTS "${TRT_INSTALL_DIR}/include/NvInfer.h")
+        message(STATUS "TensorRT not found in build directory. Downloading and extracting...")
+        file(MAKE_DIRECTORY "${TRT_DEPS_DIR}")
+        if(NOT EXISTS "${TRT_DOWNLOAD_PATH}")
+            message(STATUS "Downloading TensorRT from ${TRT_URL}...")
+            file(DOWNLOAD ${TRT_URL} ${TRT_DOWNLOAD_PATH}
+                 SHOW_PROGRESS
+                 TIMEOUT 600
+                 STATUS download_status)
+            list(GET download_status 0 download_code)
+            list(GET download_status 1 download_message)
+            if(NOT download_code EQUAL 0)
+                message(FATAL_ERROR "Download failed: ${download_message}")
+            endif()
+            message(STATUS "Download completed: ${TRT_DOWNLOAD_PATH}")
+        else()
+            message(STATUS "Using existing TensorRT archive: ${TRT_DOWNLOAD_PATH}")
+        endif()
+        message(STATUS "Extracting ${TRT_DOWNLOAD_PATH} to ${TRT_EXTRACT_DIR}...")
+        execute_process(
+            COMMAND ${CMAKE_COMMAND} -E tar xzf "${TRT_DOWNLOAD_PATH}"
+            WORKING_DIRECTORY "${TRT_EXTRACT_DIR}"
+            RESULT_VARIABLE extract_result
+        )
+        if(NOT extract_result EQUAL 0)
+            message(FATAL_ERROR "Extraction failed with result: ${extract_result}")
+        endif()
+        message(STATUS "Extraction completed.")
+        if(NOT EXISTS "${TRT_INSTALL_DIR}/include/NvInfer.h")
+            message(FATAL_ERROR "Extraction failed: expected directory not found at ${TRT_INSTALL_DIR}")
+        endif()
+    else()
+        message(STATUS "Found existing TensorRT at: ${TRT_INSTALL_DIR}")
+    endif()
+    
+    set(TENSORRT_ROOTDIR "${TRT_INSTALL_DIR}" CACHE PATH "Path to TensorRT root directory")
+    set(TENSORRT_INCLUDE_DIR "${TENSORRT_ROOTDIR}/include")
+    set(TENSORRT_LIBRARY "${TENSORRT_ROOTDIR}/lib/libnvinfer.so")
+    set(TENSORRT_ONNX_PARSER "${TENSORRT_ROOTDIR}/lib/libnvonnxparser.so")
     
     # Find CUDA runtime
     find_package(CUDA QUIET)
@@ -127,15 +156,17 @@ if(USE_TENSORRT)
         set(CUDA_RUNTIME_LIBRARY ${CUDA_LIBRARIES})
     endif()
     
-    if(NOT TENSORRT_INCLUDE_DIR OR NOT TENSORRT_LIBRARY OR NOT TENSORRT_ONNX_PARSER OR NOT CUDA_RUNTIME_LIBRARY)
-        message(FATAL_ERROR 
-            "TensorRT not found. Please install TensorRT or set TENSORRT_ROOT environment variable.\n"
-            "  TENSORRT_INCLUDE_DIR: ${TENSORRT_INCLUDE_DIR}\n"
-            "  TENSORRT_LIBRARY: ${TENSORRT_LIBRARY}\n"
-            "  TENSORRT_ONNX_PARSER: ${TENSORRT_ONNX_PARSER}\n"
-            "  CUDA_RUNTIME_LIBRARY: ${CUDA_RUNTIME_LIBRARY}\n"
-            "You can disable TensorRT support with -DUSE_TENSORRT=OFF"
-        )
+    if(NOT EXISTS "${TENSORRT_INCLUDE_DIR}/NvInfer.h")
+        message(FATAL_ERROR "TensorRT include directory not found at: ${TENSORRT_INCLUDE_DIR}")
+    endif()
+    if(NOT EXISTS "${TENSORRT_LIBRARY}")
+        message(FATAL_ERROR "TensorRT library not found at: ${TENSORRT_LIBRARY}")
+    endif()
+    if(NOT EXISTS "${TENSORRT_ONNX_PARSER}")
+        message(FATAL_ERROR "TensorRT ONNX parser library not found at: ${TENSORRT_ONNX_PARSER}")
+    endif()
+    if(NOT CUDA_RUNTIME_LIBRARY)
+        message(FATAL_ERROR "CUDA runtime library not found. Please install CUDA toolkit.")
     endif()
     
     message(STATUS "TensorRT include directory: ${TENSORRT_INCLUDE_DIR}")
