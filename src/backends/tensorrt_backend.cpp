@@ -209,10 +209,18 @@ bool TensorRTBackend::build_engine_from_onnx(
     #endif
 
     // Enable FP16 mode if supported
+#if NV_TENSORRT_MAJOR >= 10
+    // TensorRT 10+ deprecated platformHasFastFp16, use hardwareCompatibilityLevel instead
     if (builder->platformHasFastFp16()) {
         config->setFlag(nvinfer1::BuilderFlag::kFP16);
         std::cout << "[TensorRT] FP16 mode enabled" << std::endl;
     }
+#else
+    if (builder->platformHasFastFp16()) {
+        config->setFlag(nvinfer1::BuilderFlag::kFP16);
+        std::cout << "[TensorRT] FP16 mode enabled" << std::endl;
+    }
+#endif
 
     // Build engine
     std::cout << "[TensorRT] Building engine... This may take a few minutes." << std::endl;
@@ -258,7 +266,12 @@ bool TensorRTBackend::deserialize_engine(const std::filesystem::path& engine_pat
         return false;
     }
 
+#if NV_TENSORRT_MAJOR >= 10
+    // TensorRT 10+ removed the nullptr parameter
+    engine_.reset(runtime_->deserializeCudaEngine(buffer.data(), size));
+#else
     engine_.reset(runtime_->deserializeCudaEngine(buffer.data(), size, nullptr));
+#endif
     if (!engine_) {
         std::cerr << "Failed to deserialize engine" << std::endl;
         return false;

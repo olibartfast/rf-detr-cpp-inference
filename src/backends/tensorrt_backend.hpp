@@ -22,7 +22,13 @@ struct TensorRTDeleter {
     template<typename T>
     void operator()(T* obj) const {
         if (obj) {
+#if NV_TENSORRT_MAJOR >= 10
+            // TensorRT 10+ uses proper RAII, just delete
+            delete obj;
+#else
+            // TensorRT 8.x and 9.x use destroy()
             obj->destroy();
+#endif
         }
     }
 };
