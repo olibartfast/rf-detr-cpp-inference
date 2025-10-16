@@ -110,8 +110,6 @@ cmake -S . -B build -G Ninja \
 cmake --build build --parallel
 ```
 
-ONNX Runtime 1.21.0 will be automatically downloaded during the build.
-
 ### Build with TensorRT Backend
 
 ```bash
@@ -130,16 +128,13 @@ cmake --build build --parallel
 - Libraries are configured with RPATH - no need to set `LD_LIBRARY_PATH`
 - The executable will use TensorRT for inference
 - Requires CUDA 12.x (or 11.x+) installed manually
-
-**Pre-built Engine Support**: If you provide a `.engine` or `.trt` file instead of `.onnx`, the ONNX-to-TensorRT conversion is skipped for faster startup.
+- Pre-built `.engine` or `.trt` files are loaded directly, skipping ONNX-to-TensorRT conversion
 
 ### Build Options
 
 - `-DUSE_ONNX_RUNTIME=ON/OFF` - Enable ONNX Runtime backend (default: ON)
 - `-DUSE_TENSORRT=ON/OFF` - Enable TensorRT backend (default: OFF)
 - `-DCMAKE_BUILD_TYPE=Release/Debug` - Build configuration
-
-**Important**: Only ONE backend can be enabled at a time. The backend is compiled into the binary for optimal performance and smaller binary size.
 
 ---
 
@@ -169,16 +164,11 @@ After building the project, run the inference application:
 
 #### Using Pre-built TensorRT Engine
 
-If you have a pre-built TensorRT engine file (`.engine` or `.trt`), use it directly to skip the ONNX-to-TensorRT conversion:
+If you have a pre-built TensorRT engine file (`.engine` or `.trt`), use it directly:
 
 ```bash
 ./build/inference_app /path/to/model.engine /path/to/image.jpg /path/to/coco-labels-91.txt --segmentation
 ```
-
-**Notes**: 
-- The backend (ONNX Runtime or TensorRT) is selected at build time. To use a different backend, rebuild with different CMake flags.
-- TensorRT libraries are automatically found via RPATH - no need to set `LD_LIBRARY_PATH`
-- When using a `.engine` or `.trt` file, the ONNX-to-TensorRT conversion is skipped for faster startup
 
 **Features:**
 - The output image is saved as `output_image.jpg`
