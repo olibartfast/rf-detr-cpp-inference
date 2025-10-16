@@ -52,8 +52,7 @@ TEST_F(RFDETRIntegrationTest, EndToEndPipeline) {
     EXPECT_EQ(input_data.size(), 1 * 3 * config.resolution * config.resolution);
 
     // Run inference
-    auto output_tensors = inference.run_inference(input_data);
-    EXPECT_EQ(output_tensors.size(), 2);
+    inference.run_inference(input_data);
 
     // Post-process
     std::vector<float> scores;
@@ -61,7 +60,7 @@ TEST_F(RFDETRIntegrationTest, EndToEndPipeline) {
     std::vector<std::vector<float>> boxes;
     const float scale_w = static_cast<float>(orig_w) / inference.get_resolution();
     const float scale_h = static_cast<float>(orig_h) / inference.get_resolution();
-    inference.postprocess_outputs(output_tensors, scale_w, scale_h, scores, class_ids, boxes);
+    inference.postprocess_outputs(scale_w, scale_h, scores, class_ids, boxes);
 
     // Load image for drawing
     cv::Mat image = cv::imread(image_path_.string(), cv::IMREAD_COLOR);

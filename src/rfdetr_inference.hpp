@@ -1,5 +1,5 @@
 #pragma once
-#include <onnxruntime_cxx_api.h>
+#include "backends/inference_backend.hpp"
 #include <opencv2/opencv.hpp>
 #include <vector>
 #include <string>
@@ -7,6 +7,10 @@
 #include <span>
 #include <optional>
 #include <filesystem>
+
+// Bring backend namespace into scope for convenience
+using rfdetr::backend::InferenceBackend;
+using rfdetr::backend::create_backend;
 
 enum class ModelType {
     DETECTION,
@@ -38,11 +42,10 @@ class RFDETRInference {
         std::vector<float> preprocess_image(const std::filesystem::path& image_path, int& orig_h, int& orig_w);
     
         // Run inference
-        std::vector<Ort::Value> run_inference(std::span<const float> input_data);
+        void run_inference(std::span<const float> input_data);
     
         // Post-process the inference outputs for detection
         void postprocess_outputs(
-            std::span<const Ort::Value> output_tensors,
             float scale_w, float scale_h,
             std::vector<float>& scores,
             std::vector<int>& class_ids,
@@ -51,7 +54,6 @@ class RFDETRInference {
     
         // Post-process the inference outputs for segmentation
         void postprocess_segmentation_outputs(
-            std::span<const Ort::Value> output_tensors,
             float scale_w, float scale_h,
             int orig_h, int orig_w,
             std::vector<float>& scores,
@@ -97,19 +99,17 @@ class RFDETRInference {
         // Sigmoid function for logits to probabilities
         [[nodiscard]] float sigmoid(float x) const noexcept;
     
-        // ONNX Runtime session and environment
-        std::unique_ptr<Ort::Env> env_;
-        std::unique_ptr<Ort::Session> session_;
-        Ort::AllocatorWithDefaultOptions allocator_;
-        Ort::MemoryInfo memory_info_;
+        // Inference backend (Strategy Pattern)
+        std::unique_ptr<InferenceBackend> backend_;
     
         // Model parameters
         std::vector<std::string> coco_labels_;
-        const Config config_;
+        Config config_;
         std::vector<int64_t> input_shape_;
-        const char* input_name_ = "input";
-        std::vector<std::string> output_name_strings_;  // Store actual strings
-        std::vector<const char*> output_names_;          // Pointers to strings above
+        
+        // Output tensor cache
+        std::vector<std::vector<float>> output_data_cache_;
+        std::vector<std::vector<int64_t>> output_shapes_cache_;
     
         // Helper methods
         cv::Scalar get_color_for_class(int class_id) const noexcept;
