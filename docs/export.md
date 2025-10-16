@@ -113,7 +113,7 @@ trtexec --onnx=/path/to/model.onnx \
 ### Using TensorRT Docker Container
 
 ```bash
-export NGC_TAG_VERSION=24.12
+export NGC_TAG_VERSION=25.09
 
 docker run --rm -it --gpus=all \
     -v $(pwd)/exports:/exports \
