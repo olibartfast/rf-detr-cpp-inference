@@ -6,8 +6,8 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # --- Backend Selection Options ---
-option(USE_ONNX_RUNTIME "Build with ONNX Runtime backend support" ON)
-option(USE_TENSORRT "Build with TensorRT backend support" OFF)
+option(USE_ONNX_RUNTIME "Build with ONNX Runtime backend support" OFF)
+option(USE_TENSORRT "Build with TensorRT backend support" ON)
 
 # Validate that at least one backend is enabled
 if(NOT USE_ONNX_RUNTIME AND NOT USE_TENSORRT)
@@ -88,11 +88,11 @@ if(USE_TENSORRT)
     
     # TensorRT version configuration
     set(TRT_MAJOR "10")
-    set(TRT_MINOR ".7")
-    set(TRT_PATCH ".0")
-    set(TRT_BUILD ".23")
+    set(TRT_MINOR ".13")
+    set(TRT_PATCH ".3")
+    set(TRT_BUILD ".9")
     set(TRT_VERSION "${TRT_MAJOR}${TRT_MINOR}${TRT_PATCH}${TRT_BUILD}")
-    set(TRT_CUDA_VERSION "12.6")
+    set(TRT_CUDA_VERSION "13.0")
     
     set(TRT_ARCHIVE_BASENAME "TensorRT-${TRT_VERSION}.Linux.x86_64-gnu.cuda-${TRT_CUDA_VERSION}")
     set(TRT_ARCHIVE_NAME "${TRT_ARCHIVE_BASENAME}.tar.gz")
@@ -250,11 +250,34 @@ if(USE_TENSORRT)
         "${TENSORRT_ONNX_PARSER}"
         "${CUDA_RUNTIME_LIBRARY}"
     )
+    
+    # Set RPATH so the executable can find TensorRT libraries without LD_LIBRARY_PATH
+    # Get the directory containing the TensorRT libraries
+    get_filename_component(TENSORRT_LIB_DIR "${TENSORRT_LIBRARY}" DIRECTORY)
+    
+    # Set RPATH for the library
+    set_target_properties(rfdetr_inference_lib PROPERTIES
+        BUILD_RPATH "${TENSORRT_LIB_DIR}"
+        INSTALL_RPATH "${TENSORRT_LIB_DIR}"
+        BUILD_RPATH_USE_ORIGIN TRUE
+        INSTALL_RPATH_USE_LINK_PATH TRUE
+    )
 endif()
 
 # --- Main Application ---
 add_executable(inference_app "${SOURCE_DIR}/main.cpp")
 target_link_libraries(inference_app PRIVATE rfdetr_inference_lib)
+
+# Set RPATH for the executable
+if(USE_TENSORRT)
+    get_filename_component(TENSORRT_LIB_DIR "${TENSORRT_LIBRARY}" DIRECTORY)
+    set_target_properties(inference_app PROPERTIES
+        BUILD_RPATH "${TENSORRT_LIB_DIR}"
+        INSTALL_RPATH "${TENSORRT_LIB_DIR}"
+        BUILD_RPATH_USE_ORIGIN TRUE
+        INSTALL_RPATH_USE_LINK_PATH TRUE
+    )
+endif()
 
 # Copy backend shared libraries to the executable directory
 if(USE_ONNX_RUNTIME)

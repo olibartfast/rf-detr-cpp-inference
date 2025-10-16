@@ -43,26 +43,39 @@ std::vector<int64_t> TensorRTBackend::initialize(
         throw std::runtime_error("Model file does not exist: " + model_path.string());
     }
 
-    // Check if there's a cached TensorRT engine file
-    std::filesystem::path engine_path = model_path;
-    engine_path.replace_extension(".trt");
-
     bool engine_loaded = false;
-    if (std::filesystem::exists(engine_path)) {
-        std::cout << "[TensorRT] Found cached engine: " << engine_path << std::endl;
-        engine_loaded = deserialize_engine(engine_path);
-    }
-
-    // If no cached engine or deserialization failed, build from ONNX
-    if (!engine_loaded) {
-        std::cout << "[TensorRT] Building engine from ONNX model..." << std::endl;
-        if (!build_engine_from_onnx(model_path, input_shape)) {
-            throw std::runtime_error("Failed to build TensorRT engine from ONNX");
+    std::filesystem::path engine_path;
+    
+    // Check if the model_path is already a TensorRT engine file
+    std::string extension = model_path.extension().string();
+    if (extension == ".engine" || extension == ".trt") {
+        // Model path is already an engine file, load it directly
+        std::cout << "[TensorRT] Loading pre-built engine: " << model_path << std::endl;
+        engine_loaded = deserialize_engine(model_path);
+        if (!engine_loaded) {
+            throw std::runtime_error("Failed to load TensorRT engine from: " + model_path.string());
         }
-        
-        // Save the engine for future use
-        serialize_engine(engine_path);
-        std::cout << "[TensorRT] Engine saved to: " << engine_path << std::endl;
+    } else {
+        // Model path is ONNX, check for cached engine
+        engine_path = model_path;
+        engine_path.replace_extension(".engine");
+
+        if (std::filesystem::exists(engine_path)) {
+            std::cout << "[TensorRT] Found cached engine: " << engine_path << std::endl;
+            engine_loaded = deserialize_engine(engine_path);
+        }
+
+        // If no cached engine or deserialization failed, build from ONNX
+        if (!engine_loaded) {
+            std::cout << "[TensorRT] Building engine from ONNX model..." << std::endl;
+            if (!build_engine_from_onnx(model_path, input_shape)) {
+                throw std::runtime_error("Failed to build TensorRT engine from ONNX");
+            }
+            
+            // Save the engine for future use
+            serialize_engine(engine_path);
+            std::cout << "[TensorRT] Engine saved to: " << engine_path << std::endl;
+        }
     }
 
     // Create execution context
