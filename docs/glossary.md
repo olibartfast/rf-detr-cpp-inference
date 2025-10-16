@@ -71,3 +71,16 @@ This glossary explains technical terms used in the RF-DETR Inference project REA
 **Alpha Blending**: A technique for compositing images by combining foreground and background colors using an alpha (transparency) value, typically ranging from 0 (fully transparent) to 1 (fully opaque). Used to overlay segmentation masks on images.
 
 **Softmax**: An activation function that converts a vector of logits into a probability distribution where all values sum to 1. Used for multi-class classification where each instance belongs to exactly one class. Formula: $\text{softmax}(x_i) = \frac{e^{x_i}}{\sum_j e^{x_j}}$.
+
+**TensorRT**: NVIDIA's high-performance deep learning inference optimizer and runtime. It optimizes trained neural networks for faster inference on NVIDIA GPUs through techniques like layer fusion, precision calibration (FP16/INT8), and kernel auto-tuning. In this project, TensorRT is an optional backend for GPU acceleration.
+
+**Compile-time Backend Selection**: A design pattern where the inference backend (ONNX Runtime or TensorRT) is chosen during compilation rather than at runtime. This results in smaller binaries, faster startup times, and eliminates runtime overhead. The backend is selected using CMake flags (e.g., `-DUSE_TENSORRT=ON`).
+
+**RPATH (Run-Path)**: A mechanism in Linux/Unix systems that specifies the runtime library search path directly in the executable binary. When properly configured, RPATH allows executables to find their required shared libraries without setting environment variables like `LD_LIBRARY_PATH`. This project uses RPATH for TensorRT libraries for easier deployment.
+
+**LD_LIBRARY_PATH**: An environment variable that tells the dynamic linker where to find shared libraries at runtime. While commonly used, it can be avoided with proper RPATH configuration, simplifying deployment and avoiding potential conflicts.
+
+**Engine File (.engine / .trt)**: A TensorRT-optimized model file containing the serialized inference engine. Pre-built engine files can be loaded directly by TensorRT, skipping the ONNX-to-TensorRT conversion process and speeding up initialization. Engine files are typically platform and GPU-specific.
+
+**CUDA**: NVIDIA's parallel computing platform and programming model that enables general-purpose computing on GPUs. Required for TensorRT backend but not for ONNX Runtime CPU inference.
+
