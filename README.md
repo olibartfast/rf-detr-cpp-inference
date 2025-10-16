@@ -12,9 +12,10 @@ C++ project for performing object detection and instance segmentation inference 
 - [Dependencies](#dependencies)
 - [Model Setup](#model-setup)
 - [Installation](#installation)
-- [Backend Selection](#backend-selection)
-- [Usage](#usage)
 - [Building](#building)
+- [Usage](#usage)
+- [Configuration](#configuration)
+- [Technical Details](#technical-details)
 - [Acknowledgements](#acknowledgements)
 
 ---
@@ -36,12 +37,11 @@ C++ project for performing object detection and instance segmentation inference 
 - **Acceleration**: CPU and GPU (CUDA/DirectML)
 
 #### TensorRT Backend (Optional)
-- **TensorRT**: Version 10.x (8.x+ also supported)
-- **CUDA Toolkit**: Version 12.x or later (11.x+ also supported)
+- **TensorRT**: Version 10.x or 8.x+ (automatically downloaded during build if not found)
+- **CUDA Toolkit**: Version 12.x or later (11.x+ also supported) - **must be installed manually**
 - **Platform**: Linux with NVIDIA GPU
 - **Acceleration**: NVIDIA GPU only
-
-See [backends documentation](docs/backends.md) for detailed installation instructions.
+- **Note**: TensorRT libraries are automatically configured with RPATH, no LD_LIBRARY_PATH needed
 
 ---
 
@@ -86,20 +86,31 @@ Ensure `clang++-15` is available as your compiler.
 
 ---
 
-## Backend Selection
+## Building 
 
-This project uses **compile-time backend selection**. Choose the backend when building, not at runtime:
+### Backend Selection
+
+This project uses **compile-time backend selection**. Choose your backend when building:
 
 | Backend | Best For | Pros | Cons |
 |---------|----------|------|------|
 | **ONNX Runtime** | Development, CPU inference | Cross-platform, easy setup | Slower than TensorRT on GPU |
 | **TensorRT** | Production on NVIDIA GPUs | Maximum performance | GPU-only, requires CUDA/TensorRT |
 
-**Key Advantage**: Compile-time selection results in smaller binaries, faster startup, and no runtime overhead.
+**Important**: Only ONE backend can be enabled at a time. The backend is compiled into the binary for optimal performance and smaller binary size.
 
-See [backends documentation](docs/backends.md) and [compile-time backend guide](docs/COMPILE_TIME_BACKEND.md) for detailed information.
+### Build with ONNX Runtime (Default)
 
----
+```bash
+cmake -S . -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER=/usr/bin/clang-15 \
+  -DCMAKE_CXX_COMPILER=/usr/bin/clang++-15
+
+cmake --build build --parallel
+```
+
+ONNX Runtime 1.21.0 will be automatically downloaded during the build.
 
 ## Usage
 
@@ -125,7 +136,18 @@ After building the project (see below), run the inference application. **Note**:
 ./build/inference_app /path/to/model.onnx /path/to/image.jpg /path/to/coco-labels-91.txt --segmentation
 ```
 
-**Note**: The backend (ONNX Runtime or TensorRT) was selected when you built the executable. To use a different backend, rebuild the project with different CMake flags.
+#### Using Pre-built TensorRT Engine
+
+If you have a pre-built TensorRT engine file (`.engine` or `.trt`), you can use it directly to skip the ONNX-to-TensorRT conversion:
+
+```bash
+./build/inference_app /path/to/model.engine /path/to/image.jpg /path/to/coco-labels-91.txt --segmentation
+```
+
+**Note**: 
+- The backend (ONNX Runtime or TensorRT) is selected at build time. To use a different backend, rebuild with different CMake flags.
+- TensorRT libraries are automatically found via RPATH - no need to set `LD_LIBRARY_PATH`
+- When using a `.engine` or `.trt` file, the ONNX-to-TensorRT conversion is skipped for faster startup
 
 **Features:**
 - The output image is saved as `output_image.jpg`
