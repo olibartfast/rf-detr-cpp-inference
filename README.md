@@ -112,17 +112,48 @@ cmake --build build --parallel
 
 ONNX Runtime 1.21.0 will be automatically downloaded during the build.
 
+### Build with TensorRT Backend
+
+```bash
+cmake -S . -B build -G Ninja \
+  -DUSE_ONNX_RUNTIME=OFF \
+  -DUSE_TENSORRT=ON \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER=/usr/bin/clang-15 \
+  -DCMAKE_CXX_COMPILER=/usr/bin/clang++-15
+
+cmake --build build --parallel
+```
+
+**What happens**:
+- TensorRT 10.13.3.9 is automatically downloaded if not found
+- Libraries are configured with RPATH - no need to set `LD_LIBRARY_PATH`
+- The executable will use TensorRT for inference
+- Requires CUDA 12.x (or 11.x+) installed manually
+
+**Pre-built Engine Support**: If you provide a `.engine` or `.trt` file instead of `.onnx`, the ONNX-to-TensorRT conversion is skipped for faster startup.
+
+### Build Options
+
+- `-DUSE_ONNX_RUNTIME=ON/OFF` - Enable ONNX Runtime backend (default: ON)
+- `-DUSE_TENSORRT=ON/OFF` - Enable TensorRT backend (default: OFF)
+- `-DCMAKE_BUILD_TYPE=Release/Debug` - Build configuration
+
+**Important**: Only ONE backend can be enabled at a time. The backend is compiled into the binary for optimal performance and smaller binary size.
+
+---
+
 ## Usage
 
 ### Prepare Input Files
 
-- The RF-DETR ONNX model file (e.g., `inference_model.onnx`)
+- The RF-DETR model file (`.onnx` for ONNX Runtime, `.onnx`/`.engine`/`.trt` for TensorRT)
 - An input image (e.g., `image.jpg`)
 - A COCO labels file (e.g., `coco-labels-91.txt`)
 
 ### Run Inference
 
-After building the project (see below), run the inference application. **Note**: The backend is selected at compile time, not runtime.
+After building the project, run the inference application:
 
 #### Object Detection
 
@@ -138,13 +169,13 @@ After building the project (see below), run the inference application. **Note**:
 
 #### Using Pre-built TensorRT Engine
 
-If you have a pre-built TensorRT engine file (`.engine` or `.trt`), you can use it directly to skip the ONNX-to-TensorRT conversion:
+If you have a pre-built TensorRT engine file (`.engine` or `.trt`), use it directly to skip the ONNX-to-TensorRT conversion:
 
 ```bash
 ./build/inference_app /path/to/model.engine /path/to/image.jpg /path/to/coco-labels-91.txt --segmentation
 ```
 
-**Note**: 
+**Notes**: 
 - The backend (ONNX Runtime or TensorRT) is selected at build time. To use a different backend, rebuild with different CMake flags.
 - TensorRT libraries are automatically found via RPATH - no need to set `LD_LIBRARY_PATH`
 - When using a `.engine` or `.trt` file, the ONNX-to-TensorRT conversion is skipped for faster startup
@@ -180,23 +211,6 @@ config.mask_threshold = 0.5f;       // More conservative masks
 config.model_type = ModelType::SEGMENTATION;
 ```
 
----
-
-## Building 
-
-### Quick Start: Build with ONNX Runtime (Default)
-
-```bash
-cmake -S . -B build -G Ninja \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_C_COMPILER=/usr/bin/clang-15 \
-  -DCMAKE_CXX_COMPILER=/usr/bin/clang++-15
-
-cmake --build build --parallel
-```
-
-This builds an executable with ONNX Runtime backend compiled in.
-
 ### Build with TensorRT Backend
 
 ```bash
@@ -210,7 +224,13 @@ cmake -S . -B build -G Ninja \
 cmake --build build --parallel
 ```
 
-**Note**: Requires TensorRT and CUDA installed. See [backends documentation](docs/backends.md) for setup.
+**What happens**:
+- TensorRT 10.13.3.9 is automatically downloaded if not found
+- Libraries are configured with RPATH - no need to set `LD_LIBRARY_PATH`
+- The executable will use TensorRT for inference
+- Requires CUDA 12.x (or 11.x+) installed manually
+
+**Pre-built Engine Support**: If you provide a `.engine` or `.trt` file instead of `.onnx`, the ONNX-to-TensorRT conversion is skipped for faster startup.
 
 ### Build Options
 
@@ -218,11 +238,7 @@ cmake --build build --parallel
 - `-DUSE_TENSORRT=ON/OFF` - Enable TensorRT backend (default: OFF)
 - `-DCMAKE_BUILD_TYPE=Release/Debug` - Build configuration
 
-**Important**: Only ONE backend can be enabled at a time. The backend is compiled into the binary for optimal performance.
-
-For detailed build instructions and troubleshooting, see:
-- [Backends Documentation](docs/backends.md) - Backend comparison and setup
-- [Compile-Time Backend Guide](docs/COMPILE_TIME_BACKEND.md) - Understanding compile-time selection
+**Important**: Only ONE backend can be enabled at a time. The backend is compiled into the binary for optimal performance and smaller binary size.
 
 ---
 
