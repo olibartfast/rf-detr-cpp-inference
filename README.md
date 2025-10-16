@@ -211,35 +211,6 @@ config.mask_threshold = 0.5f;       // More conservative masks
 config.model_type = ModelType::SEGMENTATION;
 ```
 
-### Build with TensorRT Backend
-
-```bash
-cmake -S . -B build -G Ninja \
-  -DUSE_ONNX_RUNTIME=OFF \
-  -DUSE_TENSORRT=ON \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_C_COMPILER=/usr/bin/clang-15 \
-  -DCMAKE_CXX_COMPILER=/usr/bin/clang++-15
-
-cmake --build build --parallel
-```
-
-**What happens**:
-- TensorRT 10.13.3.9 is automatically downloaded if not found
-- Libraries are configured with RPATH - no need to set `LD_LIBRARY_PATH`
-- The executable will use TensorRT for inference
-- Requires CUDA 12.x (or 11.x+) installed manually
-
-**Pre-built Engine Support**: If you provide a `.engine` or `.trt` file instead of `.onnx`, the ONNX-to-TensorRT conversion is skipped for faster startup.
-
-### Build Options
-
-- `-DUSE_ONNX_RUNTIME=ON/OFF` - Enable ONNX Runtime backend (default: ON)
-- `-DUSE_TENSORRT=ON/OFF` - Enable TensorRT backend (default: OFF)
-- `-DCMAKE_BUILD_TYPE=Release/Debug` - Build configuration
-
-**Important**: Only ONE backend can be enabled at a time. The backend is compiled into the binary for optimal performance and smaller binary size.
-
 ---
 
 ## Technical Details
