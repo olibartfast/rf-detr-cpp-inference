@@ -1,3 +1,5 @@
 build
 output
 *.pt
+.venv
+rfdetr_venv

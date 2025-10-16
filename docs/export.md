@@ -11,6 +11,13 @@ Follow the procedure listed at https://rfdetr.roboflow.com/learn/deploy/
 ### Setup Virtual Environment
 
 ```bash
+# install python3.11 on Ubuntu 24.04
+sudo add-apt-repository ppa:deadsnakes/ppa
+sudo apt update
+sudo apt install python3.11
+
+sudo apt install python3.11-venv python3.11-distutils -y
+
 # Create virtual environment with Python 3.11
 python3.11 -m venv rfdetr_venv
 source rfdetr_venv/bin/activate
@@ -106,7 +113,7 @@ trtexec --onnx=/path/to/model.onnx \
 ### Using TensorRT Docker Container
 
 ```bash
-export NGC_TAG_VERSION=24.12
+export NGC_TAG_VERSION=25.09
 
 docker run --rm -it --gpus=all \
     -v $(pwd)/exports:/exports \
@@ -128,5 +135,5 @@ docker run --rm -it --gpus=all \
 ```
 
 > [!NOTE]
-> TensorRT optimization works for both detection and segmentation models. The C++ inference engine currently supports ONNX Runtime; TensorRT backend support may be added in future releases.
+> TensorRT optimization works for both detection and segmentation models. The C++ inference engine now supports both ONNX Runtime and TensorRT backends. Backend selection is done at compile time using CMake flags (see docs/backends.md and docs/COMPILE_TIME_BACKEND.md).
  
