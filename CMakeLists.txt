@@ -6,8 +6,8 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # --- Backend Selection Options ---
-option(USE_ONNX_RUNTIME "Build with ONNX Runtime backend support" OFF)
-option(USE_TENSORRT "Build with TensorRT backend support" ON)
+option(USE_ONNX_RUNTIME "Build with ONNX Runtime backend support" ON)
+option(USE_TENSORRT "Build with TensorRT backend support" OFF)
 
 # Validate that at least one backend is enabled
 if(NOT USE_ONNX_RUNTIME AND NOT USE_TENSORRT)
