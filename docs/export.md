@@ -135,5 +135,4 @@ docker run --rm -it --gpus=all \
 ```
 
 > [!NOTE]
-> TensorRT optimization works for both detection and segmentation models. The C++ inference engine now supports both ONNX Runtime and TensorRT backends. Backend selection is done at compile time using CMake flags (see docs/backends.md and docs/COMPILE_TIME_BACKEND.md).
- 
+> TensorRT optimization works for both detection and segmentation models. The C++ inference engine supports both ONNX Runtime and TensorRT backends with compile-time backend selection.
