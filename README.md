@@ -38,7 +38,7 @@ C++ project for performing object detection and instance segmentation inference 
 
 #### TensorRT Backend (Optional)
 - **TensorRT**: Version 10.x or 8.x+ (automatically downloaded during build if not found)
-- **CUDA Toolkit**: Version 12.x or later (11.x+ also supported) - **must be installed manually**
+- **CUDA Toolkit**: Used version 13.x  - **must be installed manually**
 - **Platform**: Linux with NVIDIA GPU
 - **Acceleration**: NVIDIA GPU only
 - **Note**: TensorRT libraries are automatically configured with RPATH, no LD_LIBRARY_PATH needed
