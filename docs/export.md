@@ -35,7 +35,7 @@ pip install rfdetr[onnxexport]==1.3.0
 RF-DETR supports exporting detection models to the ONNX format, which enables interoperability with various inference frameworks and can improve deployment efficiency.
 
 ```python
-from rfdetr import RFDETRBase
+from rfdetr import RFDETRBase # or RFDETRBase/Nano/Small/Medium/Large
 
 model = RFDETRBase(pretrain_weights=<CHECKPOINT_PATH>)
 
