@@ -1,5 +1,8 @@
 build
 output
 *.pt
+*.pth
+*.onnx
+__pycache__
 .venv
 rfdetr_venv
