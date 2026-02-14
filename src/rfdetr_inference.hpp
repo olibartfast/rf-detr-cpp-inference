@@ -60,8 +60,8 @@ class RFDETRInference {
                                                            const std::filesystem::path &output_path);
 
     // Getters for testing
-    const std::vector<std::string> &get_coco_labels() const noexcept { return coco_labels_; }
-    int get_resolution() const noexcept { return config_.resolution; }
+    [[nodiscard]] const std::vector<std::string> &get_coco_labels() const noexcept { return coco_labels_; }
+    [[nodiscard]] int get_resolution() const noexcept { return config_.resolution; }
 
   private:
     // Load COCO labels from file
@@ -86,5 +86,5 @@ class RFDETRInference {
     std::vector<std::vector<int64_t>> output_shapes_cache_;
 
     // Helper methods
-    cv::Scalar get_color_for_class(int class_id) const noexcept;
+    [[nodiscard]] cv::Scalar get_color_for_class(int class_id) const noexcept;
 };

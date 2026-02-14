@@ -87,7 +87,7 @@ std::vector<float> RFDETRInference::preprocess_image(const std::filesystem::path
     resized_image.convertTo(resized_image, CV_32F, 1.0 / 255.0);
 
     const auto res = static_cast<size_t>(config_.resolution);
-    const size_t input_tensor_size = 1 * 3 * res * res;
+    const size_t input_tensor_size = 3 * res * res;
     std::vector<float> input_tensor_values(input_tensor_size);
     std::vector<cv::Mat> channels;
     cv::split(resized_image, channels);
