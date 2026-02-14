@@ -12,15 +12,13 @@
 | `deploy/export_detection.py` | Removed deprecated `RFDETRBase`, default `medium`, added `xlarge`/`2xlarge` |
 | `deploy/export_segmentation.py` | Replaced `RFDETRSegPreview` with sized classes + added `--model_type` arg |
 | `docs/export.md` | Version bump + updated Python API examples to new class names |
-| `README.md` | Version bump |
+| `README.md` | Version bump, gcc alternative, minimal OpenCV install note, Ninja optional |
+| `CMakeLists.txt` | `find_package(OpenCV)` now specifies required components (`core`, `imgproc`, `imgcodecs`) |
+| `src/backends/onnx_runtime_backend.cpp` | Fixed `get_output_count()` returning 0 before inference (used `ort_output_tensors_` instead of `output_name_strings_`) |
 
 ### Why
 
 1. **Seg ONNX export was broken** - upstream fixed it in #626. `RFDETRSegPreview` is gone, replaced by `RFDETRSegNano/Small/Medium/Large/XLarge/2XLarge`.
-2. **`RFDETRBase` deprecated** - upstream no longer lists it. Use `RFDETRNano/Small/Medium/Large` instead. The detection export script still accepts `base` for backward compat.
+2. **`RFDETRBase` deprecated** - upstream no longer lists it. Use `RFDETRNano/Small/Medium/Large` instead.
 3. **XL/2XL models added** - require `pip install rfdetr[plus]` (PML 1.0 license, not Apache).
-
-### What did NOT change
-
-- No C++ code changes needed. Model ONNX outputs are the same format.
-- No build system changes.
+4. **ONNX Runtime output count bug** - `get_output_count()` checked `ort_output_tensors_` which is only populated after `run_inference()`, but the constructor validates output count before that. Fixed to use `output_name_strings_` (populated during `initialize()`).
