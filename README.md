@@ -91,8 +91,8 @@ sudo apt-get install -y libopencv-dev
 # Optional (faster incremental builds):
 sudo apt-get install -y ninja-build
 
-# Optional (linting and formatting):
-sudo apt-get install -y clang-format-15 clang-tidy-15
+# Optional (linting and formatting — use version 18+ for GCC 14 compatibility):
+sudo apt-get install -y clang-format-18 clang-tidy-18
 ```
 
 ---
@@ -112,26 +112,26 @@ This project uses **compile-time backend selection**. Choose your backend when b
 
 ### Format Code (Optional)
 
-If you have `clang-format-15` installed, you can check and auto-format all source files:
+If you have `clang-format-18` installed, you can check and auto-format all source files:
 
 ```bash
 # Check for formatting issues (no changes made):
-find src tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format-15 --dry-run --Werror
+find src tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format-18 --dry-run --Werror
 
 # Auto-format in place:
-find src tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format-15 -i
+find src tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format-18 -i
 ```
 
 ### Static Analysis (Optional)
 
-If you have `clang-tidy-15` installed, you can run static analysis using the compile commands database:
+If you have `clang-tidy-18` installed, you can run static analysis using the compile commands database:
 
 ```bash
 # Generate compile_commands.json first:
 cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
 # Run clang-tidy on project sources:
-find src -name '*.cpp' | xargs clang-tidy-15 -p build
+find src -name '*.cpp' | xargs clang-tidy-18 -p build
 ```
 
 ### Strict Compilation (Optional)
