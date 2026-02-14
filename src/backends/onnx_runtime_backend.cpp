@@ -93,7 +93,7 @@ void OnnxRuntimeBackend::get_output_data(size_t output_index, float *data, size_
 
     size_t tensor_size = 1;
     for (auto dim : shape) {
-        tensor_size *= dim;
+        tensor_size *= static_cast<size_t>(dim);
     }
 
     if (tensor_size != size) {
