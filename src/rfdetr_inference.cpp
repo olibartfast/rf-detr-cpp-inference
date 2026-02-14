@@ -1,49 +1,45 @@
 #include "rfdetr_inference.hpp"
-#include <fstream>
-#include <stdexcept>
-#include <cmath>
-#include <numeric>
-#include <algorithm>
-#include <iostream>
 
-RFDETRInference::RFDETRInference(
-    const std::filesystem::path& model_path,
-    const std::filesystem::path& label_file_path,
-    const Config& config
-)
-    : config_(config),
-      input_shape_({1, 3, config_.resolution, config_.resolution}) {
-    
+#include <algorithm>
+#include <cmath>
+#include <fstream>
+#include <iostream>
+#include <numeric>
+#include <stdexcept>
+
+RFDETRInference::RFDETRInference(const std::filesystem::path &model_path, const std::filesystem::path &label_file_path,
+                                 const Config &config)
+    : config_(config), input_shape_({1, 3, config_.resolution, config_.resolution}) {
+
     // Create inference backend (determined at compile time)
     backend_ = create_backend();
     std::cout << "Using backend: " << backend_->get_backend_name() << std::endl;
 
     // Initialize backend
     input_shape_ = backend_->initialize(model_path, input_shape_);
-    
+
     // Update resolution if auto-detected
     if (config_.resolution == 0 && input_shape_.size() == 4) {
         config_.resolution = static_cast<int>(input_shape_[2]);
-        std::cout << "Auto-detected model input resolution: " << config_.resolution << "x" << config_.resolution << std::endl;
+        std::cout << "Auto-detected model input resolution: " << config_.resolution << "x" << config_.resolution
+                  << std::endl;
     }
 
     // Validate number of outputs
     const size_t num_outputs = backend_->get_output_count();
     const size_t num_expected = config_.model_type == ModelType::SEGMENTATION ? 3 : 2;
-    
+
     if (num_outputs < num_expected) {
-        throw std::runtime_error(
-            (config_.model_type == ModelType::SEGMENTATION ? "Segmentation" : "Detection") +
-            std::string(" model requires ") + std::to_string(num_expected) +
-            " outputs, but model has only " + std::to_string(num_outputs)
-        );
+        throw std::runtime_error((config_.model_type == ModelType::SEGMENTATION ? "Segmentation" : "Detection") +
+                                 std::string(" model requires ") + std::to_string(num_expected) +
+                                 " outputs, but model has only " + std::to_string(num_outputs));
     }
 
     // Load COCO labels
     load_coco_labels(label_file_path);
 }
 
-void RFDETRInference::load_coco_labels(const std::filesystem::path& label_file_path) {
+void RFDETRInference::load_coco_labels(const std::filesystem::path &label_file_path) {
     if (!std::filesystem::exists(label_file_path)) {
         throw std::runtime_error("Label file does not exist: " + label_file_path.string());
     }
@@ -70,11 +66,10 @@ void RFDETRInference::normalize_image(std::span<float> data, size_t channel_size
     }
 }
 
-float RFDETRInference::sigmoid(float x) const noexcept {
-    return 1.0f / (1.0f + std::exp(-x));
-}
+float RFDETRInference::sigmoid(float x) const noexcept { return 1.0f / (1.0f + std::exp(-x)); }
 
-std::vector<float> RFDETRInference::preprocess_image(const std::filesystem::path& image_path, int& orig_h, int& orig_w) {
+std::vector<float> RFDETRInference::preprocess_image(const std::filesystem::path &image_path, int &orig_h,
+                                                     int &orig_w) {
     if (!std::filesystem::exists(image_path)) {
         throw std::runtime_error("Image file does not exist: " + image_path.string());
     }
@@ -95,7 +90,7 @@ std::vector<float> RFDETRInference::preprocess_image(const std::filesystem::path
     std::vector<float> input_tensor_values(input_tensor_size);
     std::vector<cv::Mat> channels;
     cv::split(resized_image, channels);
-    float* input_ptr = input_tensor_values.data();
+    float *input_ptr = input_tensor_values.data();
     for (int c = 0; c < 3; ++c) {
         std::memcpy(input_ptr, channels[c].data, config_.resolution * config_.resolution * sizeof(float));
         input_ptr += config_.resolution * config_.resolution;
@@ -108,43 +103,39 @@ std::vector<float> RFDETRInference::preprocess_image(const std::filesystem::path
 void RFDETRInference::run_inference(std::span<const float> input_data) {
     // Run inference through backend
     backend_->run_inference(input_data, input_shape_);
-    
+
     // Cache output data and shapes for postprocessing
     const size_t num_outputs = backend_->get_output_count();
     output_data_cache_.clear();
     output_shapes_cache_.clear();
-    
+
     for (size_t i = 0; i < num_outputs; ++i) {
         auto shape = backend_->get_output_shape(i);
         size_t size = 1;
         for (auto dim : shape) {
             size *= dim;
         }
-        
+
         std::vector<float> data(size);
         backend_->get_output_data(i, data.data(), size);
-        
+
         output_data_cache_.push_back(std::move(data));
         output_shapes_cache_.push_back(std::move(shape));
     }
 }
 
-void RFDETRInference::postprocess_outputs(
-    float scale_w, float scale_h,
-    std::vector<float>& scores,
-    std::vector<int>& class_ids,
-    std::vector<std::vector<float>>& boxes
-) {
+void RFDETRInference::postprocess_outputs(float scale_w, float scale_h, std::vector<float> &scores,
+                                          std::vector<int> &class_ids, std::vector<std::vector<float>> &boxes) {
     if (output_data_cache_.size() < 2) {
-        throw std::runtime_error("Expected at least 2 output tensors, got " + 
+        throw std::runtime_error("Expected at least 2 output tensors, got " +
                                  std::to_string(output_data_cache_.size()));
     }
 
-    const auto& dets_data = output_data_cache_[0];
-    const auto& dets_shape = output_shapes_cache_[0];
+    const auto &dets_data = output_data_cache_[0];
+    const auto &dets_shape = output_shapes_cache_[0];
 
-    const auto& labels_data = output_data_cache_[1];
-    const auto& labels_shape = output_shapes_cache_[1];
+    const auto &labels_data = output_data_cache_[1];
+    const auto &labels_shape = output_shapes_cache_[1];
 
     const size_t num_detections = dets_shape[1];
     const size_t num_classes = labels_shape[2];
@@ -187,30 +178,26 @@ void RFDETRInference::postprocess_outputs(
     }
 }
 
-void RFDETRInference::postprocess_segmentation_outputs(
-    float scale_w, float scale_h,
-    int orig_h, int orig_w,
-    std::vector<float>& scores,
-    std::vector<int>& class_ids,
-    std::vector<std::vector<float>>& boxes,
-    std::vector<cv::Mat>& masks
-) {
+void RFDETRInference::postprocess_segmentation_outputs(float scale_w, float scale_h, int orig_h, int orig_w,
+                                                       std::vector<float> &scores, std::vector<int> &class_ids,
+                                                       std::vector<std::vector<float>> &boxes,
+                                                       std::vector<cv::Mat> &masks) {
     if (output_data_cache_.size() != 3) {
-        throw std::runtime_error("Expected 3 output tensors for segmentation, got " + 
+        throw std::runtime_error("Expected 3 output tensors for segmentation, got " +
                                  std::to_string(output_data_cache_.size()));
     }
 
     // Get bounding boxes data
-    const auto& dets_data = output_data_cache_[0];
-    const auto& dets_shape = output_shapes_cache_[0];
+    const auto &dets_data = output_data_cache_[0];
+    const auto &dets_shape = output_shapes_cache_[0];
 
     // Get labels data
-    const auto& labels_data = output_data_cache_[1];
-    const auto& labels_shape = output_shapes_cache_[1];
+    const auto &labels_data = output_data_cache_[1];
+    const auto &labels_shape = output_shapes_cache_[1];
 
     // Get masks data
-    const auto& masks_data = output_data_cache_[2];
-    const auto& masks_shape = output_shapes_cache_[2];
+    const auto &masks_data = output_data_cache_[2];
+    const auto &masks_shape = output_shapes_cache_[2];
 
     const size_t num_detections = dets_shape[1];
     const size_t num_classes = labels_shape[2];
@@ -220,7 +207,7 @@ void RFDETRInference::postprocess_segmentation_outputs(
     // Compute scores and apply sigmoid
     std::vector<float> all_scores;
     std::vector<size_t> all_indices;
-    
+
     for (size_t i = 0; i < num_detections; ++i) {
         for (size_t j = 0; j < num_classes; ++j) {
             const size_t label_offset = i * num_classes;
@@ -236,13 +223,13 @@ void RFDETRInference::postprocess_segmentation_outputs(
     std::vector<size_t> topk_indices(all_scores.size());
     std::iota(topk_indices.begin(), topk_indices.end(), 0);
     std::partial_sort(topk_indices.begin(), topk_indices.begin() + num_select, topk_indices.end(),
-        [&all_scores](size_t i1, size_t i2) { return all_scores[i1] > all_scores[i2]; });
+                      [&all_scores](size_t i1, size_t i2) { return all_scores[i1] > all_scores[i2]; });
 
     // Process top-k detections
     for (size_t k = 0; k < num_select; ++k) {
         const size_t idx = topk_indices[k];
         const float score = all_scores[idx];
-        
+
         if (score <= config_.threshold) {
             continue;
         }
@@ -298,18 +285,14 @@ cv::Scalar RFDETRInference::get_color_for_class(int class_id) const noexcept {
     return cv::Scalar(bgr.at<cv::Vec3b>(0, 0)[0], bgr.at<cv::Vec3b>(0, 0)[1], bgr.at<cv::Vec3b>(0, 0)[2]);
 }
 
-void RFDETRInference::draw_detections(
-    cv::Mat& image,
-    std::span<const std::vector<float>> boxes,
-    std::span<const int> class_ids,
-    std::span<const float> scores
-) {
+void RFDETRInference::draw_detections(cv::Mat &image, std::span<const std::vector<float>> boxes,
+                                      std::span<const int> class_ids, std::span<const float> scores) {
     if (boxes.size() != class_ids.size() || boxes.size() != scores.size()) {
         throw std::runtime_error("Mismatch in sizes of boxes, class_ids, and scores");
     }
 
     for (size_t i = 0; i < boxes.size(); ++i) {
-        const auto& box = boxes[i];
+        const auto &box = boxes[i];
         if (box.size() != 4) {
             throw std::runtime_error("Invalid box format at index " + std::to_string(i));
         }
@@ -337,25 +320,14 @@ void RFDETRInference::draw_detections(
         const cv::Point2f rect_bottom_right(text_pos.x + text_size.width + padding, text_pos.y + padding);
         cv::rectangle(image, rect_top_left, rect_bottom_right, cv::Scalar(0, 0, 0), cv::FILLED);
 
-        cv::putText(
-            image,
-            label,
-            cv::Point2f(text_pos.x, text_pos.y - padding),
-            cv::FONT_HERSHEY_SIMPLEX,
-            font_scale,
-            cv::Scalar(255, 255, 255),
-            thickness
-        );
+        cv::putText(image, label, cv::Point2f(text_pos.x, text_pos.y - padding), cv::FONT_HERSHEY_SIMPLEX, font_scale,
+                    cv::Scalar(255, 255, 255), thickness);
     }
 }
 
-void RFDETRInference::draw_segmentation_masks(
-    cv::Mat& image,
-    std::span<const std::vector<float>> boxes,
-    std::span<const int> class_ids,
-    std::span<const float> scores,
-    std::span<const cv::Mat> masks
-) {
+void RFDETRInference::draw_segmentation_masks(cv::Mat &image, std::span<const std::vector<float>> boxes,
+                                              std::span<const int> class_ids, std::span<const float> scores,
+                                              std::span<const cv::Mat> masks) {
     if (boxes.size() != class_ids.size() || boxes.size() != scores.size() || boxes.size() != masks.size()) {
         throw std::runtime_error("Mismatch in sizes of boxes, class_ids, scores, and masks");
     }
@@ -365,7 +337,7 @@ void RFDETRInference::draw_segmentation_masks(
     constexpr float alpha = 0.5f;
 
     for (size_t i = 0; i < boxes.size(); ++i) {
-        const auto& box = boxes[i];
+        const auto &box = boxes[i];
         if (box.size() != 4) {
             throw std::runtime_error("Invalid box format at index " + std::to_string(i));
         }
@@ -373,7 +345,7 @@ void RFDETRInference::draw_segmentation_masks(
         const cv::Scalar color = get_color_for_class(class_ids[i]);
 
         // Draw mask
-        const cv::Mat& mask = masks[i];
+        const cv::Mat &mask = masks[i];
         if (mask.rows == image.rows && mask.cols == image.cols) {
             overlay.setTo(color, mask);
         }
@@ -403,25 +375,16 @@ void RFDETRInference::draw_segmentation_masks(
         const cv::Point2f rect_bottom_right(text_pos.x + text_size.width + padding, text_pos.y + padding);
         cv::rectangle(image, rect_top_left, rect_bottom_right, cv::Scalar(0, 0, 0), cv::FILLED);
 
-        cv::putText(
-            image,
-            label,
-            cv::Point2f(text_pos.x, text_pos.y - padding),
-            cv::FONT_HERSHEY_SIMPLEX,
-            font_scale,
-            cv::Scalar(255, 255, 255),
-            thickness
-        );
+        cv::putText(image, label, cv::Point2f(text_pos.x, text_pos.y - padding), cv::FONT_HERSHEY_SIMPLEX, font_scale,
+                    cv::Scalar(255, 255, 255), thickness);
     }
 
     // Blend overlay with original image
     cv::addWeighted(overlay, alpha, image, 1.0f - alpha, 0, image);
 }
 
-std::optional<std::filesystem::path> RFDETRInference::save_output_image(
-    const cv::Mat& image,
-    const std::filesystem::path& output_path
-) {
+std::optional<std::filesystem::path> RFDETRInference::save_output_image(const cv::Mat &image,
+                                                                        const std::filesystem::path &output_path) {
     if (cv::imwrite(output_path.string(), image)) {
         return output_path;
     }

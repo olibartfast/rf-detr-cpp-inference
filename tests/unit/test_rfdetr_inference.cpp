@@ -1,9 +1,10 @@
-#include <gtest/gtest.h>
 #include "rfdetr_inference.hpp"
+
 #include <fstream>
+#include <gtest/gtest.h>
 
 class RFDETRIntegrationTest : public ::testing::Test {
-protected:
+  protected:
     void SetUp() override {
         // Create a small test image
         cv::Mat test_image(100, 100, CV_8UC3, cv::Scalar(255, 255, 255));
@@ -80,10 +81,7 @@ TEST_F(RFDETRIntegrationTest, InvalidModelPath) {
     config.resolution = 224;
     const std::filesystem::path invalid_model_path = "invalid_model.onnx";
 
-    EXPECT_THROW(
-        RFDETRInference inference(invalid_model_path, label_path_, config),
-        std::runtime_error
-    );
+    EXPECT_THROW(RFDETRInference inference(invalid_model_path, label_path_, config), std::runtime_error);
 }
 
 // Test with an empty label file
@@ -95,10 +93,7 @@ TEST_F(RFDETRIntegrationTest, EmptyLabelFile) {
     Config config;
     config.resolution = 224;
 
-    EXPECT_THROW(
-        RFDETRInference inference(model_path_, "data/empty_labels.txt", config),
-        std::runtime_error
-    );
+    EXPECT_THROW(RFDETRInference inference(model_path_, "data/empty_labels.txt", config), std::runtime_error);
 
     std::filesystem::remove("data/empty_labels.txt");
 }
@@ -112,10 +107,7 @@ TEST_F(RFDETRIntegrationTest, InvalidImagePath) {
     int orig_h, orig_w;
     const std::filesystem::path invalid_image_path = "invalid_image.jpg";
 
-    EXPECT_THROW(
-        inference.preprocess_image(invalid_image_path, orig_h, orig_w),
-        std::runtime_error
-    );
+    EXPECT_THROW(inference.preprocess_image(invalid_image_path, orig_h, orig_w), std::runtime_error);
 }
 
 int main(int argc, char **argv) {

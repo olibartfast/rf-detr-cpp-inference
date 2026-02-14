@@ -2,15 +2,14 @@
 
 #ifdef USE_TENSORRT
 
-#include <stdexcept>
-#include <iostream>
-#include <fstream>
 #include <algorithm>
+#include <fstream>
+#include <iostream>
+#include <stdexcept>
 
-namespace rfdetr {
-namespace backend {
+namespace rfdetr::backend {
 
-void TensorRTBackend::Logger::log(Severity severity, const char* msg) noexcept {
+void TensorRTBackend::Logger::log(Severity severity, const char *msg) noexcept {
     // Filter out INFO messages for cleaner output
     if (severity <= Severity::kWARNING) {
         std::cout << "[TensorRT] " << msg << std::endl;
@@ -27,17 +26,15 @@ TensorRTBackend::TensorRTBackend() {
 
 TensorRTBackend::~TensorRTBackend() {
     // Free CUDA device buffers
-    for (void* buffer : device_buffers_) {
+    for (void *buffer : device_buffers_) {
         if (buffer) {
             cudaFree(buffer);
         }
     }
 }
 
-std::vector<int64_t> TensorRTBackend::initialize(
-    const std::filesystem::path& model_path,
-    const std::vector<int64_t>& input_shape
-) {
+std::vector<int64_t> TensorRTBackend::initialize(const std::filesystem::path &model_path,
+                                                 const std::vector<int64_t> &input_shape) {
     // Validate model path
     if (!std::filesystem::exists(model_path)) {
         throw std::runtime_error("Model file does not exist: " + model_path.string());
@@ -45,7 +42,7 @@ std::vector<int64_t> TensorRTBackend::initialize(
 
     bool engine_loaded = false;
     std::filesystem::path engine_path;
-    
+
     // Check if the model_path is already a TensorRT engine file
     std::string extension = model_path.extension().string();
     if (extension == ".engine" || extension == ".trt") {
@@ -71,7 +68,7 @@ std::vector<int64_t> TensorRTBackend::initialize(
             if (!build_engine_from_onnx(model_path, input_shape)) {
                 throw std::runtime_error("Failed to build TensorRT engine from ONNX");
             }
-            
+
             // Save the engine for future use
             serialize_engine(engine_path);
             std::cout << "[TensorRT] Engine saved to: " << engine_path << std::endl;
@@ -84,37 +81,37 @@ std::vector<int64_t> TensorRTBackend::initialize(
         throw std::runtime_error("Failed to create TensorRT execution context");
     }
 
-    // Get input/output binding information
-    // Note: getNbBindings() was deprecated in TensorRT 8.5 and removed in 10.0
-    // For TensorRT 10+, we use getNbIOTensors()
-    #if NV_TENSORRT_MAJOR >= 10
-        const int num_bindings = engine_->getNbIOTensors();
-    #else
-        const int num_bindings = engine_->getNbBindings();
-    #endif
+// Get input/output binding information
+// Note: getNbBindings() was deprecated in TensorRT 8.5 and removed in 10.0
+// For TensorRT 10+, we use getNbIOTensors()
+#if NV_TENSORRT_MAJOR >= 10
+    const int num_bindings = engine_->getNbIOTensors();
+#else
+    const int num_bindings = engine_->getNbBindings();
+#endif
     std::cout << "[TensorRT] Model has " << num_bindings << " bindings" << std::endl;
 
     std::vector<int64_t> detected_shape = input_shape;
-    
-    for (int i = 0; i < num_bindings; ++i) {
-        #if NV_TENSORRT_MAJOR >= 10
-            // TensorRT 10+ API
-            const char* name = engine_->getIOTensorName(i);
-            auto dims = engine_->getTensorShape(name);
-            auto io_mode = engine_->getTensorIOMode(name);
-            bool is_input = (io_mode == nvinfer1::TensorIOMode::kINPUT);
-        #else
-            // TensorRT 8.x API
-            const char* name = engine_->getBindingName(i);
-            auto dims = engine_->getBindingDimensions(i);
-            bool is_input = engine_->bindingIsInput(i);
-        #endif
 
-        std::cout << "  Binding " << i << ": " << name 
-                  << (is_input ? " (input)" : " (output)") << " - Shape: [";
+    for (int i = 0; i < num_bindings; ++i) {
+#if NV_TENSORRT_MAJOR >= 10
+        // TensorRT 10+ API
+        const char *name = engine_->getIOTensorName(i);
+        auto dims = engine_->getTensorShape(name);
+        auto io_mode = engine_->getTensorIOMode(name);
+        bool is_input = (io_mode == nvinfer1::TensorIOMode::kINPUT);
+#else
+        // TensorRT 8.x API
+        const char *name = engine_->getBindingName(i);
+        auto dims = engine_->getBindingDimensions(i);
+        bool is_input = engine_->bindingIsInput(i);
+#endif
+
+        std::cout << "  Binding " << i << ": " << name << (is_input ? " (input)" : " (output)") << " - Shape: [";
         for (int j = 0; j < dims.nbDims; ++j) {
             std::cout << dims.d[j];
-            if (j < dims.nbDims - 1) std::cout << ", ";
+            if (j < dims.nbDims - 1)
+                std::cout << ", ";
         }
         std::cout << "]" << std::endl;
 
@@ -126,7 +123,7 @@ std::vector<int64_t> TensorRTBackend::initialize(
             }
         } else {
             output_binding_indices_.push_back(i);
-            
+
             // Store output shape
             std::vector<int64_t> shape;
             for (int j = 0; j < dims.nbDims; ++j) {
@@ -142,13 +139,13 @@ std::vector<int64_t> TensorRTBackend::initialize(
         }
         binding_size *= sizeof(float); // Assuming float32
 
-        void* device_buffer;
+        void *device_buffer;
         cudaMalloc(&device_buffer, binding_size);
         device_buffers_.push_back(device_buffer);
     }
 
     // Allocate host output buffers
-    for (const auto& shape : output_shapes_) {
+    for (const auto &shape : output_shapes_) {
         size_t size = 1;
         for (auto dim : shape) {
             size *= dim;
@@ -160,43 +157,34 @@ std::vector<int64_t> TensorRTBackend::initialize(
     return detected_shape;
 }
 
-bool TensorRTBackend::build_engine_from_onnx(
-    const std::filesystem::path& model_path,
-    const std::vector<int64_t>& input_shape
-) {
+bool TensorRTBackend::build_engine_from_onnx(const std::filesystem::path &model_path,
+                                             const std::vector<int64_t> &input_shape) {
     // Create builder
-    auto builder = std::unique_ptr<nvinfer1::IBuilder, TensorRTDeleter>(
-        nvinfer1::createInferBuilder(logger_)
-    );
+    auto builder = std::unique_ptr<nvinfer1::IBuilder, TensorRTDeleter>(nvinfer1::createInferBuilder(logger_));
     if (!builder) {
         std::cerr << "Failed to create TensorRT builder" << std::endl;
         return false;
     }
 
     // Create network with explicit batch flag
-    const auto explicit_batch = 1U << static_cast<uint32_t>(
-        nvinfer1::NetworkDefinitionCreationFlag::kEXPLICIT_BATCH
-    );
-    auto network = std::unique_ptr<nvinfer1::INetworkDefinition, TensorRTDeleter>(
-        builder->createNetworkV2(explicit_batch)
-    );
+    const auto explicit_batch = 1U << static_cast<uint32_t>(nvinfer1::NetworkDefinitionCreationFlag::kEXPLICIT_BATCH);
+    auto network =
+        std::unique_ptr<nvinfer1::INetworkDefinition, TensorRTDeleter>(builder->createNetworkV2(explicit_batch));
     if (!network) {
         std::cerr << "Failed to create TensorRT network" << std::endl;
         return false;
     }
 
     // Create ONNX parser
-    auto parser = std::unique_ptr<nvonnxparser::IParser, TensorRTDeleter>(
-        nvonnxparser::createParser(*network, logger_)
-    );
+    auto parser =
+        std::unique_ptr<nvonnxparser::IParser, TensorRTDeleter>(nvonnxparser::createParser(*network, logger_));
     if (!parser) {
         std::cerr << "Failed to create ONNX parser" << std::endl;
         return false;
     }
 
     // Parse ONNX model
-    if (!parser->parseFromFile(model_path.string().c_str(), 
-                                static_cast<int>(nvinfer1::ILogger::Severity::kWARNING))) {
+    if (!parser->parseFromFile(model_path.string().c_str(), static_cast<int>(nvinfer1::ILogger::Severity::kWARNING))) {
         std::cerr << "Failed to parse ONNX file" << std::endl;
         for (int i = 0; i < parser->getNbErrors(); ++i) {
             std::cerr << "  Error " << i << ": " << parser->getError(i)->desc() << std::endl;
@@ -205,21 +193,19 @@ bool TensorRTBackend::build_engine_from_onnx(
     }
 
     // Create builder config
-    auto config = std::unique_ptr<nvinfer1::IBuilderConfig, TensorRTDeleter>(
-        builder->createBuilderConfig()
-    );
+    auto config = std::unique_ptr<nvinfer1::IBuilderConfig, TensorRTDeleter>(builder->createBuilderConfig());
     if (!config) {
         std::cerr << "Failed to create builder config" << std::endl;
         return false;
     }
 
-    // Set memory pool limit for workspace (1GB)
-    // Note: setMaxWorkspaceSize() was deprecated in TensorRT 8.4 and removed in 10.0
-    #if NV_TENSORRT_MAJOR >= 10 || (NV_TENSORRT_MAJOR == 8 && NV_TENSORRT_MINOR >= 4)
-        config->setMemoryPoolLimit(nvinfer1::MemoryPoolType::kWORKSPACE, 1ULL << 30);
-    #else
-        config->setMaxWorkspaceSize(1ULL << 30);
-    #endif
+// Set memory pool limit for workspace (1GB)
+// Note: setMaxWorkspaceSize() was deprecated in TensorRT 8.4 and removed in 10.0
+#if NV_TENSORRT_MAJOR >= 10 || (NV_TENSORRT_MAJOR == 8 && NV_TENSORRT_MINOR >= 4)
+    config->setMemoryPoolLimit(nvinfer1::MemoryPoolType::kWORKSPACE, 1ULL << 30);
+#else
+    config->setMaxWorkspaceSize(1ULL << 30);
+#endif
 
     // Enable FP16 mode if supported
 #if NV_TENSORRT_MAJOR >= 10
@@ -247,10 +233,8 @@ bool TensorRTBackend::build_engine_from_onnx(
     return true;
 }
 
-void TensorRTBackend::serialize_engine(const std::filesystem::path& engine_path) {
-    auto serialized = std::unique_ptr<nvinfer1::IHostMemory, TensorRTDeleter>(
-        engine_->serialize()
-    );
+void TensorRTBackend::serialize_engine(const std::filesystem::path &engine_path) {
+    auto serialized = std::unique_ptr<nvinfer1::IHostMemory, TensorRTDeleter>(engine_->serialize());
     if (!serialized) {
         throw std::runtime_error("Failed to serialize TensorRT engine");
     }
@@ -260,10 +244,10 @@ void TensorRTBackend::serialize_engine(const std::filesystem::path& engine_path)
         throw std::runtime_error("Failed to open file for writing: " + engine_path.string());
     }
 
-    file.write(static_cast<const char*>(serialized->data()), serialized->size());
+    file.write(static_cast<const char *>(serialized->data()), serialized->size());
 }
 
-bool TensorRTBackend::deserialize_engine(const std::filesystem::path& engine_path) {
+bool TensorRTBackend::deserialize_engine(const std::filesystem::path &engine_path) {
     std::ifstream file(engine_path, std::ios::binary | std::ios::ate);
     if (!file) {
         std::cerr << "Failed to open engine file: " << engine_path << std::endl;
@@ -294,70 +278,60 @@ bool TensorRTBackend::deserialize_engine(const std::filesystem::path& engine_pat
     return true;
 }
 
-std::vector<void*> TensorRTBackend::run_inference(
-    std::span<const float> input_data,
-    const std::vector<int64_t>& input_shape
-) {
+std::vector<void *> TensorRTBackend::run_inference(std::span<const float> input_data,
+                                                   const std::vector<int64_t> &input_shape) {
     // Copy input data to device
     size_t input_size = input_data.size() * sizeof(float);
-    cudaMemcpy(device_buffers_[input_binding_index_], input_data.data(), 
-               input_size, cudaMemcpyHostToDevice);
+    cudaMemcpy(device_buffers_[input_binding_index_], input_data.data(), input_size, cudaMemcpyHostToDevice);
 
-    // Execute inference
-    // Note: executeV2() was deprecated in TensorRT 8.5 and removed in 10.0
-    #if NV_TENSORRT_MAJOR >= 10
-        // TensorRT 10+ uses enqueueV3 with tensor addresses set via setTensorAddress
-        // For simple synchronous execution, we still use the bindings array approach
-        // but need to set tensor addresses explicitly in newer versions
-        for (int i = 0; i < static_cast<int>(device_buffers_.size()); ++i) {
-            const char* name = engine_->getIOTensorName(i);
-            context_->setTensorAddress(name, device_buffers_[i]);
-        }
-        if (!context_->enqueueV3(0)) {  // 0 = CUDA stream (nullptr equivalent)
-            throw std::runtime_error("TensorRT inference execution failed");
-        }
-        cudaStreamSynchronize(0);  // Synchronize since we're not using async
-    #else
-        // TensorRT 8.x API
-        if (!context_->executeV2(device_buffers_.data())) {
-            throw std::runtime_error("TensorRT inference execution failed");
-        }
-    #endif
+// Execute inference
+// Note: executeV2() was deprecated in TensorRT 8.5 and removed in 10.0
+#if NV_TENSORRT_MAJOR >= 10
+    // TensorRT 10+ uses enqueueV3 with tensor addresses set via setTensorAddress
+    // For simple synchronous execution, we still use the bindings array approach
+    // but need to set tensor addresses explicitly in newer versions
+    for (int i = 0; i < static_cast<int>(device_buffers_.size()); ++i) {
+        const char *name = engine_->getIOTensorName(i);
+        context_->setTensorAddress(name, device_buffers_[i]);
+    }
+    if (!context_->enqueueV3(0)) { // 0 = CUDA stream (nullptr equivalent)
+        throw std::runtime_error("TensorRT inference execution failed");
+    }
+    cudaStreamSynchronize(0); // Synchronize since we're not using async
+#else
+    // TensorRT 8.x API
+    if (!context_->executeV2(device_buffers_.data())) {
+        throw std::runtime_error("TensorRT inference execution failed");
+    }
+#endif
 
     // Copy output data from device to host
     for (size_t i = 0; i < output_binding_indices_.size(); ++i) {
         int binding_idx = output_binding_indices_[i];
         size_t output_size = host_output_buffers_[i].size() * sizeof(float);
-        cudaMemcpy(host_output_buffers_[i].data(), device_buffers_[binding_idx],
-                   output_size, cudaMemcpyDeviceToHost);
+        cudaMemcpy(host_output_buffers_[i].data(), device_buffers_[binding_idx], output_size, cudaMemcpyDeviceToHost);
     }
 
     // Return pointers to host buffers
-    std::vector<void*> output_ptrs;
-    for (auto& buffer : host_output_buffers_) {
+    std::vector<void *> output_ptrs;
+    for (auto &buffer : host_output_buffers_) {
         output_ptrs.push_back(buffer.data());
     }
 
     return output_ptrs;
 }
 
-size_t TensorRTBackend::get_output_count() const {
-    return output_binding_indices_.size();
-}
+size_t TensorRTBackend::get_output_count() const { return output_binding_indices_.size(); }
 
-void TensorRTBackend::get_output_data(
-    size_t output_index,
-    float* data,
-    size_t size
-) {
+void TensorRTBackend::get_output_data(size_t output_index, float *data, size_t size) {
     if (output_index >= host_output_buffers_.size()) {
         throw std::out_of_range("Output index out of range");
     }
 
-    const auto& buffer = host_output_buffers_[output_index];
+    const auto &buffer = host_output_buffers_[output_index];
     if (buffer.size() != size) {
-        throw std::runtime_error("Output tensor size mismatch. Expected: " + 
-                                 std::to_string(size) + ", Got: " + std::to_string(buffer.size()));
+        throw std::runtime_error("Output tensor size mismatch. Expected: " + std::to_string(size) +
+                                 ", Got: " + std::to_string(buffer.size()));
     }
 
     std::copy(buffer.begin(), buffer.end(), data);
@@ -367,11 +341,10 @@ std::vector<int64_t> TensorRTBackend::get_output_shape(size_t output_index) cons
     if (output_index >= output_shapes_.size()) {
         throw std::out_of_range("Output index out of range");
     }
-    
+
     return output_shapes_[output_index];
 }
 
-} // namespace backend
-} // namespace rfdetr
+} // namespace rfdetr::backend
 
 #endif // USE_TENSORRT
