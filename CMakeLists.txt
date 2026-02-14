@@ -5,8 +5,8 @@ project(rfdetr_inference CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# --- Compiler Warnings (Typecheck/Lint at compile time) ---
-add_compile_options(
+# --- Compiler Warnings (applied to project targets only, not third-party) ---
+set(PROJECT_WARNING_FLAGS
     -Wall
     -Wextra
     -Wpedantic
@@ -27,7 +27,7 @@ add_compile_options(
 # Treat warnings as errors in CI (opt-in via -DWERROR=ON)
 option(WERROR "Treat compiler warnings as errors" OFF)
 if(WERROR)
-    add_compile_options(-Werror)
+    list(APPEND PROJECT_WARNING_FLAGS -Werror)
 endif()
 
 # --- Backend Selection Options ---
@@ -241,6 +241,7 @@ if(USE_TENSORRT)
 endif()
 
 add_library(rfdetr_inference_lib STATIC ${RFDETR_SOURCES})
+target_compile_options(rfdetr_inference_lib PRIVATE ${PROJECT_WARNING_FLAGS})
 
 target_include_directories(rfdetr_inference_lib
     PUBLIC
@@ -296,6 +297,7 @@ endif()
 
 # --- Main Application ---
 add_executable(inference_app "${SOURCE_DIR}/main.cpp")
+target_compile_options(inference_app PRIVATE ${PROJECT_WARNING_FLAGS})
 target_link_libraries(inference_app PRIVATE rfdetr_inference_lib)
 
 # Set RPATH for the executable
@@ -321,11 +323,13 @@ endif()
 
 # --- Unit Tests ---
 add_executable(unit_tests "${TEST_DIR}/unit/test_rfdetr_inference.cpp")
+target_compile_options(unit_tests PRIVATE ${PROJECT_WARNING_FLAGS})
 target_link_libraries(unit_tests PRIVATE rfdetr_inference_lib gtest gtest_main gmock)
 target_include_directories(unit_tests PRIVATE "${SOURCE_DIR}" "${ONNXRUNTIME_INCLUDE_DIR}" "${OpenCV_INCLUDE_DIRS}")
 
 # --- Integration Tests ---
 add_executable(integration_tests "${TEST_DIR}/integration/integration_test_rfdetr_inference.cpp")
+target_compile_options(integration_tests PRIVATE ${PROJECT_WARNING_FLAGS})
 target_link_libraries(integration_tests PRIVATE rfdetr_inference_lib gtest gtest_main)
 target_include_directories(integration_tests PRIVATE "${SOURCE_DIR}" "${ONNXRUNTIME_INCLUDE_DIR}" "${OpenCV_INCLUDE_DIRS}")
 
