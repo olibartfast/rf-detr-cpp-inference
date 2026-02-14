@@ -176,9 +176,9 @@ if(USE_TENSORRT)
 endif()
 
 # --- Find OpenCV ---
-find_package(OpenCV REQUIRED)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
 if(NOT OpenCV_FOUND)
-    message(FATAL_ERROR "OpenCV not found. Please install it (e.g., via 'sudo apt-get install libopencv-dev')")
+    message(FATAL_ERROR "OpenCV not found. Install via: sudo apt-get install libopencv-dev")
 endif()
 message(STATUS "OpenCV include directories: ${OpenCV_INCLUDE_DIRS}")
 message(STATUS "OpenCV libraries: ${OpenCV_LIBS}")

@@ -16,22 +16,19 @@ def main():
                         help='Batch size for export (default: 1)')
     parser.add_argument('--input_size', default=640, type=int,
                         help='Input image size (default: 640)')
-    parser.add_argument('--model_type', default='base', type=str,
-                        choices=['base', 'nano', 'small', 'medium', 'large'],
-                        help='Model type (default: base)')
+    parser.add_argument('--model_type', default='medium', type=str,
+                        choices=['nano', 'small', 'medium', 'large', 'xlarge', '2xlarge'],
+                        help='Model type (default: medium)')
     args = parser.parse_args()
-    
+
     print("="*60)
     print("RF-DETR Detection Model Export")
     print("="*60)
 
     # Initialize the detection model
-    print("\n[1/2] Loading RF-DETR Detection model...")
+    print(f"\n[1/2] Loading RF-DETR Detection model ({args.model_type})...")
     model = None
-    if args.model_type == 'base':
-        from rfdetr import RFDETRBase
-        model = RFDETRBase()
-    elif args.model_type == 'nano':
+    if args.model_type == 'nano':
         from rfdetr import RFDETRNano
         model = RFDETRNano()
     elif args.model_type == 'small':
@@ -43,6 +40,12 @@ def main():
     elif args.model_type == 'large':
         from rfdetr import RFDETRLarge
         model = RFDETRLarge()
+    elif args.model_type == 'xlarge':
+        from rfdetr import RFDETRXLarge
+        model = RFDETRXLarge()
+    elif args.model_type == '2xlarge':
+        from rfdetr import RFDETR2XLarge
+        model = RFDETR2XLarge()
     else:
         raise ValueError(f"Unsupported model type: {args.model_type}")
         
