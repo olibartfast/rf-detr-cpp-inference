@@ -23,9 +23,9 @@ C++ project for performing object detection and instance segmentation inference 
 ## Dependencies
 
 ### Required (All Backends)
-- **C++20 Compiler**: Clang++ 15 or compatible (e.g., `clang++-15`)
+- **C++20 Compiler**: Clang 15+ or GCC 12+ (e.g., `clang++-15` or `g++-12`)
 - **CMake**: Version 3.12 or higher
-- **OpenCV**: Version 4.x (e.g., install via `sudo apt-get install libopencv-dev` on Ubuntu)
+- **OpenCV**: Version 4.x (modules: core, imgproc, imgcodecs)
 - **Google Test**: Version 1.12.1 (automatically fetched during build)
 - **Ninja**: Optional but recommended (`sudo apt-get install ninja-build`)
 
@@ -55,7 +55,7 @@ This project supports both RF-DETR detection and segmentation models from Robofl
 
 2. **Download the ONNX Model**:
    - Follow instructions in the [export documentation](docs/export.md) to export models in ONNX format.
-   - **Tested with**: `rfdetr[onnxexport]==1.3.0` (Python ≤ 3.11 required)
+   - **Tested with**: `rfdetr[onnxexport]==1.4.2` (Python ≤ 3.11 required)
    - **Detection models**: Export with standard configuration (outputs: `dets`, `labels`)
    - **Segmentation models**: Export with segmentation configuration (outputs: `dets`, `labels`, `masks`)
    - Place the model (e.g., `inference_model.onnx`) in a chosen directory.
@@ -79,10 +79,18 @@ This project supports both RF-DETR detection and segmentation models from Robofl
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y clang-15 libopencv-dev ninja-build cmake
-```
+sudo apt-get install -y cmake
 
-Ensure `clang++-15` is available as your compiler.
+# Compiler - either clang or gcc (any C++20-capable version):
+sudo apt-get install -y clang-15
+# or use the system default gcc (no install needed if already present)
+
+# OpenCV (the full -dev package is needed for CMake integration):
+sudo apt-get install -y libopencv-dev
+
+# Optional (faster incremental builds):
+sudo apt-get install -y ninja-build
+```
 
 ---
 
@@ -106,6 +114,24 @@ cmake -S . -B build -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_C_COMPILER=/usr/bin/clang-15 \
   -DCMAKE_CXX_COMPILER=/usr/bin/clang++-15
+
+cmake --build build --parallel
+```
+
+Using the system default compiler (typically gcc):
+
+```bash
+cmake -S . -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release
+
+cmake --build build --parallel
+```
+
+If you don't have Ninja installed, drop `-G Ninja` to use Make instead:
+
+```bash
+cmake -S . -B build \
+  -DCMAKE_BUILD_TYPE=Release
 
 cmake --build build --parallel
 ```

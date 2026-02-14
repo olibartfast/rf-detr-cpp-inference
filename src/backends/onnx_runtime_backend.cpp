@@ -98,7 +98,7 @@ std::vector<void*> OnnxRuntimeBackend::run_inference(
 }
 
 size_t OnnxRuntimeBackend::get_output_count() const {
-    return ort_output_tensors_.size();
+    return output_name_strings_.size();
 }
 
 void OnnxRuntimeBackend::get_output_data(
