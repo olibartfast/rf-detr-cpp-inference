@@ -245,17 +245,22 @@ add_library(rfdetr_inference_lib STATIC ${RFDETR_SOURCES})
 target_include_directories(rfdetr_inference_lib
     PUBLIC
         "${SOURCE_DIR}"
+)
+
+# Third-party includes as SYSTEM to suppress warnings from their headers
+target_include_directories(rfdetr_inference_lib SYSTEM
+    PUBLIC
         "${OpenCV_INCLUDE_DIRS}"
 )
 
 # Add backend-specific includes and compile definitions
 if(USE_ONNX_RUNTIME)
-    target_include_directories(rfdetr_inference_lib PUBLIC "${ONNXRUNTIME_INCLUDE_DIR}")
+    target_include_directories(rfdetr_inference_lib SYSTEM PUBLIC "${ONNXRUNTIME_INCLUDE_DIR}")
     target_compile_definitions(rfdetr_inference_lib PUBLIC USE_ONNX_RUNTIME)
 endif()
 
 if(USE_TENSORRT)
-    target_include_directories(rfdetr_inference_lib PUBLIC "${TENSORRT_INCLUDE_DIR}")
+    target_include_directories(rfdetr_inference_lib SYSTEM PUBLIC "${TENSORRT_INCLUDE_DIR}")
     target_compile_definitions(rfdetr_inference_lib PUBLIC USE_TENSORRT)
 endif()
 
