@@ -3,6 +3,7 @@
 #ifdef USE_TENSORRT
 
 #include "inference_backend.hpp"
+
 #include <NvInfer.h>
 #include <NvInferVersion.h>
 #include <NvOnnxParser.h>
@@ -11,16 +12,14 @@
 
 // Check TensorRT version compatibility
 #if NV_TENSORRT_MAJOR < 8
-    #error "TensorRT 8.0 or newer is required"
+#error "TensorRT 8.0 or newer is required"
 #endif
 
-namespace rfdetr {
-namespace backend {
+namespace rfdetr::backend {
 
 // Custom deleter for TensorRT objects
 struct TensorRTDeleter {
-    template<typename T>
-    void operator()(T* obj) const {
+    template <typename T> void operator()(T *obj) const {
         if (obj) {
 #if NV_TENSORRT_MAJOR >= 10
             // TensorRT 10+ uses proper RAII, just delete
@@ -35,57 +34,48 @@ struct TensorRTDeleter {
 
 /**
  * @brief TensorRT implementation of InferenceBackend
- * 
+ *
  * This backend uses NVIDIA TensorRT for optimized GPU inference.
  * Provides low-latency and high-throughput inference on NVIDIA GPUs.
  */
 class TensorRTBackend : public InferenceBackend {
-public:
+  public:
     TensorRTBackend();
     ~TensorRTBackend() override;
+    TensorRTBackend(const TensorRTBackend &) = delete;
+    TensorRTBackend &operator=(const TensorRTBackend &) = delete;
+    TensorRTBackend(TensorRTBackend &&) = delete;
+    TensorRTBackend &operator=(TensorRTBackend &&) = delete;
 
-    std::vector<int64_t> initialize(
-        const std::filesystem::path& model_path,
-        const std::vector<int64_t>& input_shape
-    ) override;
+    std::vector<int64_t> initialize(const std::filesystem::path &model_path,
+                                    const std::vector<int64_t> &input_shape) override;
 
-    std::vector<void*> run_inference(
-        std::span<const float> input_data,
-        const std::vector<int64_t>& input_shape
-    ) override;
+    std::vector<void *> run_inference(std::span<const float> input_data,
+                                      const std::vector<int64_t> &input_shape) override;
 
-    size_t get_output_count() const override;
+    [[nodiscard]] size_t get_output_count() const override;
 
-    void get_output_data(
-        size_t output_index,
-        float* data,
-        size_t size
-    ) override;
+    void get_output_data(size_t output_index, float *data, size_t size) override;
 
-    std::vector<int64_t> get_output_shape(size_t output_index) const override;
+    [[nodiscard]] std::vector<int64_t> get_output_shape(size_t output_index) const override;
 
-    std::string get_backend_name() const override {
-        return "TensorRT";
-    }
+    [[nodiscard]] std::string get_backend_name() const override { return "TensorRT"; }
 
-private:
+  private:
     // TensorRT logger
     class Logger : public nvinfer1::ILogger {
-    public:
-        void log(Severity severity, const char* msg) noexcept override;
+      public:
+        void log(Severity severity, const char *msg) noexcept override;
     };
 
     // Build TensorRT engine from ONNX model
-    bool build_engine_from_onnx(
-        const std::filesystem::path& model_path,
-        const std::vector<int64_t>& input_shape
-    );
+    bool build_engine_from_onnx(const std::filesystem::path &model_path, const std::vector<int64_t> &input_shape);
 
     // Serialize and save engine to file
-    void serialize_engine(const std::filesystem::path& engine_path);
+    void serialize_engine(const std::filesystem::path &engine_path);
 
     // Deserialize engine from file
-    bool deserialize_engine(const std::filesystem::path& engine_path);
+    bool deserialize_engine(const std::filesystem::path &engine_path);
 
     Logger logger_;
     std::unique_ptr<nvinfer1::IRuntime, TensorRTDeleter> runtime_;
@@ -93,16 +83,15 @@ private:
     std::unique_ptr<nvinfer1::IExecutionContext, TensorRTDeleter> context_;
 
     // CUDA buffers
-    std::vector<void*> device_buffers_;
+    std::vector<void *> device_buffers_;
     std::vector<std::vector<float>> host_output_buffers_;
-    
+
     // Tensor metadata
     std::vector<std::vector<int64_t>> output_shapes_;
     int input_binding_index_ = -1;
     std::vector<int> output_binding_indices_;
 };
 
-} // namespace backend
-} // namespace rfdetr
+} // namespace rfdetr::backend
 
 #endif // USE_TENSORRT

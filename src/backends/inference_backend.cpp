@@ -1,4 +1,5 @@
 #include "inference_backend.hpp"
+
 #include <stdexcept>
 
 #ifdef USE_ONNX_RUNTIME
@@ -9,8 +10,7 @@
 #include "tensorrt_backend.hpp"
 #endif
 
-namespace rfdetr {
-namespace backend {
+namespace rfdetr::backend {
 
 std::unique_ptr<InferenceBackend> create_backend() {
 #ifdef USE_ONNX_RUNTIME
@@ -18,9 +18,8 @@ std::unique_ptr<InferenceBackend> create_backend() {
 #elif defined(USE_TENSORRT)
     return std::make_unique<TensorRTBackend>();
 #else
-    #error "No backend enabled. Build with -DUSE_ONNX_RUNTIME=ON or -DUSE_TENSORRT=ON"
+#error "No backend enabled. Build with -DUSE_ONNX_RUNTIME=ON or -DUSE_TENSORRT=ON"
 #endif
 }
 
-} // namespace backend
-} // namespace rfdetr
+} // namespace rfdetr::backend

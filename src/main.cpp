@@ -1,14 +1,17 @@
 #include "rfdetr_inference.hpp"
-#include <iostream>
-#include <cstring>
-#include <algorithm>
 
-int main(int argc, char* argv[]) {
+#include <algorithm>
+#include <cstring>
+#include <iostream>
+
+int main(int argc, char *argv[]) {
     if (argc < 4 || argc > 5) {
-        std::cerr << "Usage: " << argv[0] << " <path_to_model> <path_to_image> <path_to_coco_labels> [--segmentation]" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <path_to_model> <path_to_image> <path_to_coco_labels> [--segmentation]"
+                  << std::endl;
         std::cerr << "Examples:" << std::endl;
         std::cerr << "  Detection:    " << argv[0] << " ./model.onnx ./image.jpg ./coco_labels.txt" << std::endl;
-        std::cerr << "  Segmentation: " << argv[0] << " ./model.onnx ./image.jpg ./coco_labels.txt --segmentation" << std::endl;
+        std::cerr << "  Segmentation: " << argv[0] << " ./model.onnx ./image.jpg ./coco_labels.txt --segmentation"
+                  << std::endl;
         std::cerr << std::endl;
         std::cerr << "Note: Backend (ONNX Runtime or TensorRT) is selected at compile time." << std::endl;
         std::cerr << "      Build with -DUSE_ONNX_RUNTIME=ON or -DUSE_TENSORRT=ON" << std::endl;
@@ -18,10 +21,10 @@ int main(int argc, char* argv[]) {
     const std::filesystem::path model_path = argv[1];
     const std::filesystem::path image_path = argv[2];
     const std::filesystem::path label_file_path = argv[3];
-    
+
     // Parse optional arguments
     bool use_segmentation = false;
-    
+
     for (int i = 4; i < argc; ++i) {
         if (std::strcmp(argv[i], "--segmentation") == 0) {
             use_segmentation = true;
@@ -35,7 +38,7 @@ int main(int argc, char* argv[]) {
         config.model_type = use_segmentation ? ModelType::SEGMENTATION : ModelType::DETECTION;
         config.max_detections = 300;
         config.mask_threshold = 0.0f;
-        
+
         RFDETRInference inference(model_path, label_file_path, config);
 
         // Preprocess the image
@@ -52,10 +55,10 @@ int main(int argc, char* argv[]) {
         std::vector<cv::Mat> masks;
         const float scale_w = static_cast<float>(orig_w) / inference.get_resolution();
         const float scale_h = static_cast<float>(orig_h) / inference.get_resolution();
-        
+
         if (use_segmentation) {
-            inference.postprocess_segmentation_outputs(scale_w, scale_h, orig_h, orig_w, 
-                                                       scores, class_ids, boxes, masks);
+            inference.postprocess_segmentation_outputs(scale_w, scale_h, orig_h, orig_w, scores, class_ids, boxes,
+                                                       masks);
         } else {
             inference.postprocess_outputs(scale_w, scale_h, scores, class_ids, boxes);
         }
@@ -83,20 +86,20 @@ int main(int argc, char* argv[]) {
 
         // Print results
         std::cout << "\n--- " << (use_segmentation ? "Segmentation" : "Detection") << " Results ---" << std::endl;
-        std::cout << "Found " << boxes.size() << " " << (use_segmentation ? "instances" : "detections") 
+        std::cout << "Found " << boxes.size() << " " << (use_segmentation ? "instances" : "detections")
                   << " above threshold " << config.threshold << std::endl;
         for (size_t i = 0; i < boxes.size(); ++i) {
             std::cout << (use_segmentation ? "Instance " : "Detection ") << i << ":" << std::endl;
-            std::cout << "  Box: [" << boxes[i][0] << ", " << boxes[i][1] << ", "
-                      << boxes[i][2] << ", " << boxes[i][3] << "]" << std::endl;
-            std::cout << "  Class: " << inference.get_coco_labels()[class_ids[i]]
-                      << " (Score: " << scores[i] << ")" << std::endl;
+            std::cout << "  Box: [" << boxes[i][0] << ", " << boxes[i][1] << ", " << boxes[i][2] << ", " << boxes[i][3]
+                      << "]" << std::endl;
+            std::cout << "  Class: " << inference.get_coco_labels()[class_ids[i]] << " (Score: " << scores[i] << ")"
+                      << std::endl;
             if (use_segmentation && i < masks.size()) {
                 const int mask_pixels = cv::countNonZero(masks[i]);
                 std::cout << "  Mask pixels: " << mask_pixels << std::endl;
             }
         }
-    } catch (const std::exception& e) {
+    } catch (const std::exception &e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }

@@ -90,6 +90,9 @@ sudo apt-get install -y libopencv-dev
 
 # Optional (faster incremental builds):
 sudo apt-get install -y ninja-build
+
+# Optional (linting and formatting):
+sudo apt-get install -y clang-format-15 clang-tidy-15
 ```
 
 ---
@@ -106,6 +109,30 @@ This project uses **compile-time backend selection**. Choose your backend when b
 | **TensorRT** | Production on NVIDIA GPUs | Maximum performance | GPU-only, requires CUDA/TensorRT |
 
 **Important**: Only ONE backend can be enabled at a time. The backend is compiled into the binary for optimal performance and smaller binary size.
+
+### Format Code (Optional)
+
+If you have `clang-format-15` installed, you can check and auto-format all source files:
+
+```bash
+# Check for formatting issues (no changes made):
+find src tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format-15 --dry-run --Werror
+
+# Auto-format in place:
+find src tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format-15 -i
+```
+
+### Static Analysis (Optional)
+
+If you have `clang-tidy-15` installed, you can run static analysis using the compile commands database:
+
+```bash
+# Generate compile_commands.json first:
+cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+# Run clang-tidy on project sources:
+find src -name '*.cpp' | xargs clang-tidy-15 -p build
+```
 
 ### Build with ONNX Runtime (Default)
 
