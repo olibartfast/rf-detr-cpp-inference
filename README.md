@@ -134,6 +134,15 @@ cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 find src -name '*.cpp' | xargs clang-tidy-15 -p build
 ```
 
+### Strict Compilation (Optional)
+
+To treat all compiler warnings as errors (as CI does), pass `-DWERROR=ON`:
+
+```bash
+cmake -S . -B build -DWERROR=ON
+cmake --build build
+```
+
 ### Build with ONNX Runtime (Default)
 
 ```bash
