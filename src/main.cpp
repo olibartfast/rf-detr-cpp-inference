@@ -94,8 +94,7 @@ int main(int argc, char *argv[]) {
             std::cout << "  Box: [" << boxes[i][0] << ", " << boxes[i][1] << ", " << boxes[i][2] << ", " << boxes[i][3]
                       << "]" << std::endl;
             std::cout << "  Class: " << inference.get_coco_labels()[static_cast<size_t>(class_ids[i])]
-                      << " (Score: " << scores[i] << ")"
-                      << std::endl;
+                      << " (Score: " << scores[i] << ")" << std::endl;
             if (use_segmentation && i < masks.size()) {
                 const int mask_pixels = cv::countNonZero(masks[i]);
                 std::cout << "  Mask pixels: " << mask_pixels << std::endl;
