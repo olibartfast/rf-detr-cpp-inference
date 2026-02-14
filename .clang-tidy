@@ -12,7 +12,9 @@ Checks: >
   -cppcoreguidelines-avoid-magic-numbers,
   -cppcoreguidelines-pro-bounds-pointer-arithmetic,
   -cppcoreguidelines-pro-type-reinterpret-cast,
-  -cppcoreguidelines-avoid-non-const-global-variables
+  -cppcoreguidelines-pro-type-const-cast,
+  -cppcoreguidelines-avoid-non-const-global-variables,
+  -bugprone-easily-swappable-parameters
 
 WarningsAsErrors: ''
 HeaderFilterRegex: 'src/.*'

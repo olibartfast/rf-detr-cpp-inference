@@ -86,17 +86,18 @@ std::vector<float> RFDETRInference::preprocess_image(const std::filesystem::path
     cv::cvtColor(resized_image, resized_image, cv::COLOR_BGR2RGB);
     resized_image.convertTo(resized_image, CV_32F, 1.0 / 255.0);
 
-    const size_t input_tensor_size = 1 * 3 * config_.resolution * config_.resolution;
+    const auto res = static_cast<size_t>(config_.resolution);
+    const size_t input_tensor_size = 1 * 3 * res * res;
     std::vector<float> input_tensor_values(input_tensor_size);
     std::vector<cv::Mat> channels;
     cv::split(resized_image, channels);
     float *input_ptr = input_tensor_values.data();
-    for (int c = 0; c < 3; ++c) {
-        std::memcpy(input_ptr, channels[c].data, config_.resolution * config_.resolution * sizeof(float));
-        input_ptr += config_.resolution * config_.resolution;
+    for (size_t c = 0; c < 3; ++c) {
+        std::memcpy(input_ptr, channels[c].data, res * res * sizeof(float));
+        input_ptr += res * res;
     }
 
-    normalize_image(input_tensor_values, config_.resolution * config_.resolution);
+    normalize_image(input_tensor_values, res * res);
     return input_tensor_values;
 }
 
@@ -113,7 +114,7 @@ void RFDETRInference::run_inference(std::span<const float> input_data) {
         auto shape = backend_->get_output_shape(i);
         size_t size = 1;
         for (auto dim : shape) {
-            size *= dim;
+            size *= static_cast<size_t>(dim);
         }
 
         std::vector<float> data(size);
@@ -137,11 +138,12 @@ void RFDETRInference::postprocess_outputs(float scale_w, float scale_h, std::vec
     const auto &labels_data = output_data_cache_[1];
     const auto &labels_shape = output_shapes_cache_[1];
 
-    const size_t num_detections = dets_shape[1];
-    const size_t num_classes = labels_shape[2];
+    const auto num_detections = static_cast<size_t>(dets_shape[1]);
+    const auto num_classes = static_cast<size_t>(labels_shape[2]);
+    const auto res = static_cast<float>(config_.resolution);
 
     for (size_t i = 0; i < num_detections; ++i) {
-        const size_t det_offset = i * dets_shape[2];
+        const size_t det_offset = i * static_cast<size_t>(dets_shape[2]);
         const size_t label_offset = i * num_classes;
 
         float max_score = -1.0f;
@@ -151,7 +153,7 @@ void RFDETRInference::postprocess_outputs(float scale_w, float scale_h, std::vec
             const float score = sigmoid(logit);
             if (score > max_score) {
                 max_score = score;
-                max_class_idx = j;
+                max_class_idx = static_cast<int>(j);
             }
         }
 
@@ -159,10 +161,10 @@ void RFDETRInference::postprocess_outputs(float scale_w, float scale_h, std::vec
 
         if (max_score > config_.threshold && max_class_idx >= 0 &&
             static_cast<size_t>(max_class_idx) < coco_labels_.size()) {
-            const float x_center = dets_data[det_offset + 0] * config_.resolution;
-            const float y_center = dets_data[det_offset + 1] * config_.resolution;
-            const float width = dets_data[det_offset + 2] * config_.resolution;
-            const float height = dets_data[det_offset + 3] * config_.resolution;
+            const float x_center = dets_data[det_offset + 0] * res;
+            const float y_center = dets_data[det_offset + 1] * res;
+            const float width = dets_data[det_offset + 2] * res;
+            const float height = dets_data[det_offset + 3] * res;
 
             const float x_min = x_center - width / 2.0f;
             const float y_min = y_center - height / 2.0f;
@@ -199,10 +201,10 @@ void RFDETRInference::postprocess_segmentation_outputs(float scale_w, float scal
     const auto &masks_data = output_data_cache_[2];
     const auto &masks_shape = output_shapes_cache_[2];
 
-    const size_t num_detections = dets_shape[1];
-    const size_t num_classes = labels_shape[2];
-    const size_t mask_h = masks_shape[2];
-    const size_t mask_w = masks_shape[3];
+    const auto num_detections = static_cast<size_t>(dets_shape[1]);
+    const auto num_classes = static_cast<size_t>(labels_shape[2]);
+    const auto mask_h = static_cast<size_t>(masks_shape[2]);
+    const auto mask_w = static_cast<size_t>(masks_shape[3]);
 
     // Compute scores and apply sigmoid
     std::vector<float> all_scores;
@@ -222,7 +224,8 @@ void RFDETRInference::postprocess_segmentation_outputs(float scale_w, float scal
     const size_t num_select = std::min(static_cast<size_t>(config_.max_detections), all_scores.size());
     std::vector<size_t> topk_indices(all_scores.size());
     std::iota(topk_indices.begin(), topk_indices.end(), 0);
-    std::partial_sort(topk_indices.begin(), topk_indices.begin() + num_select, topk_indices.end(),
+    std::partial_sort(topk_indices.begin(), topk_indices.begin() + static_cast<ptrdiff_t>(num_select),
+                      topk_indices.end(),
                       [&all_scores](size_t i1, size_t i2) { return all_scores[i1] > all_scores[i2]; });
 
     // Process top-k detections
@@ -243,11 +246,12 @@ void RFDETRInference::postprocess_segmentation_outputs(float scale_w, float scal
         }
 
         // Get bounding box (in cxcywh format, normalized)
-        const size_t det_offset = detection_idx * dets_shape[2];
-        const float x_center = dets_data[det_offset + 0] * config_.resolution;
-        const float y_center = dets_data[det_offset + 1] * config_.resolution;
-        const float width = dets_data[det_offset + 2] * config_.resolution;
-        const float height = dets_data[det_offset + 3] * config_.resolution;
+        const auto res = static_cast<float>(config_.resolution);
+        const size_t det_offset = detection_idx * static_cast<size_t>(dets_shape[2]);
+        const float x_center = dets_data[det_offset + 0] * res;
+        const float y_center = dets_data[det_offset + 1] * res;
+        const float width = dets_data[det_offset + 2] * res;
+        const float height = dets_data[det_offset + 3] * res;
 
         // Convert to xyxy format
         const float x_min = x_center - width / 2.0f;
@@ -259,7 +263,7 @@ void RFDETRInference::postprocess_segmentation_outputs(float scale_w, float scal
 
         // Get mask for this detection and resize to original image size
         const size_t mask_offset = detection_idx * mask_h * mask_w;
-        cv::Mat mask_small(mask_h, mask_w, CV_32F);
+        cv::Mat mask_small(static_cast<int>(mask_h), static_cast<int>(mask_w), CV_32F);
         std::memcpy(mask_small.data, masks_data.data() + mask_offset, mask_h * mask_w * sizeof(float));
 
         // Resize mask to original image size using bilinear interpolation
@@ -301,23 +305,26 @@ void RFDETRInference::draw_detections(cv::Mat &image, std::span<const std::vecto
         const cv::Point2f bottom_right(box[2], box[3]);
         cv::rectangle(image, top_left, bottom_right, cv::Scalar(0, 0, 255), 2);
 
-        const std::string label = coco_labels_[class_ids[i]] + ": " + std::to_string(scores[i]).substr(0, 4);
+        const std::string label =
+            coco_labels_[static_cast<size_t>(class_ids[i])] + ": " + std::to_string(scores[i]).substr(0, 4);
         int baseline = 0;
         constexpr double font_scale = 0.5;
         constexpr int thickness = 1;
         const cv::Size text_size = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, font_scale, thickness, &baseline);
+        const auto text_h = static_cast<float>(text_size.height);
+        const auto text_w = static_cast<float>(text_size.width);
 
         cv::Point2f text_pos(top_left.x, top_left.y - 5);
-        if (text_pos.y - text_size.height < 0) {
-            text_pos.y = top_left.y + text_size.height + 5;
+        if (text_pos.y - text_h < 0) {
+            text_pos.y = top_left.y + text_h + 5;
         }
-        if (text_pos.x + text_size.width > image.cols) {
-            text_pos.x = image.cols - text_size.width - 5;
+        if (text_pos.x + text_w > static_cast<float>(image.cols)) {
+            text_pos.x = static_cast<float>(image.cols) - text_w - 5;
         }
 
         constexpr int padding = 2;
-        const cv::Point2f rect_top_left(text_pos.x - padding, text_pos.y - text_size.height - padding);
-        const cv::Point2f rect_bottom_right(text_pos.x + text_size.width + padding, text_pos.y + padding);
+        const cv::Point2f rect_top_left(text_pos.x - padding, text_pos.y - text_h - padding);
+        const cv::Point2f rect_bottom_right(text_pos.x + text_w + padding, text_pos.y + padding);
         cv::rectangle(image, rect_top_left, rect_bottom_right, cv::Scalar(0, 0, 0), cv::FILLED);
 
         cv::putText(image, label, cv::Point2f(text_pos.x, text_pos.y - padding), cv::FONT_HERSHEY_SIMPLEX, font_scale,
@@ -356,23 +363,26 @@ void RFDETRInference::draw_segmentation_masks(cv::Mat &image, std::span<const st
         cv::rectangle(image, top_left, bottom_right, color, 2);
 
         // Draw label
-        const std::string label = coco_labels_[class_ids[i]] + ": " + std::to_string(scores[i]).substr(0, 4);
+        const std::string label =
+            coco_labels_[static_cast<size_t>(class_ids[i])] + ": " + std::to_string(scores[i]).substr(0, 4);
         int baseline = 0;
         constexpr double font_scale = 0.5;
         constexpr int thickness = 1;
         const cv::Size text_size = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, font_scale, thickness, &baseline);
+        const auto text_h = static_cast<float>(text_size.height);
+        const auto text_w = static_cast<float>(text_size.width);
 
         cv::Point2f text_pos(top_left.x, top_left.y - 5);
-        if (text_pos.y - text_size.height < 0) {
-            text_pos.y = top_left.y + text_size.height + 5;
+        if (text_pos.y - text_h < 0) {
+            text_pos.y = top_left.y + text_h + 5;
         }
-        if (text_pos.x + text_size.width > image.cols) {
-            text_pos.x = image.cols - text_size.width - 5;
+        if (text_pos.x + text_w > static_cast<float>(image.cols)) {
+            text_pos.x = static_cast<float>(image.cols) - text_w - 5;
         }
 
         constexpr int padding = 2;
-        const cv::Point2f rect_top_left(text_pos.x - padding, text_pos.y - text_size.height - padding);
-        const cv::Point2f rect_bottom_right(text_pos.x + text_size.width + padding, text_pos.y + padding);
+        const cv::Point2f rect_top_left(text_pos.x - padding, text_pos.y - text_h - padding);
+        const cv::Point2f rect_bottom_right(text_pos.x + text_w + padding, text_pos.y + padding);
         cv::rectangle(image, rect_top_left, rect_bottom_right, cv::Scalar(0, 0, 0), cv::FILLED);
 
         cv::putText(image, label, cv::Point2f(text_pos.x, text_pos.y - padding), cv::FONT_HERSHEY_SIMPLEX, font_scale,

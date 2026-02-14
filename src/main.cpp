@@ -37,12 +37,13 @@ int main(int argc, char *argv[]) {
         config.resolution = 0; // 0 = auto-detect from model
         config.model_type = use_segmentation ? ModelType::SEGMENTATION : ModelType::DETECTION;
         config.max_detections = 300;
-        config.mask_threshold = 0.0f;
+        config.mask_threshold = 0.0F;
 
         RFDETRInference inference(model_path, label_file_path, config);
 
         // Preprocess the image
-        int orig_h, orig_w;
+        int orig_h = 0;
+        int orig_w = 0;
         std::vector<float> input_data = inference.preprocess_image(image_path, orig_h, orig_w);
 
         // Run inference
@@ -53,8 +54,8 @@ int main(int argc, char *argv[]) {
         std::vector<int> class_ids;
         std::vector<std::vector<float>> boxes;
         std::vector<cv::Mat> masks;
-        const float scale_w = static_cast<float>(orig_w) / inference.get_resolution();
-        const float scale_h = static_cast<float>(orig_h) / inference.get_resolution();
+        const float scale_w = static_cast<float>(orig_w) / static_cast<float>(inference.get_resolution());
+        const float scale_h = static_cast<float>(orig_h) / static_cast<float>(inference.get_resolution());
 
         if (use_segmentation) {
             inference.postprocess_segmentation_outputs(scale_w, scale_h, orig_h, orig_w, scores, class_ids, boxes,
