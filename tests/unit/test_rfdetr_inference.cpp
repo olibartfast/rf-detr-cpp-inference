@@ -59,8 +59,8 @@ TEST_F(RFDETRIntegrationTest, EndToEndPipeline) {
     std::vector<float> scores;
     std::vector<int> class_ids;
     std::vector<std::vector<float>> boxes;
-    const float scale_w = static_cast<float>(orig_w) / inference.get_resolution();
-    const float scale_h = static_cast<float>(orig_h) / inference.get_resolution();
+    const float scale_w = static_cast<float>(orig_w) / static_cast<float>(inference.get_resolution());
+    const float scale_h = static_cast<float>(orig_h) / static_cast<float>(inference.get_resolution());
     inference.postprocess_outputs(scale_w, scale_h, scores, class_ids, boxes);
 
     // Load image for drawing
