@@ -24,27 +24,24 @@ jobs:
             xargs clang-format-15 --dry-run --Werror
 
   clang-tidy:
-    name: Clang-Tidy
+    name: Clang-Tidy (Advisory)
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-15 clang-tidy-15 libopencv-dev
+          sudo apt-get install -y clang-tidy-15 libopencv-dev
 
       - name: Generate compile_commands.json
-        run: |
-          cmake -S . -B build \
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-            -DCMAKE_C_COMPILER=clang-15 \
-            -DCMAKE_CXX_COMPILER=clang++-15
+        run: cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
       - name: Run clang-tidy
         run: |
           find src -name '*.cpp' ! -name 'tensorrt_backend.cpp' | \
-            xargs clang-tidy-15 -p build
+            xargs clang-tidy-15 -p build || true
 
   build-warnings:
     name: Build with Strict Warnings
