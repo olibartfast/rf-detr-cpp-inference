@@ -6,7 +6,7 @@ Follow the procedure listed at https://rfdetr.roboflow.com/learn/deploy/
 > [!IMPORTANT]
 > - Python version: **3.11 or lower** (onnxsim currently requires Python <= 3.11)
 > - Starting with RF-DETR 1.2.0, you must run `pip install rfdetr[onnxexport]` before exporting
-> - **Tested version**: `rfdetr[onnxexport]==1.3.0`
+> - **Tested version**: `rfdetr[onnxexport]==1.4.2`
 
 ### Setup Virtual Environment
 
@@ -23,7 +23,7 @@ python3.11 -m venv rfdetr_venv
 source rfdetr_venv/bin/activate
 
 # Install RF-DETR with export dependencies (tested version)
-pip install rfdetr[onnxexport]==1.3.0
+pip install rfdetr[onnxexport]==1.4.2
 ```
 
 ---
@@ -35,9 +35,9 @@ pip install rfdetr[onnxexport]==1.3.0
 RF-DETR supports exporting detection models to the ONNX format, which enables interoperability with various inference frameworks and can improve deployment efficiency.
 
 ```python
-from rfdetr import RFDETRBase # or RFDETRBase/Nano/Small/Medium/Large
+from rfdetr import RFDETRMedium  # or RFDETRNano/Small/Medium/Large
 
-model = RFDETRBase(pretrain_weights=<CHECKPOINT_PATH>)
+model = RFDETRMedium(pretrain_weights=<CHECKPOINT_PATH>)
 
 model.export()
 ```
@@ -54,15 +54,16 @@ This command saves the ONNX model to the `output` directory.
 
 ### ONNX Export for Instance Segmentation
 
-For instance segmentation, use the `RFDETRSegPreview` model class or the provided export script.
+For instance segmentation, use the sized `RFDETRSeg*` model classes or the provided export script.
 
 #### Using Python Script
 
 ```bash
-python deploy/export_segmentation.py --simplify --input_size 432
+python deploy/export_segmentation.py --model_type medium --simplify --input_size 432
 ```
 
 **Available Options:**
+- `--model_type`: Model type: `nano`, `small`, `medium`, `large`, `xlarge`, `2xlarge` (default: medium)
 - `--output_dir`: Path to save exported model (default: current directory)
 - `--opset_version`: ONNX opset version (default: 17)
 - `--simplify`: Simplify ONNX model using onnxsim
@@ -72,9 +73,9 @@ python deploy/export_segmentation.py --simplify --input_size 432
 #### Using Python API
 
 ```python
-from rfdetr import RFDETRSegPreview
+from rfdetr import RFDETRSegMedium  # or RFDETRSegNano/Small/Large/XLarge/2XLarge
 
-model = RFDETRSegPreview(pretrain_weights=<CHECKPOINT_PATH>)
+model = RFDETRSegMedium(pretrain_weights=<CHECKPOINT_PATH>)
 
 model.export(
     opset_version=17,
