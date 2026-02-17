@@ -1,0 +1,49 @@
+# TensorRT Backend Dockerfile for RF-DETR C++ Inference
+# This builds the inference application with TensorRT backend for GPU acceleration
+
+FROM nvcr.io/nvidia/tensorrt:25.09-py3
+
+# Set working directory
+WORKDIR /workspace
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    cmake \
+    ninja-build \
+    clang-15 \
+    libopencv-dev \
+    wget \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy project files
+COPY . /workspace/rf-detr-cpp-inference
+
+# Build with TensorRT backend
+WORKDIR /workspace/rf-detr-cpp-inference
+RUN cmake -S . -B build -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_COMPILER=/usr/bin/clang-15 \
+    -DCMAKE_CXX_COMPILER=/usr/bin/clang++-15 \
+    -DUSE_ONNX_RUNTIME=OFF \
+    -DUSE_TENSORRT=ON
+
+RUN cmake --build build --parallel
+
+# Set entrypoint
+ENTRYPOINT ["/workspace/rf-detr-cpp-inference/build/inference_app"]
+
+# Default command (can be overridden)
+CMD ["--help"]
+
+# Usage:
+# Build: docker build -f Dockerfile.tensorrt -t rfdetr-tensorrt .
+# Run detection:
+#   docker run --gpus all -v $(pwd)/data:/data -v $(pwd)/exports:/exports rfdetr-tensorrt \
+#     /exports/model.onnx /data/image.jpg /data/coco-labels-91.txt
+# Run segmentation:
+#   docker run --gpus all -v $(pwd)/data:/data -v $(pwd)/exports:/exports rfdetr-tensorrt \
+#     /exports/model.onnx /data/image.jpg /data/coco-labels-91.txt --segmentation
+# Use pre-built engine:
+#   docker run --gpus all -v $(pwd)/data:/data -v $(pwd)/exports:/exports rfdetr-tensorrt \
+#     /exports/model.engine /data/image.jpg /data/coco-labels-91.txt --segmentation
