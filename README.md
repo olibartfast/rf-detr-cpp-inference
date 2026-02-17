@@ -55,7 +55,7 @@ This project supports both RF-DETR detection and segmentation models from Robofl
 
 2. **Download the ONNX Model**:
    - Follow instructions in the [export documentation](docs/export.md) to export models in ONNX format.
-   - **Tested with**: `rfdetr[onnxexport]==1.4.2` (Python ≤ 3.11 required)
+   - **Tested with**: `rfdetr[onnxexport]==1.4.3` (Python ≤ 3.11 required)
    - **Detection models**: Export with standard configuration (outputs: `dets`, `labels`)
    - **Segmentation models**: Export with segmentation configuration (outputs: `dets`, `labels`, `masks`)
    - Place the model (e.g., `inference_model.onnx`) in a chosen directory.

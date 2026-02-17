@@ -1,5 +1,29 @@
 # RF-DETR Upgrade Tracking
 
+## 1.4.2 -> 1.4.3
+
+**Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.4.3
+
+### What changed in this repo
+
+| File | What changed |
+|------|-------------|
+| `deploy/requirements.txt` | `rfdetr[onnxexport]` 1.4.2 -> 1.4.3 |
+| `docs/export.md` | Version bump |
+| `README.md` | Version bump |
+
+### Why
+
+Patch release with no model or API changes affecting C++ inference. Upstream changes:
+
+1. **Segmentation export fix** - resolved `deploy_to_roboflow` issue for segmentation model export (#578).
+2. **MD5 checksum validation** - added checksum verification for downloaded pretrained weights (#679).
+3. **COCO benchmarks** - added segmentation model benchmarks and updated inference thresholds (#678, #684).
+
+No changes required to C++ source code, build system, or model postprocessing.
+
+---
+
 ## 1.3.0 -> 1.4.2
 
 **Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.4.2
