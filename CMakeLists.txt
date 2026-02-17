@@ -30,6 +30,14 @@ if(WERROR)
     list(APPEND PROJECT_WARNING_FLAGS -Werror)
 endif()
 
+# Enable sanitizers in debug builds (opt-in via -DSANITIZERS=ON)
+option(SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+if(SANITIZERS)
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address,undefined)
+    message(STATUS "Sanitizers: AddressSanitizer + UndefinedBehaviorSanitizer enabled")
+endif()
+
 # --- Backend Selection Options ---
 option(USE_ONNX_RUNTIME "Build with ONNX Runtime backend support" ON)
 option(USE_TENSORRT "Build with TensorRT backend support" OFF)
