@@ -9,10 +9,8 @@
 
 RFDETRInference::RFDETRInference(const std::filesystem::path &model_path, const std::filesystem::path &label_file_path,
                                  const Config &config)
-    : config_(config), input_shape_({1, 3, config_.resolution, config_.resolution}) {
+    : backend_(create_backend()), config_(config), input_shape_({1, 3, config_.resolution, config_.resolution}) {
 
-    // Create inference backend (determined at compile time)
-    backend_ = create_backend();
     std::cout << "Using backend: " << backend_->get_backend_name() << std::endl;
 
     // Initialize backend
@@ -112,10 +110,8 @@ void RFDETRInference::run_inference(std::span<const float> input_data) {
 
     for (size_t i = 0; i < num_outputs; ++i) {
         auto shape = backend_->get_output_shape(i);
-        size_t size = 1;
-        for (auto dim : shape) {
-            size *= static_cast<size_t>(dim);
-        }
+        const size_t size = std::accumulate(shape.begin(), shape.end(), size_t{1},
+                                            [](size_t acc, int64_t dim) { return acc * static_cast<size_t>(dim); });
 
         std::vector<float> data(size);
         backend_->get_output_data(i, data.data(), size);

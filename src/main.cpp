@@ -4,7 +4,7 @@
 #include <cstring>
 #include <iostream>
 
-int main(int argc, char *argv[]) {
+int main(int argc, const char *argv[]) {
     if (argc < 4 || argc > 5) {
         std::cerr << "Usage: " << argv[0] << " <path_to_model> <path_to_image> <path_to_coco_labels> [--segmentation]"
                   << std::endl;

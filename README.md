@@ -17,6 +17,7 @@ C++ project for performing object detection and instance segmentation inference 
 - [Configuration](#configuration)
 - [Technical Details](#technical-details)
 - [Acknowledgements](#acknowledgements)
+- [Code Quality Tools](#code-quality-tools)
 
 ---
 
@@ -134,6 +135,52 @@ cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 find src -name '*.cpp' | xargs clang-tidy-18 -p build
 ```
 
+### Cppcheck (Optional)
+
+If you have `cppcheck` installed, you can run additional static analysis:
+
+```bash
+# Install cppcheck:
+sudo apt-get install -y cppcheck
+
+# Run manually:
+cppcheck --enable=all --std=c++20 \
+  --suppress=missingIncludeSystem \
+  --suppress=unmatchedSuppression \
+  --error-exitcode=1 \
+  -I src src/
+```
+
+This is also run automatically on every commit via pre-commit (see [Pre-commit](#pre-commit-optional)).
+
+### Sanitizers (Optional)
+
+Build with AddressSanitizer and UndefinedBehaviorSanitizer enabled via `-DSANITIZERS=ON`. Use a separate build directory to keep sanitizer and release builds independent:
+
+```bash
+cmake -S . -B build-san \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DSANITIZERS=ON
+
+cmake --build build-san --parallel
+
+# Run tests under sanitizers:
+./build-san/unit_tests
+./build-san/integration_tests
+```
+
+Sanitizers catch memory errors, use-after-free, undefined behaviour, and integer overflow at runtime with minimal code changes.
+
+### Pre-commit (Optional)
+
+[pre-commit](https://pre-commit.com/) runs `clang-format` and `cppcheck` automatically on every commit:
+
+```bash
+pip install pre-commit
+pre-commit install           # install the git hook
+pre-commit run --all-files   # run manually on all files
+```
+
 ### Strict Compilation (Optional)
 
 To treat all compiler warnings as errors (as CI does), pass `-DWERROR=ON`:
@@ -197,6 +244,8 @@ cmake --build build --parallel
 - `-DUSE_ONNX_RUNTIME=ON/OFF` - Enable ONNX Runtime backend (default: ON)
 - `-DUSE_TENSORRT=ON/OFF` - Enable TensorRT backend (default: OFF)
 - `-DCMAKE_BUILD_TYPE=Release/Debug` - Build configuration
+- `-DSANITIZERS=ON/OFF` - Enable AddressSanitizer + UndefinedBehaviorSanitizer (default: OFF)
+- `-DWERROR=ON/OFF` - Treat compiler warnings as errors (default: OFF)
 
 ---
 
@@ -304,6 +353,18 @@ config.model_type = ModelType::SEGMENTATION;
    - Draw bounding boxes with class labels
    - Overlay segmentation masks with transparency (alpha = 0.5)
    - Use deterministic colors based on class IDs
+
+---
+
+## Code Quality Tools
+
+| Tool | Purpose | How to run |
+|------|---------|------------|
+| `clang-format-18` | Code formatting | `find src tests -name '*.cpp' -o -name '*.hpp' \| xargs clang-format-18 -i` |
+| `clang-tidy-18` | Static analysis (AST-based) | `find src -name '*.cpp' \| xargs clang-tidy-18 -p build` |
+| `cppcheck` | Static analysis (flow-based) | `cppcheck --enable=all --std=c++20 -I src src/` |
+| ASan + UBSan | Runtime memory/UB detection | `-DSANITIZERS=ON` at configure time |
+| pre-commit | Automates format + cppcheck on commit | `pre-commit install` |
 
 ---
 

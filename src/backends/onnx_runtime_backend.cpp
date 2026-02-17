@@ -2,7 +2,9 @@
 
 #include "onnx_runtime_backend.hpp"
 
+#include <algorithm>
 #include <iostream>
+#include <numeric>
 #include <stdexcept>
 
 namespace rfdetr::backend {
@@ -53,9 +55,8 @@ std::vector<int64_t> OnnxRuntimeBackend::initialize(const std::filesystem::path 
     }
 
     // Get pointers after all strings are stored
-    for (const auto &name : output_name_strings_) {
-        output_names_.push_back(name.c_str());
-    }
+    std::transform(output_name_strings_.begin(), output_name_strings_.end(), std::back_inserter(output_names_),
+                   [](const auto &name) { return name.c_str(); });
 
     return detected_shape;
 }
@@ -74,9 +75,8 @@ std::vector<void *> OnnxRuntimeBackend::run_inference(std::span<const float> inp
     // Return void pointers (for interface compatibility)
     std::vector<void *> output_ptrs;
     output_ptrs.reserve(ort_output_tensors_.size());
-    for (auto &tensor : ort_output_tensors_) {
-        output_ptrs.push_back(&tensor);
-    }
+    std::transform(ort_output_tensors_.begin(), ort_output_tensors_.end(), std::back_inserter(output_ptrs),
+                   [](auto &tensor) { return static_cast<void *>(&tensor); });
 
     return output_ptrs;
 }
@@ -91,10 +91,8 @@ void OnnxRuntimeBackend::get_output_data(size_t output_index, float *data, size_
     const float *tensor_data = ort_output_tensors_[output_index].GetTensorData<float>();
     auto shape = ort_output_tensors_[output_index].GetTensorTypeAndShapeInfo().GetShape();
 
-    size_t tensor_size = 1;
-    for (auto dim : shape) {
-        tensor_size *= static_cast<size_t>(dim);
-    }
+    const size_t tensor_size = std::accumulate(shape.begin(), shape.end(), size_t{1},
+                                               [](size_t acc, int64_t dim) { return acc * static_cast<size_t>(dim); });
 
     if (tensor_size != size) {
         throw std::runtime_error("Output tensor size mismatch. Expected: " + std::to_string(size) +
