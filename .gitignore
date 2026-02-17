@@ -3,6 +3,7 @@ output
 *.pt
 *.pth
 *.onnx
+*.engine
 __pycache__
 .venv
 rfdetr_venv
