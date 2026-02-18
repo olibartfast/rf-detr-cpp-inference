@@ -29,6 +29,12 @@ class RFDETRInference {
   public:
     RFDETRInference(const std::filesystem::path &model_path, const std::filesystem::path &label_file_path,
                     const Config &config = Config{});
+
+    // Test-friendly constructor: inject a custom backend (skips backend creation and model loading)
+    RFDETRInference(std::unique_ptr<InferenceBackend> backend,
+                    const std::filesystem::path &label_file_path,
+                    const Config &config = Config{});
+
     ~RFDETRInference() = default;
 
     // Preprocess the input image
@@ -67,12 +73,6 @@ class RFDETRInference {
     // Load COCO labels from file
     void load_coco_labels(const std::filesystem::path &label_file_path);
 
-    // Normalize image data (in-place)
-    void normalize_image(std::span<float> data, size_t channel_size);
-
-    // Sigmoid function for logits to probabilities
-    [[nodiscard]] float sigmoid(float x) const noexcept;
-
     // Inference backend (Strategy Pattern)
     std::unique_ptr<InferenceBackend> backend_;
 
@@ -84,7 +84,4 @@ class RFDETRInference {
     // Output tensor cache
     std::vector<std::vector<float>> output_data_cache_;
     std::vector<std::vector<int64_t>> output_shapes_cache_;
-
-    // Helper methods
-    [[nodiscard]] cv::Scalar get_color_for_class(int class_id) const noexcept;
 };

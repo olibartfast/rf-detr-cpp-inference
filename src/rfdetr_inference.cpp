@@ -1,4 +1,5 @@
 #include "rfdetr_inference.hpp"
+#include "processing_utils.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -37,6 +38,13 @@ RFDETRInference::RFDETRInference(const std::filesystem::path &model_path, const 
     load_coco_labels(label_file_path);
 }
 
+RFDETRInference::RFDETRInference(std::unique_ptr<InferenceBackend> backend,
+                                 const std::filesystem::path &label_file_path,
+                                 const Config &config)
+    : backend_(std::move(backend)), config_(config), input_shape_({1, 3, config_.resolution, config_.resolution}) {
+    load_coco_labels(label_file_path);
+}
+
 void RFDETRInference::load_coco_labels(const std::filesystem::path &label_file_path) {
     if (!std::filesystem::exists(label_file_path)) {
         throw std::runtime_error("Label file does not exist: " + label_file_path.string());
@@ -53,18 +61,6 @@ void RFDETRInference::load_coco_labels(const std::filesystem::path &label_file_p
         throw std::runtime_error("No labels found in file: " + label_file_path.string());
     }
 }
-
-void RFDETRInference::normalize_image(std::span<float> data, size_t channel_size) {
-    for (size_t c = 0; c < 3; ++c) {
-        const float mean = config_.means[c];
-        const float std = config_.stds[c];
-        for (size_t i = 0; i < channel_size; ++i) {
-            data[c * channel_size + i] = (data[c * channel_size + i] - mean) / std;
-        }
-    }
-}
-
-float RFDETRInference::sigmoid(float x) const noexcept { return 1.0f / (1.0f + std::exp(-x)); }
 
 std::vector<float> RFDETRInference::preprocess_image(const std::filesystem::path &image_path, int &orig_h,
                                                      int &orig_w) {
@@ -95,7 +91,7 @@ std::vector<float> RFDETRInference::preprocess_image(const std::filesystem::path
         input_ptr += res * res;
     }
 
-    normalize_image(input_tensor_values, res * res);
+    rfdetr::processing::normalize_image(input_tensor_values, res * res, config_.means, config_.stds);
     return input_tensor_values;
 }
 
@@ -146,7 +142,7 @@ void RFDETRInference::postprocess_outputs(float scale_w, float scale_h, std::vec
         int max_class_idx = -1;
         for (size_t j = 0; j < num_classes; ++j) {
             const float logit = labels_data[label_offset + j];
-            const float score = sigmoid(logit);
+            const float score = rfdetr::processing::sigmoid(logit);
             if (score > max_score) {
                 max_score = score;
                 max_class_idx = static_cast<int>(j);
@@ -157,17 +153,15 @@ void RFDETRInference::postprocess_outputs(float scale_w, float scale_h, std::vec
 
         if (max_score > config_.threshold && max_class_idx >= 0 &&
             static_cast<size_t>(max_class_idx) < coco_labels_.size()) {
-            const float x_center = dets_data[det_offset + 0] * res;
-            const float y_center = dets_data[det_offset + 1] * res;
-            const float width = dets_data[det_offset + 2] * res;
-            const float height = dets_data[det_offset + 3] * res;
+            const float cx = dets_data[det_offset + 0] * res;
+            const float cy = dets_data[det_offset + 1] * res;
+            const float w = dets_data[det_offset + 2] * res;
+            const float h = dets_data[det_offset + 3] * res;
 
-            const float x_min = x_center - width / 2.0f;
-            const float y_min = y_center - height / 2.0f;
-            const float x_max = x_center + width / 2.0f;
-            const float y_max = y_center + height / 2.0f;
+            auto xyxy = rfdetr::processing::cxcywh_to_xyxy(cx, cy, w, h);
+            auto scaled = rfdetr::processing::scale_box(xyxy, scale_w, scale_h);
 
-            std::vector<float> box = {x_min * scale_w, y_min * scale_h, x_max * scale_w, y_max * scale_h};
+            std::vector<float> box = {scaled.x_min, scaled.y_min, scaled.x_max, scaled.y_max};
 
             scores.push_back(max_score);
             class_ids.push_back(max_class_idx);
@@ -210,7 +204,7 @@ void RFDETRInference::postprocess_segmentation_outputs(float scale_w, float scal
         for (size_t j = 0; j < num_classes; ++j) {
             const size_t label_offset = i * num_classes;
             const float logit = labels_data[label_offset + j];
-            const float score = sigmoid(logit);
+            const float score = rfdetr::processing::sigmoid(logit);
             all_scores.push_back(score);
             all_indices.push_back(i * num_classes + j);
         }
@@ -244,18 +238,15 @@ void RFDETRInference::postprocess_segmentation_outputs(float scale_w, float scal
         // Get bounding box (in cxcywh format, normalized)
         const auto res = static_cast<float>(config_.resolution);
         const size_t det_offset = detection_idx * static_cast<size_t>(dets_shape[2]);
-        const float x_center = dets_data[det_offset + 0] * res;
-        const float y_center = dets_data[det_offset + 1] * res;
-        const float width = dets_data[det_offset + 2] * res;
-        const float height = dets_data[det_offset + 3] * res;
+        const float cx = dets_data[det_offset + 0] * res;
+        const float cy = dets_data[det_offset + 1] * res;
+        const float w = dets_data[det_offset + 2] * res;
+        const float h = dets_data[det_offset + 3] * res;
 
-        // Convert to xyxy format
-        const float x_min = x_center - width / 2.0f;
-        const float y_min = y_center - height / 2.0f;
-        const float x_max = x_center + width / 2.0f;
-        const float y_max = y_center + height / 2.0f;
+        auto xyxy = rfdetr::processing::cxcywh_to_xyxy(cx, cy, w, h);
+        auto scaled = rfdetr::processing::scale_box(xyxy, scale_w, scale_h);
 
-        std::vector<float> box = {x_min * scale_w, y_min * scale_h, x_max * scale_w, y_max * scale_h};
+        std::vector<float> box = {scaled.x_min, scaled.y_min, scaled.x_max, scaled.y_max};
 
         // Get mask for this detection and resize to original image size
         const size_t mask_offset = detection_idx * mask_h * mask_w;
@@ -274,15 +265,6 @@ void RFDETRInference::postprocess_segmentation_outputs(float scale_w, float scal
         boxes.push_back(std::move(box));
         masks.push_back(binary_mask);
     }
-}
-
-cv::Scalar RFDETRInference::get_color_for_class(int class_id) const noexcept {
-    // Generate deterministic colors based on class_id
-    const int hue = (class_id * 137) % 180; // Golden angle for good color distribution
-    cv::Mat hsv(1, 1, CV_8UC3, cv::Scalar(hue, 200, 200));
-    cv::Mat bgr;
-    cv::cvtColor(hsv, bgr, cv::COLOR_HSV2BGR);
-    return cv::Scalar(bgr.at<cv::Vec3b>(0, 0)[0], bgr.at<cv::Vec3b>(0, 0)[1], bgr.at<cv::Vec3b>(0, 0)[2]);
 }
 
 void RFDETRInference::draw_detections(cv::Mat &image, std::span<const std::vector<float>> boxes,
@@ -345,7 +327,7 @@ void RFDETRInference::draw_segmentation_masks(cv::Mat &image, std::span<const st
             throw std::runtime_error("Invalid box format at index " + std::to_string(i));
         }
 
-        const cv::Scalar color = get_color_for_class(class_ids[i]);
+        const cv::Scalar color = rfdetr::processing::get_color_for_class(class_ids[i]);
 
         // Draw mask
         const cv::Mat &mask = masks[i];
