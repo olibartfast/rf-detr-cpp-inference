@@ -72,26 +72,21 @@ std::vector<float> RFDETRInference::preprocess_image(const std::filesystem::path
     if (image.empty()) {
         throw std::runtime_error("Could not load image from: " + image_path.string());
     }
-    orig_h = image.rows;
-    orig_w = image.cols;
 
-    cv::Mat resized_image;
-    cv::resize(image, resized_image, cv::Size(config_.resolution, config_.resolution), 0, 0, cv::INTER_LINEAR);
-    cv::cvtColor(resized_image, resized_image, cv::COLOR_BGR2RGB);
-    resized_image.convertTo(resized_image, CV_32F, 1.0 / 255.0);
+    return preprocess_image(image, orig_h, orig_w);
+}
+
+std::vector<float> RFDETRInference::preprocess_image(const cv::Mat &bgr_image, int &orig_h, int &orig_w) {
+    if (bgr_image.empty()) {
+        throw std::runtime_error("Input image is empty");
+    }
+    orig_h = bgr_image.rows;
+    orig_w = bgr_image.cols;
 
     const auto res = static_cast<size_t>(config_.resolution);
-    const size_t input_tensor_size = 3 * res * res;
-    std::vector<float> input_tensor_values(input_tensor_size);
-    std::vector<cv::Mat> channels;
-    cv::split(resized_image, channels);
-    float *input_ptr = input_tensor_values.data();
-    for (size_t c = 0; c < 3; ++c) {
-        std::memcpy(input_ptr, channels[c].data, res * res * sizeof(float));
-        input_ptr += res * res;
-    }
-
-    rfdetr::processing::normalize_image(input_tensor_values, res * res, config_.means, config_.stds);
+    std::vector<float> input_tensor_values(3 * res * res);
+    rfdetr::processing::preprocess_frame(bgr_image, input_tensor_values, config_.resolution, config_.means,
+                                         config_.stds);
     return input_tensor_values;
 }
 

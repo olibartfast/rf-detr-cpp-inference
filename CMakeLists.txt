@@ -209,7 +209,8 @@ if(USE_TENSORRT)
 endif()
 
 # --- Find OpenCV ---
-find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs videoio highgui)
+find_package(Threads REQUIRED)
 if(NOT OpenCV_FOUND)
     message(FATAL_ERROR "OpenCV not found. Install via: sudo apt-get install libopencv-dev")
 endif()
@@ -237,6 +238,7 @@ file(MAKE_DIRECTORY "${DATA_DIR}")
 set(RFDETR_SOURCES
     "${SOURCE_DIR}/rfdetr_inference.cpp"
     "${SOURCE_DIR}/processing_utils.cpp"
+    "${SOURCE_DIR}/video_pipeline.cpp"
     "${SOURCE_DIR}/backends/inference_backend.cpp"
 )
 
@@ -278,6 +280,7 @@ endif()
 target_link_libraries(rfdetr_inference_lib
     PUBLIC
         "${OpenCV_LIBS}"
+        Threads::Threads
 )
 
 if(USE_ONNX_RUNTIME)

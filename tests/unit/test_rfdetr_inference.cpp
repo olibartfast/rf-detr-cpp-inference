@@ -1,11 +1,15 @@
 #include "mock_backend.hpp"
 #include "processing_utils.hpp"
 #include "rfdetr_inference.hpp"
+#include "video_pipeline.hpp"
 
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
+#include <thread>
 
 // ============================================================================
 // Sigmoid tests
@@ -341,6 +345,105 @@ TEST_F(PostprocessTest, EmptyResults) {
     EXPECT_TRUE(scores.empty());
     EXPECT_TRUE(class_ids.empty());
     EXPECT_TRUE(boxes.empty());
+}
+
+// ============================================================================
+// PreprocessFrame free function tests
+// ============================================================================
+
+TEST(PreprocessFrame, OutputDimensions) {
+    cv::Mat img(100, 200, CV_8UC3, cv::Scalar(128, 128, 128));
+    const int res = 224;
+    std::vector<float> tensor(3 * 224 * 224);
+    std::array<float, 3> means = {0.485f, 0.456f, 0.406f};
+    std::array<float, 3> stds = {0.229f, 0.224f, 0.225f};
+
+    rfdetr::processing::preprocess_frame(img, tensor, res, means, stds);
+
+    for (float v : tensor) {
+        EXPECT_TRUE(std::isfinite(v));
+    }
+}
+
+// ============================================================================
+// cv::Mat preprocess overload tests
+// ============================================================================
+
+TEST(Preprocess, MatOverload) {
+    cv::Mat img(100, 200, CV_8UC3, cv::Scalar(128, 128, 128));
+    TempLabelFile labels("person\ncar\n");
+    Config config;
+    config.resolution = 224;
+
+    auto backend = std::make_unique<MockBackend>();
+    backend->set_outputs({{}, {}}, {{1, 1, 4}, {1, 1, 3}});
+    RFDETRInference inference(std::move(backend), labels.path(), config);
+
+    int orig_h = 0;
+    int orig_w = 0;
+    auto data = inference.preprocess_image(img, orig_h, orig_w);
+
+    EXPECT_EQ(orig_h, 100);
+    EXPECT_EQ(orig_w, 200);
+    EXPECT_EQ(data.size(), static_cast<size_t>(3 * 224 * 224));
+}
+
+TEST(Preprocess, MatOverloadEmptyImage) {
+    TempLabelFile labels("person\ncar\n");
+    Config config;
+    config.resolution = 224;
+
+    auto backend = std::make_unique<MockBackend>();
+    backend->set_outputs({{}, {}}, {{1, 1, 4}, {1, 1, 3}});
+    RFDETRInference inference(std::move(backend), labels.path(), config);
+
+    cv::Mat empty;
+    int orig_h = 0;
+    int orig_w = 0;
+    EXPECT_THROW(inference.preprocess_image(empty, orig_h, orig_w), std::runtime_error);
+}
+
+// ============================================================================
+// BoundedQueue tests
+// ============================================================================
+
+TEST(BoundedQueue, BasicPushPop) {
+    rfdetr::video::BoundedQueue<size_t> q(4);
+    q.push(42);
+    EXPECT_EQ(q.pop(), 42u);
+}
+
+TEST(BoundedQueue, FIFO) {
+    rfdetr::video::BoundedQueue<size_t> q(4);
+    q.push(1);
+    q.push(2);
+    q.push(3);
+    EXPECT_EQ(q.pop(), 1u);
+    EXPECT_EQ(q.pop(), 2u);
+    EXPECT_EQ(q.pop(), 3u);
+}
+
+TEST(BoundedQueue, BlocksWhenFull) {
+    rfdetr::video::BoundedQueue<size_t> q(2);
+    q.push(1);
+    q.push(2);
+    // Queue is full. Push from another thread should block until we pop.
+    std::atomic<bool> pushed{false};
+    std::thread t([&] {
+        q.push(3);
+        pushed.store(true);
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    EXPECT_FALSE(pushed.load());
+    q.pop(); // unblocks the push
+    t.join();
+    EXPECT_TRUE(pushed.load());
+}
+
+TEST(BoundedQueue, PoisonPill) {
+    rfdetr::video::BoundedQueue<size_t> q(4);
+    q.push(rfdetr::video::kPoisonPill);
+    EXPECT_EQ(q.pop(), rfdetr::video::kPoisonPill);
 }
 
 int main(int argc, char **argv) {

@@ -36,8 +36,11 @@ class RFDETRInference {
 
     ~RFDETRInference() = default;
 
-    // Preprocess the input image
+    // Preprocess the input image (from file path)
     std::vector<float> preprocess_image(const std::filesystem::path &image_path, int &orig_h, int &orig_w);
+
+    // Preprocess the input image (from cv::Mat, avoids disk I/O for video frames)
+    std::vector<float> preprocess_image(const cv::Mat &bgr_image, int &orig_h, int &orig_w);
 
     // Run inference
     void run_inference(std::span<const float> input_data);
