@@ -31,8 +31,7 @@ class RFDETRInference {
                     const Config &config = Config{});
 
     // Test-friendly constructor: inject a custom backend (skips backend creation and model loading)
-    RFDETRInference(std::unique_ptr<InferenceBackend> backend,
-                    const std::filesystem::path &label_file_path,
+    RFDETRInference(std::unique_ptr<InferenceBackend> backend, const std::filesystem::path &label_file_path,
                     const Config &config = Config{});
 
     ~RFDETRInference() = default;

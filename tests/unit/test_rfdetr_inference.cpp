@@ -1,6 +1,6 @@
+#include "mock_backend.hpp"
 #include "processing_utils.hpp"
 #include "rfdetr_inference.hpp"
-#include "mock_backend.hpp"
 
 #include <cmath>
 #include <filesystem>
@@ -42,9 +42,9 @@ TEST(NormalizeImage, AppliesMeanStd) {
 
 TEST(NormalizeImage, AllChannels) {
     // 2 pixels per channel, 3 channels = 6 floats
-    std::vector<float> data = {0.1f, 0.2f,   // channel 0
-                               0.3f, 0.4f,   // channel 1
-                               0.5f, 0.6f};  // channel 2
+    std::vector<float> data = {0.1f, 0.2f,  // channel 0
+                               0.3f, 0.4f,  // channel 1
+                               0.5f, 0.6f}; // channel 2
     std::array<float, 3> means = {0.0f, 0.0f, 0.0f};
     std::array<float, 3> stds = {0.5f, 0.25f, 0.1f};
 
@@ -218,8 +218,8 @@ class PostprocessTest : public ::testing::Test {
 
     // Create a mock-backed inference instance with given output tensors
     std::unique_ptr<RFDETRInference> make_inference(std::vector<std::vector<float>> output_data,
-                                                     std::vector<std::vector<int64_t>> output_shapes,
-                                                     float threshold = 0.5f, int resolution = 560) {
+                                                    std::vector<std::vector<int64_t>> output_shapes,
+                                                    float threshold = 0.5f, int resolution = 560) {
         Config config;
         config.resolution = resolution;
         config.threshold = threshold;
@@ -249,19 +249,17 @@ TEST_F(PostprocessTest, ThresholdFiltering) {
 
     // Boxes: [batch=1, num_dets=2, coords=4] — normalized cxcywh
     std::vector<float> dets_data = {
-        0.5f, 0.5f, 0.2f, 0.1f,  // det 0: center=(0.5, 0.5), size=(0.2, 0.1)
-        0.3f, 0.3f, 0.1f, 0.1f,  // det 1: center=(0.3, 0.3), size=(0.1, 0.1)
+        0.5f, 0.5f, 0.2f, 0.1f, // det 0: center=(0.5, 0.5), size=(0.2, 0.1)
+        0.3f, 0.3f, 0.1f, 0.1f, // det 1: center=(0.3, 0.3), size=(0.1, 0.1)
     };
 
     // Labels: [batch=1, num_dets=2, num_classes=6] — logits
     // sigmoid(5.0) ≈ 0.993, sigmoid(-5.0) ≈ 0.007
     std::vector<float> labels_data(static_cast<size_t>(num_dets * num_classes), -5.0f);
-    labels_data[1] = 5.0f;  // det 0, class index 1 → high score, class_id = 0 ("person")
+    labels_data[1] = 5.0f; // det 0, class index 1 → high score, class_id = 0 ("person")
 
-    auto inference = make_inference(
-        {dets_data, labels_data},
-        {{1, num_dets, 4}, {1, num_dets, num_classes}},
-        0.5f, 560);
+    auto inference =
+        make_inference({dets_data, labels_data}, {{1, num_dets, 4}, {1, num_dets, num_classes}}, 0.5f, 560);
 
     std::vector<float> scores;
     std::vector<int> class_ids;
@@ -287,10 +285,8 @@ TEST_F(PostprocessTest, CoordinateConversion) {
     std::vector<float> labels_data(static_cast<size_t>(num_classes), -10.0f);
     labels_data[1] = 10.0f; // high score at class index 1
 
-    auto inference = make_inference(
-        {dets_data, labels_data},
-        {{1, num_dets, 4}, {1, num_dets, num_classes}},
-        0.5f, resolution);
+    auto inference =
+        make_inference({dets_data, labels_data}, {{1, num_dets, 4}, {1, num_dets, num_classes}}, 0.5f, resolution);
 
     std::vector<float> scores;
     std::vector<int> class_ids;
@@ -314,10 +310,8 @@ TEST_F(PostprocessTest, ClassIdOffset) {
     std::vector<float> labels_data(static_cast<size_t>(num_classes), -10.0f);
     labels_data[3] = 10.0f;
 
-    auto inference = make_inference(
-        {dets_data, labels_data},
-        {{1, num_dets, 4}, {1, num_dets, num_classes}},
-        0.5f, 560);
+    auto inference =
+        make_inference({dets_data, labels_data}, {{1, num_dets, 4}, {1, num_dets, num_classes}}, 0.5f, 560);
 
     std::vector<float> scores;
     std::vector<int> class_ids;
@@ -336,10 +330,8 @@ TEST_F(PostprocessTest, EmptyResults) {
     // All logits very negative → all sigmoid scores ≈ 0
     std::vector<float> labels_data(static_cast<size_t>(num_dets * num_classes), -20.0f);
 
-    auto inference = make_inference(
-        {dets_data, labels_data},
-        {{1, num_dets, 4}, {1, num_dets, num_classes}},
-        0.5f, 560);
+    auto inference =
+        make_inference({dets_data, labels_data}, {{1, num_dets, 4}, {1, num_dets, num_classes}}, 0.5f, 560);
 
     std::vector<float> scores;
     std::vector<int> class_ids;

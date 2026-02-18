@@ -11,8 +11,8 @@ namespace rfdetr::processing {
 [[nodiscard]] float sigmoid(float x) noexcept;
 
 /// Normalize CHW image data in-place: (pixel - mean) / std per channel
-void normalize_image(std::span<float> data, size_t channel_size,
-                     std::span<const float, 3> means, std::span<const float, 3> stds);
+void normalize_image(std::span<float> data, size_t channel_size, std::span<const float, 3> means,
+                     std::span<const float, 3> stds);
 
 /// Axis-aligned bounding box in xyxy format
 struct BoundingBox {

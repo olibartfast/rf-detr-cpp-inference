@@ -1,4 +1,5 @@
 #include "rfdetr_inference.hpp"
+
 #include "processing_utils.hpp"
 
 #include <algorithm>
@@ -39,8 +40,7 @@ RFDETRInference::RFDETRInference(const std::filesystem::path &model_path, const 
 }
 
 RFDETRInference::RFDETRInference(std::unique_ptr<InferenceBackend> backend,
-                                 const std::filesystem::path &label_file_path,
-                                 const Config &config)
+                                 const std::filesystem::path &label_file_path, const Config &config)
     : backend_(std::move(backend)), config_(config), input_shape_({1, 3, config_.resolution, config_.resolution}) {
     load_coco_labels(label_file_path);
 }
