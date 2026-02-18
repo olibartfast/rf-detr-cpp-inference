@@ -236,6 +236,7 @@ file(MAKE_DIRECTORY "${DATA_DIR}")
 # --- Main Library ---
 set(RFDETR_SOURCES
     "${SOURCE_DIR}/rfdetr_inference.cpp"
+    "${SOURCE_DIR}/processing_utils.cpp"
     "${SOURCE_DIR}/backends/inference_backend.cpp"
 )
 
@@ -333,19 +334,34 @@ endif()
 add_executable(unit_tests "${TEST_DIR}/unit/test_rfdetr_inference.cpp")
 target_compile_options(unit_tests PRIVATE ${PROJECT_WARNING_FLAGS})
 target_link_libraries(unit_tests PRIVATE rfdetr_inference_lib gtest gtest_main gmock)
-target_include_directories(unit_tests PRIVATE "${SOURCE_DIR}" "${ONNXRUNTIME_INCLUDE_DIR}" "${OpenCV_INCLUDE_DIRS}")
+target_include_directories(unit_tests PRIVATE "${TEST_DIR}/unit")
 
 # --- Integration Tests ---
 add_executable(integration_tests "${TEST_DIR}/integration/integration_test_rfdetr_inference.cpp")
 target_compile_options(integration_tests PRIVATE ${PROJECT_WARNING_FLAGS})
 target_link_libraries(integration_tests PRIVATE rfdetr_inference_lib gtest gtest_main)
-target_include_directories(integration_tests PRIVATE "${SOURCE_DIR}" "${ONNXRUNTIME_INCLUDE_DIR}" "${OpenCV_INCLUDE_DIRS}")
 
 # Ensure the data directory exists before running integration tests
 add_custom_command(TARGET integration_tests PRE_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${DATA_DIR}"
     COMMENT "Creating data directory for integration tests"
 )
+
+# --- Google Benchmark (opt-in via -DBENCHMARKS=ON) ---
+option(BENCHMARKS "Build benchmark targets" OFF)
+if(BENCHMARKS)
+    FetchContent_Declare(
+        googlebenchmark
+        GIT_REPOSITORY https://github.com/google/benchmark.git
+        GIT_TAG v1.9.1
+    )
+    set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googlebenchmark)
+
+    add_executable(benchmarks "${TEST_DIR}/benchmark/bench_preprocessing.cpp")
+    target_compile_options(benchmarks PRIVATE ${PROJECT_WARNING_FLAGS})
+    target_link_libraries(benchmarks PRIVATE rfdetr_inference_lib benchmark::benchmark)
+endif()
 
 # Enable testing
 enable_testing()
