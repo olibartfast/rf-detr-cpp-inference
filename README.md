@@ -16,8 +16,10 @@ C++ project for performing object detection and instance segmentation inference 
 - [Usage](#usage)
 - [Configuration](#configuration)
 - [Technical Details](#technical-details)
-- [Acknowledgements](#acknowledgements)
+- [Testing](#testing)
+- [Docker](#docker)
 - [Code Quality Tools](#code-quality-tools)
+- [Acknowledgements](#acknowledgements)
 
 ---
 
@@ -246,6 +248,7 @@ cmake --build build --parallel
 - `-DCMAKE_BUILD_TYPE=Release/Debug` - Build configuration
 - `-DSANITIZERS=ON/OFF` - Enable AddressSanitizer + UndefinedBehaviorSanitizer (default: OFF)
 - `-DWERROR=ON/OFF` - Treat compiler warnings as errors (default: OFF)
+- `-DBENCHMARKS=ON/OFF` - Build Google Benchmark targets (default: OFF)
 
 ---
 
@@ -353,6 +356,57 @@ config.model_type = ModelType::SEGMENTATION;
    - Draw bounding boxes with class labels
    - Overlay segmentation masks with transparency (alpha = 0.5)
    - Use deterministic colors based on class IDs
+
+---
+
+## Testing
+
+### Unit Tests
+
+Unit tests use Google Test and run without any model files:
+
+```bash
+cmake -S . -B build
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure -R UnitTests
+```
+
+### Benchmarks
+
+Benchmarks use [Google Benchmark](https://github.com/google/benchmark) to measure preprocessing performance. Enable with `-DBENCHMARKS=ON`:
+
+```bash
+cmake -S . -B build -DBENCHMARKS=ON
+cmake --build build --target benchmarks --parallel
+./build/benchmarks
+```
+
+### CI
+
+Two GitHub Actions workflows run on every push/PR to `master`:
+
+| Workflow | File | What it does |
+|----------|------|-------------|
+| **C++ Lint & Build** | `lint.yml` | Format check, clang-tidy, cppcheck, build with `-DWERROR=ON` |
+| **Build & Test** | `ci.yml` | Build with benchmarks, run unit tests, run benchmarks, run unit tests under ASan+UBSan |
+
+---
+
+## Docker
+
+### ONNX Runtime (CPU)
+
+```bash
+docker build -t rfdetr-onnx .
+docker run -v $(pwd)/data:/data rfdetr-onnx /data/model.onnx /data/image.jpg /data/labels.txt
+```
+
+### TensorRT (GPU)
+
+```bash
+docker build -f Dockerfile.tensorrt -t rfdetr-tensorrt .
+docker run --gpus all -v $(pwd)/data:/data rfdetr-tensorrt /data/model.onnx /data/image.jpg /data/labels.txt
+```
 
 ---
 
