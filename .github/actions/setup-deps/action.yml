@@ -1,0 +1,16 @@
+name: Setup Dependencies
+description: Install common build dependencies and configure ccache
+
+runs:
+  using: composite
+  steps:
+    - name: Install dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libopencv-dev
+
+    - name: Set up ccache
+      uses: hendrikmuhs/ccache-action@v1
+      with:
+        key: ${{ github.job }}-${{ runner.os }}

@@ -12,16 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libopencv-dev
-
-      - name: Set up ccache
-        uses: hendrikmuhs/ccache-action@v1
-        with:
-          key: ${{ github.job }}-${{ runner.os }}
+      - uses: ./.github/actions/setup-deps
 
       - name: Configure
         run: cmake -S . -B build -DBENCHMARKS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
@@ -40,16 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libopencv-dev
-
-      - name: Set up ccache
-        uses: hendrikmuhs/ccache-action@v1
-        with:
-          key: ${{ github.job }}-${{ runner.os }}
+      - uses: ./.github/actions/setup-deps
 
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DSANITIZERS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
