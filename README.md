@@ -363,7 +363,7 @@ config.model_type = ModelType::SEGMENTATION;
 | `clang-format-18` | Code formatting | `find src tests -name '*.cpp' -o -name '*.hpp' \| xargs clang-format-18 -i` |
 | `clang-tidy-18` | Static analysis (AST-based) | `find src -name '*.cpp' \| xargs clang-tidy-18 -p build` |
 | `cppcheck` | Static analysis (flow-based) | `cppcheck --enable=all --std=c++20 -I src src/` |
-| ASan + UBSan | Runtime memory/UB detection | `-DSANITIZERS=ON` at configure time |
+| AddressSanitizer(ASan) + UndefinedBehaviorSanitizer(UBSan) | Runtime memory/UB detection | `-DSANITIZERS=ON` at configure time |
 | pre-commit | Automates format + cppcheck on commit | `pre-commit install` |
 
 ---
