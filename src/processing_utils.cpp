@@ -7,8 +7,8 @@ namespace rfdetr::processing {
 
 float sigmoid(float x) noexcept { return 1.0f / (1.0f + std::exp(-x)); }
 
-void normalize_image(std::span<float> data, size_t channel_size,
-                     std::span<const float, 3> means, std::span<const float, 3> stds) {
+void normalize_image(std::span<float> data, size_t channel_size, std::span<const float, 3> means,
+                     std::span<const float, 3> stds) {
     for (size_t c = 0; c < 3; ++c) {
         const float mean = means[c];
         const float std = stds[c];
@@ -31,8 +31,7 @@ cv::Scalar get_color_for_class(int class_id) noexcept {
     cv::Mat hsv(1, 1, CV_8UC3, cv::Scalar(hue, 200, 200));
     cv::Mat bgr;
     cv::cvtColor(hsv, bgr, cv::COLOR_HSV2BGR);
-    return {static_cast<double>(bgr.at<cv::Vec3b>(0, 0)[0]),
-            static_cast<double>(bgr.at<cv::Vec3b>(0, 0)[1]),
+    return {static_cast<double>(bgr.at<cv::Vec3b>(0, 0)[0]), static_cast<double>(bgr.at<cv::Vec3b>(0, 0)[1]),
             static_cast<double>(bgr.at<cv::Vec3b>(0, 0)[2])};
 }
 
