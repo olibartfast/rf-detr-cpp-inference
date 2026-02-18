@@ -4,7 +4,7 @@
 [![CMake](https://img.shields.io/badge/build%20system-CMake-blue.svg)](https://cmake.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-C++ project for performing object detection and instance segmentation inference using the RF-DETR model with **multiple inference backends** (ONNX Runtime and TensorRT) and OpenCV.
+C++ project for performing object detection and instance segmentation inference using the RF-DETR model with **multiple inference backends** (ONNX Runtime and TensorRT) and OpenCV. Supports both single-image and **multi-threaded video processing** via a zero-copy ring buffer pipeline.
 
 ---
 
@@ -15,6 +15,7 @@ C++ project for performing object detection and instance segmentation inference 
 - [Building](#building)
 - [Usage](#usage)
 - [Configuration](#configuration)
+- [Video Processing](#video-processing)
 - [Technical Details](#technical-details)
 - [Testing](#testing)
 - [Docker](#docker)
@@ -28,7 +29,7 @@ C++ project for performing object detection and instance segmentation inference 
 ### Required (All Backends)
 - **C++20 Compiler**: Clang 15+ or GCC 12+ (e.g., `clang++-15` or `g++-12`)
 - **CMake**: Version 3.12 or higher
-- **OpenCV**: Version 4.x (modules: core, imgproc, imgcodecs)
+- **OpenCV**: Version 4.x (modules: core, imgproc, imgcodecs, videoio, highgui)
 - **Google Test**: Version 1.12.1 (automatically fetched during build)
 - **Ninja**: Optional but recommended (`sudo apt-get install ninja-build`)
 
@@ -257,7 +258,7 @@ cmake --build build --parallel
 ### Prepare Input Files
 
 - The RF-DETR model file (`.onnx` for ONNX Runtime, `.onnx`/`.engine`/`.trt` for TensorRT)
-- An input image (e.g., `image.jpg`)
+- An input image (e.g., `image.jpg`) or video file (e.g., `video.mp4`)
 - A COCO labels file (e.g., `coco-labels-91.txt`)
 
 ### Run Inference
@@ -276,6 +277,26 @@ After building the project, run the inference application:
 ./build/inference_app /path/to/model.onnx /path/to/image.jpg /path/to/coco-labels-91.txt --segmentation
 ```
 
+#### Video Processing
+
+```bash
+./build/inference_app /path/to/model.onnx /path/to/video.mp4 /path/to/coco-labels-91.txt
+```
+
+With live preview window:
+
+```bash
+./build/inference_app /path/to/model.onnx /path/to/video.mp4 /path/to/coco-labels-91.txt --display
+```
+
+Video with segmentation:
+
+```bash
+./build/inference_app /path/to/model.onnx /path/to/video.mp4 /path/to/coco-labels-91.txt --segmentation
+```
+
+Supported video formats: `.mp4`, `.avi`, `.mov`, `.mkv`, `.webm`, `.flv`, `.wmv`. Output is written to `output_video.mp4`.
+
 #### Using Pre-built TensorRT Engine
 
 If you have a pre-built TensorRT engine file (`.engine` or `.trt`), use it directly:
@@ -285,11 +306,12 @@ If you have a pre-built TensorRT engine file (`.engine` or `.trt`), use it direc
 ```
 
 **Features:**
-- The output image is saved as `output_image.jpg`
+- The output image is saved as `output_image.jpg`; video output is saved as `output_video.mp4`
 - Detection/segmentation results (bounding boxes, labels, scores, and mask pixels) are printed to the console
 - Input resolution is automatically detected from the model (supports 432x432, 560x560, etc.)
 - Segmentation mode draws colored masks with transparency overlays
 - Uses top-k selection (default: 300 detections) for efficient processing
+- Video files are automatically detected by extension and processed with the multi-threaded pipeline
 
 ---
 
@@ -314,6 +336,34 @@ config.max_detections = 100;        // Fewer detections
 config.mask_threshold = 0.5f;       // More conservative masks
 config.model_type = ModelType::SEGMENTATION;
 ```
+
+---
+
+## Video Processing
+
+Video files are processed using a **four-stage ring buffer pipeline** that maximizes throughput with zero frame copies between stages:
+
+```
+                   free_slots (recycled)
+                 +-------------------------+
+                 |                         |
+                 v                         |
++--------+ idx  +-----------+ idx  +------++ idx  +------+
+| Decode | ---> | Preprocess| ---> | Infer| ----> | Draw |
++--------+      +-----------+      +------+       +------+
+ VideoCapture    resize+norm        run model      annotate +
+ into slot       into slot.tensor   postprocess    VideoWriter
+ .raw_frame      (pre-allocated)    into slot.*    + optional imshow
+```
+
+- **4 `std::jthread`s** run concurrently, one per stage
+- **Pre-allocated `FrameSlot`s** are reused via a ring buffer (default size: 8)
+- Stages pass slot indices (not frames) through **bounded queues** with backpressure
+- The inference stage owns its own `RFDETRInference` instance — no locks on the hot path
+- Graceful shutdown via poison pill (`SIZE_MAX`) propagated through all queues
+- Frame ordering is preserved (all stages are single-threaded FIFO)
+
+Use `--display` to open a live preview window (press ESC to quit early).
 
 ---
 
