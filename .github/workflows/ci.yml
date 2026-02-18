@@ -24,10 +24,38 @@ jobs:
           key: ${{ github.job }}-${{ runner.os }}
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: cmake -S . -B build -DBENCHMARKS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build
         run: cmake --build build --parallel
 
       - name: Run unit tests
+        run: ctest --test-dir build --output-on-failure -R UnitTests
+
+      - name: Run benchmarks
+        run: ./build/benchmarks --benchmark_min_time=0.1s
+
+  sanitizers:
+    name: Sanitizers (ASan + UBSan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libopencv-dev
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1
+        with:
+          key: ${{ github.job }}-${{ runner.os }}
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DSANITIZERS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Run unit tests under sanitizers
         run: ctest --test-dir build --output-on-failure -R UnitTests
