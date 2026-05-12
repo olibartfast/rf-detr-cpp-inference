@@ -1,0 +1,83 @@
+# CHANGELOG
+
+Tracks upstream `rfdetr` version changes that affect this C++ inference project.
+
+---
+
+## v0.1.2
+
+**Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.6.5.post0
+
+### Changed
+
+| File | Change |
+|------|--------|
+| `deploy/requirements.txt` | `rfdetr[onnxexport]` 1.4.3 → `rfdetr[onnx]` 1.6.5.post0 |
+| `deploy/export_detection.py` | Added `--device` flag to allow explicit device selection (e.g. `--device cpu`) |
+| `deploy/export_segmentation.py` | Added `--device` flag (same as above) |
+| `docs/export.md` | Extra rename note, version bump, TRT Docker tag 25.09 → 25.12 |
+| `README.md` | Version bump + extra rename |
+| `export_trt.sh` | NGC TRT Docker tag 25.09 → 25.12 |
+
+### Why
+
+The `onnxexport` optional extra was renamed to `onnx` in rfdetr 1.6.0. No C++ source changes required.
+
+Notable upstream changes between 1.4.3 and 1.6.5.post0:
+
+1. **Extra rename** (1.6.0) — `rfdetr[onnxexport]` → `rfdetr[onnx]`.
+2. **Non-square inference shapes** (1.6.2) — `export()` and `predict()` now accept `(height, width)` tuples; ONNX model output format unchanged.
+3. **Fine-tuned model export fix** (1.6.3) — `reinitialize_detection_head` now replaces `nn.Linear` instead of mutating weights, so custom-class-count models export correctly.
+4. **`torch.export.export` fix** (1.6.4) — `spatial_shapes_hw` was not threaded through decoder layers; fixed for models using multi-scale deformable attention.
+5. **PTL pin** (1.6.5.post0) — pins PyTorch Lightning ≤ 2.6.1.
+
+---
+
+## v0.1.1
+
+[v0.1.1](https://github.com/olibartfast/rf-detr-cpp-inference/commit/f9028533ad96d79117da2a74a5aa121fd80277c1)
+
+**Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.4.3
+
+### Changed
+
+| File | Change |
+|------|--------|
+| `deploy/requirements.txt` | `rfdetr[onnxexport]` 1.4.2 → 1.4.3 |
+| `docs/export.md` | Version bump |
+| `README.md` | Version bump |
+
+### Why
+
+Patch release with no model or API changes affecting C++ inference. Upstream changes:
+
+1. **Segmentation export fix** — resolved `deploy_to_roboflow` issue for segmentation model export (#578).
+2. **MD5 checksum validation** — added checksum verification for downloaded pretrained weights (#679).
+3. **COCO benchmarks** — added segmentation model benchmarks and updated inference thresholds (#678, #684).
+
+---
+
+## v0.1.0
+
+[v0.1.0](https://github.com/olibartfast/rf-detr-cpp-inference/commit/5ba569b7f7454a2b0fbe3e56ee885d9dad46fc70)
+
+**Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.4.2
+
+### Changed
+
+| File | Change |
+|------|--------|
+| `deploy/requirements.txt` | `rfdetr[onnxexport]` 1.3.0 → 1.4.2 |
+| `deploy/export_detection.py` | Removed deprecated `RFDETRBase`, default `medium`, added `xlarge`/`2xlarge` |
+| `deploy/export_segmentation.py` | Replaced `RFDETRSegPreview` with sized classes + added `--model_type` arg |
+| `docs/export.md` | Version bump + updated Python API examples to new class names |
+| `README.md` | Version bump, gcc alternative, minimal OpenCV install note, Ninja optional |
+| `CMakeLists.txt` | `find_package(OpenCV)` now specifies required components (`core`, `imgproc`, `imgcodecs`) |
+| `src/backends/onnx_runtime_backend.cpp` | Fixed `get_output_count()` returning 0 before inference |
+
+### Why
+
+1. **Seg ONNX export was broken** — upstream fixed it in #626. `RFDETRSegPreview` is gone, replaced by `RFDETRSegNano/Small/Medium/Large/XLarge/2XLarge`.
+2. **`RFDETRBase` deprecated** — upstream no longer lists it. Use `RFDETRNano/Small/Medium/Large` instead.
+3. **XL/2XL models added** — require `pip install rfdetr[plus]` (PML 1.0 license, not Apache).
+4. **ONNX Runtime output count bug** — `get_output_count()` checked `ort_output_tensors_` which is only populated after `run_inference()`, but the constructor validates output count before that. Fixed to use `output_name_strings_` (populated during `initialize()`).

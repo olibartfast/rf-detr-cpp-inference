@@ -5,8 +5,8 @@ Follow the procedure listed at https://rfdetr.roboflow.com/learn/deploy/
 
 > [!IMPORTANT]
 > - Python version: **3.11 or lower** (onnxsim currently requires Python <= 3.11)
-> - Starting with RF-DETR 1.2.0, you must run `pip install rfdetr[onnxexport]` before exporting
-> - **Tested version**: `rfdetr[onnxexport]==1.4.3`
+> - Starting with RF-DETR 1.6.0, the export extra was renamed: use `pip install rfdetr[onnx]`
+> - **Tested version**: `rfdetr[onnx]==1.6.5.post0`
 
 ### Setup Virtual Environment
 
@@ -23,7 +23,7 @@ python3.11 -m venv rfdetr_venv
 source rfdetr_venv/bin/activate
 
 # Install RF-DETR with export dependencies (tested version)
-pip install rfdetr[onnxexport]==1.4.3
+pip install rfdetr[onnx]==1.6.5.post0
 ```
 
 ---
@@ -114,7 +114,7 @@ trtexec --onnx=/path/to/model.onnx \
 ### Using TensorRT Docker Container
 
 ```bash
-export NGC_TAG_VERSION=25.09
+export NGC_TAG_VERSION=25.12
 
 docker run --rm -it --gpus=all \
     -v $(pwd)/exports:/exports \
