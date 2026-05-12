@@ -1,1 +1,1 @@
-rfdetr[onnxexport]==1.4.3
+rfdetr[onnx]==1.6.5.post0

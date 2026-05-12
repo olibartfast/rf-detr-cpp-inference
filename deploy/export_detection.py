@@ -19,6 +19,8 @@ def main():
     parser.add_argument('--model_type', default='medium', type=str,
                         choices=['nano', 'small', 'medium', 'large', 'xlarge', '2xlarge'],
                         help='Model type (default: medium)')
+    parser.add_argument('--device', default=None, type=str,
+                        help='Device for export, e.g. cpu or cuda (default: auto)')
     args = parser.parse_args()
 
     print("="*60)
@@ -28,24 +30,28 @@ def main():
     # Initialize the detection model
     print(f"\n[1/2] Loading RF-DETR Detection model ({args.model_type})...")
     model = None
+    model_kwargs = {}
+    if args.device:
+        model_kwargs['device'] = args.device
+
     if args.model_type == 'nano':
         from rfdetr import RFDETRNano
-        model = RFDETRNano()
+        model = RFDETRNano(**model_kwargs)
     elif args.model_type == 'small':
         from rfdetr import RFDETRSmall
-        model = RFDETRSmall()
+        model = RFDETRSmall(**model_kwargs)
     elif args.model_type == 'medium':
         from rfdetr import RFDETRMedium
-        model = RFDETRMedium()
+        model = RFDETRMedium(**model_kwargs)
     elif args.model_type == 'large':
         from rfdetr import RFDETRLarge
-        model = RFDETRLarge()
+        model = RFDETRLarge(**model_kwargs)
     elif args.model_type == 'xlarge':
         from rfdetr import RFDETRXLarge
-        model = RFDETRXLarge()
+        model = RFDETRXLarge(**model_kwargs)
     elif args.model_type == '2xlarge':
         from rfdetr import RFDETR2XLarge
-        model = RFDETR2XLarge()
+        model = RFDETR2XLarge(**model_kwargs)
     else:
         raise ValueError(f"Unsupported model type: {args.model_type}")
         

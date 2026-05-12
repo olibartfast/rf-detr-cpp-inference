@@ -1,4 +1,4 @@
-export NGC_TAG_VERSION=25.09
+export NGC_TAG_VERSION=25.12
 
 docker run --rm -it --gpus=all \
     -v $(pwd)/exports:/exports \

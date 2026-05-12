@@ -36,6 +36,8 @@ def main():
     parser.add_argument('--model_type', default='medium', type=str,
                         choices=['nano', 'small', 'medium', 'large', 'xlarge', '2xlarge'],
                         help='Model type (default: medium)')
+    parser.add_argument('--device', default=None, type=str,
+                        help='Device for export, e.g. cpu or cuda (default: auto)')
 
     args = parser.parse_args()
 
@@ -46,24 +48,28 @@ def main():
     # Initialize the segmentation model
     print(f"\n[1/2] Loading RF-DETR Segmentation model ({args.model_type})...")
     model = None
+    model_kwargs = {}
+    if args.device:
+        model_kwargs['device'] = args.device
+
     if args.model_type == 'nano':
         from rfdetr import RFDETRSegNano
-        model = RFDETRSegNano()
+        model = RFDETRSegNano(**model_kwargs)
     elif args.model_type == 'small':
         from rfdetr import RFDETRSegSmall
-        model = RFDETRSegSmall()
+        model = RFDETRSegSmall(**model_kwargs)
     elif args.model_type == 'medium':
         from rfdetr import RFDETRSegMedium
-        model = RFDETRSegMedium()
+        model = RFDETRSegMedium(**model_kwargs)
     elif args.model_type == 'large':
         from rfdetr import RFDETRSegLarge
-        model = RFDETRSegLarge()
+        model = RFDETRSegLarge(**model_kwargs)
     elif args.model_type == 'xlarge':
         from rfdetr import RFDETRSegXLarge
-        model = RFDETRSegXLarge()
+        model = RFDETRSegXLarge(**model_kwargs)
     elif args.model_type == '2xlarge':
         from rfdetr import RFDETRSeg2XLarge
-        model = RFDETRSeg2XLarge()
+        model = RFDETRSeg2XLarge(**model_kwargs)
     else:
         raise ValueError(f"Unsupported model type: {args.model_type}")
 
