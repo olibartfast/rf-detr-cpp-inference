@@ -1,8 +1,8 @@
 # Quick script to inspect the RF-DETR model structure
 import torch
-from rfdetr import RFDETRSegPreview
+from rfdetr import RFDETRSegMedium
 
-model_wrapper = RFDETRSegPreview()
+model_wrapper = RFDETRSegMedium()
 print(f"model_wrapper type: {type(model_wrapper)}")
 print(f"model_wrapper.model type: {type(model_wrapper.model)}")
 print(f"\nmodel_wrapper attributes: {[a for a in dir(model_wrapper) if not a.startswith('_')]}")

@@ -4,6 +4,38 @@ Tracks upstream `rfdetr` version changes that affect this C++ inference project.
 
 ---
 
+## v0.1.3
+
+**Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.7.0
+
+### Changed
+
+| File | Change |
+|------|--------|
+| `deploy/requirements.txt` | `rfdetr[onnx]` 1.6.5.post0 → 1.7.0 |
+| `deploy/export_detection.py` | `--simplify` deprecated warning; print variant ONNX filename |
+| `deploy/export_segmentation.py` | Same as detection export script |
+| `deploy/inspect_model.py` | `RFDETRSegPreview` → `RFDETRSegMedium` |
+| `docs/export.md` | Version bump, variant ONNX filenames, simplify deprecation, TRT re-export note |
+| `README.md` | Version bump + variant ONNX filename examples + integration test model env var |
+| `export_trt.sh` | Example path `inference_model.onnx` → `rfdetr-medium.onnx` |
+| `Dockerfile.tensorrt` | NGC TRT Docker tag 25.09 → 25.12; variant ONNX examples in usage comments |
+| `tests/integration/integration_test_rfdetr_inference.cpp` | Resolve model from `RFDETR_TEST_MODEL` or variant filenames; skip E2E when absent |
+
+### Why
+
+No C++ source changes required. ONNX tensor names and postprocessing unchanged.
+
+Notable upstream changes between 1.6.5.post0 and 1.7.0:
+
+1. **Variant ONNX filenames** (1.7.0) — exports named e.g. `rfdetr-medium.onnx`, `rfdetr-seg-medium.onnx` instead of generic `inference_model.onnx`.
+2. **`simplify` deprecated** (1.7.0) — `model.export(simplify=True)` is a no-op; ONNX simplification no longer runs during export.
+3. **ONNX/TRT dynamic batch fix** (#950) — re-export with 1.7.0 before building TensorRT engines if you rely on dynamic batch shapes.
+4. **Import path deprecations** — `rfdetr.util.*` → `rfdetr.utilities.*`, `rfdetr.deploy.*` → `rfdetr.export.*` (removal in v1.8).
+5. **Class deprecations** — `RFDETRBase`, `RFDETRSegPreview` emit warnings; use sized variant classes instead.
+
+---
+
 ## v0.1.2
 
 **Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.6.5.post0

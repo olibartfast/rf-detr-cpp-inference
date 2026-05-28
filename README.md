@@ -59,10 +59,10 @@ This project supports both RF-DETR detection and segmentation models from Robofl
 
 2. **Download the ONNX Model**:
    - Follow instructions in the [export documentation](docs/export.md) to export models in ONNX format.
-   - **Tested with**: `rfdetr[onnx]==1.6.5.post0` (Python ≤ 3.11 required)
+   - **Tested with**: `rfdetr[onnx]==1.7.0` (Python 3.10+; 3.11 venv recommended)
    - **Detection models**: Export with standard configuration (outputs: `dets`, `labels`)
    - **Segmentation models**: Export with segmentation configuration (outputs: `dets`, `labels`, `masks`)
-   - Place the model (e.g., `inference_model.onnx`) in a chosen directory.
+   - Place the model (e.g., `rfdetr-medium.onnx` or `rfdetr-seg-medium.onnx`) in a chosen directory.
 
 3. **Prepare the COCO Labels**:
    - Create a `coco-labels-91.txt` file with one label per line:
@@ -420,6 +420,15 @@ cmake -S . -B build
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure -R UnitTests
 ```
+
+Integration tests need a real ONNX model. They auto-detect `~/Downloads/rfdetr-medium.onnx` (or legacy `inference_model.onnx`), or set `RFDETR_TEST_MODEL`:
+
+```bash
+export RFDETR_TEST_MODEL=/path/to/rfdetr-medium.onnx
+ctest --test-dir build --output-on-failure -R IntegrationTests
+```
+
+Without a model, integration tests that need inference are skipped.
 
 ### Benchmarks
 
