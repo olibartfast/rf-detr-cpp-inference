@@ -32,11 +32,11 @@ std::filesystem::path resolve_test_model_path() {
 
 } // namespace
 
-#define SKIP_IF_NO_MODEL(fixture)                                                                        \
-    do {                                                                                                 \
-        if (!(fixture).model_available_) {                                                               \
-            GTEST_SKIP() << "No ONNX model found. Export with rfdetr 1.7.0 or set RFDETR_TEST_MODEL.";  \
-        }                                                                                                \
+#define SKIP_IF_NO_MODEL(fixture)                                                                                      \
+    do {                                                                                                               \
+        if (!(fixture).model_available_) {                                                                             \
+            GTEST_SKIP() << "No ONNX model found. Export with rfdetr 1.7.0 or set RFDETR_TEST_MODEL.";                 \
+        }                                                                                                              \
     } while (0)
 
 class RFDETRIntegrationTest : public ::testing::Test {
