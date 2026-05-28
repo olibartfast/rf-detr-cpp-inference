@@ -4,9 +4,11 @@ Follow the procedure listed at https://rfdetr.roboflow.com/learn/deploy/
 ## Requirements
 
 > [!IMPORTANT]
-> - Python version: **3.11 or lower** (onnxsim currently requires Python <= 3.11)
+> - Python version: **3.10+** (upstream `rfdetr` 1.7.0; Python 3.11 venv still recommended here)
 > - Starting with RF-DETR 1.6.0, the export extra was renamed: use `pip install rfdetr[onnx]`
-> - **Tested version**: `rfdetr[onnx]==1.6.5.post0`
+> - **Tested version**: `rfdetr[onnx]==1.7.0`
+> - Starting with RF-DETR 1.7.0, ONNX exports use variant filenames (e.g. `rfdetr-medium.onnx`, `rfdetr-seg-medium.onnx`) instead of the generic `inference_model.onnx`
+> - The `simplify` export flag is deprecated in 1.7.0 and ignored by `model.export()`
 
 ### Setup Virtual Environment
 
@@ -23,7 +25,7 @@ python3.11 -m venv rfdetr_venv
 source rfdetr_venv/bin/activate
 
 # Install RF-DETR with export dependencies (tested version)
-pip install rfdetr[onnx]==1.6.5.post0
+pip install rfdetr[onnx]==1.7.0
 ```
 
 ---
@@ -46,7 +48,7 @@ model.export()
 - `dets`: Bounding boxes `[batch, num_queries, 4]` in cxcywh format (normalized)
 - `labels`: Class logits `[batch, num_queries, num_classes]`
 
-This command saves the ONNX model to the `output` directory.
+This command saves the ONNX model to the `output` directory as `rfdetr-medium.onnx` (filename includes the model variant).
 
 ---
 
@@ -59,14 +61,14 @@ For instance segmentation, use the sized `RFDETRSeg*` model classes or the provi
 #### Using Python Script
 
 ```bash
-python deploy/export_segmentation.py --model_type medium --simplify --input_size 432
+python deploy/export_segmentation.py --model_type medium --input_size 432
 ```
 
 **Available Options:**
 - `--model_type`: Model type: `nano`, `small`, `medium`, `large`, `xlarge`, `2xlarge` (default: medium)
 - `--output_dir`: Path to save exported model (default: current directory)
 - `--opset_version`: ONNX opset version (default: 17)
-- `--simplify`: Simplify ONNX model using onnxsim
+- `--simplify`: Deprecated in rfdetr 1.7.0; ignored by `model.export()`
 - `--batch_size`: Batch size for export (default: 1)
 - `--input_size`: Input image size (default: 640)
 
@@ -79,7 +81,6 @@ model = RFDETRSegMedium(pretrain_weights=<CHECKPOINT_PATH>)
 
 model.export(
     opset_version=17,
-    simplify=True,
     batch_size=1
 )
 ```
@@ -89,7 +90,10 @@ model.export(
 - `labels`: Class logits `[batch, num_queries, num_classes]`
 - `masks`: Segmentation masks `[batch, num_queries, mask_h, mask_w]` (e.g., 108x108)
 
-This command saves the ONNX segmentation model to the `output` directory.
+This command saves the ONNX segmentation model to the `output` directory as `rfdetr-seg-medium.onnx`.
+
+> [!NOTE]
+> Re-export models with rfdetr 1.7.0 before building TensorRT engines. Upstream fixed ONNX/TRT dynamic-batch inference (#950) — older exports may bake in the trace batch size and fail TRT reshape at smaller batch sizes.
 
 ---
 

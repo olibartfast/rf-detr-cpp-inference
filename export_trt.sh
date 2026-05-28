@@ -5,10 +5,10 @@ docker run --rm -it --gpus=all \
     --ipc=host \
     --ulimit memlock=-1 \
     --ulimit stack=67108864 \
-    -v $HOME/Downloads/inference_model.onnx:/workspace/inference_model.onnx \
+    -v $HOME/Downloads/rfdetr-medium.onnx:/workspace/model.onnx \
     -w /workspace \
     nvcr.io/nvidia/tensorrt:${NGC_TAG_VERSION}-py3 \
-    /bin/bash -cx "trtexec --onnx=inference_model.onnx \
+    /bin/bash -cx "trtexec --onnx=model.onnx \
                             --saveEngine=/exports/model.engine \
                             --memPoolSize=workspace:4096 \
                             --fp16 \

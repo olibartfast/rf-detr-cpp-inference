@@ -1,7 +1,7 @@
 # TensorRT Backend Dockerfile for RF-DETR C++ Inference
 # This builds the inference application with TensorRT backend for GPU acceleration
 
-FROM nvcr.io/nvidia/tensorrt:25.09-py3
+FROM nvcr.io/nvidia/tensorrt:25.12-py3
 
 # Set working directory
 WORKDIR /workspace
@@ -40,10 +40,10 @@ CMD ["--help"]
 # Build: docker build -f Dockerfile.tensorrt -t rfdetr-tensorrt .
 # Run detection:
 #   docker run --gpus all -v $(pwd)/data:/data -v $(pwd)/exports:/exports rfdetr-tensorrt \
-#     /exports/model.onnx /data/image.jpg /data/coco-labels-91.txt
+#     /exports/rfdetr-medium.onnx /data/image.jpg /data/coco-labels-91.txt
 # Run segmentation:
 #   docker run --gpus all -v $(pwd)/data:/data -v $(pwd)/exports:/exports rfdetr-tensorrt \
-#     /exports/model.onnx /data/image.jpg /data/coco-labels-91.txt --segmentation
+#     /exports/rfdetr-seg-medium.onnx /data/image.jpg /data/coco-labels-91.txt --segmentation
 # Use pre-built engine:
 #   docker run --gpus all -v $(pwd)/data:/data -v $(pwd)/exports:/exports rfdetr-tensorrt \
 #     /exports/model.engine /data/image.jpg /data/coco-labels-91.txt --segmentation
