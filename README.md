@@ -59,7 +59,7 @@ This project supports both RF-DETR detection and segmentation models from Robofl
 
 2. **Download the ONNX Model**:
    - Follow instructions in the [export documentation](docs/export.md) to export models in ONNX format.
-   - **Tested with**: `rfdetr[onnx]==1.7.0` (Python 3.10+; 3.11 venv recommended)
+   - **Tested with**: `rfdetr[onnx]==1.8.0` (Python 3.10+; 3.11 venv recommended)
    - **Detection models**: Export with standard configuration (outputs: `dets`, `labels`)
    - **Segmentation models**: Export with segmentation configuration (outputs: `dets`, `labels`, `masks`)
    - Place the model (e.g., `rfdetr-medium.onnx` or `rfdetr-seg-medium.onnx`) in a chosen directory.
@@ -277,6 +277,12 @@ After building the project, run the inference application:
 ./build/inference_app /path/to/model.onnx /path/to/image.jpg /path/to/coco-labels-91.txt --segmentation
 ```
 
+#### Keypoint Detection
+
+```bash
+./build/inference_app /path/to/model.onnx /path/to/image.jpg /path/to/coco-labels-91.txt --keypoint
+```
+
 #### Video Processing
 
 ```bash
@@ -379,6 +385,11 @@ Use `--display` to open a live preview window (press ESC to quit early).
 - **dets**: `float32[batch, num_queries, 4]` - Bounding boxes in `cxcywh` format (normalized)
 - **labels**: `float32[batch, num_queries, num_classes]` - Class logits
 - **masks**: `float32[batch, num_queries, mask_h, mask_w]` - Segmentation masks (e.g., 108x108)
+
+#### Keypoint Model
+- **dets**: `float32[batch, num_queries, 4]` - Bounding boxes in `cxcywh` format (normalized)
+- **labels**: `float32[batch, num_queries, num_classes+1]` - Class logits (index 0 = background)
+- **keypoints**: `float32[batch, num_queries, C*K_max, 8]` - Keypoints (8 channels per keypoint)
 
 ### Processing Pipeline
 
