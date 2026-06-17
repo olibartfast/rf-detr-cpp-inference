@@ -446,6 +446,295 @@ TEST(BoundedQueue, PoisonPill) {
     EXPECT_EQ(q.pop(), rfdetr::video::kPoisonPill);
 }
 
+// ============================================================================
+// Keypoint postprocessing tests
+// ============================================================================
+
+class KeypointPostprocessTest : public ::testing::Test {
+  protected:
+    void SetUp() override { labels_file_ = std::make_unique<TempLabelFile>("person\nbicycle\ncar\n"); }
+
+    std::unique_ptr<RFDETRInference> make_inference(std::vector<std::vector<float>> output_data,
+                                                    std::vector<std::vector<int64_t>> output_shapes,
+                                                    float threshold = 0.5f, int resolution = 560) {
+        Config config;
+        config.resolution = resolution;
+        config.threshold = threshold;
+        config.model_type = ModelType::KEYPOINT;
+
+        // RFDETRKeypointPreview: background has 0 keypoints, person has 17 COCO keypoints.
+        config.keypoint_counts = {0, 17};
+
+        auto backend = std::make_unique<MockBackend>();
+        backend->set_outputs(std::move(output_data), std::move(output_shapes));
+
+        auto inference = std::make_unique<RFDETRInference>(std::move(backend), labels_file_->path(), config);
+
+        const auto res = static_cast<size_t>(resolution);
+        std::vector<float> dummy_input(3 * res * res, 0.0f);
+        inference->run_inference(dummy_input);
+
+        return inference;
+    }
+
+    std::unique_ptr<TempLabelFile> labels_file_;
+};
+
+TEST_F(KeypointPostprocessTest, ThreeOutputsRequired) {
+    // Only 2 outputs should fail validation for KEYPOINT
+    const int num_dets = 1;
+    const int num_classes = 92; // background + 91 COCO classes
+
+    std::vector<float> dets_data(static_cast<size_t>(num_dets * 4), 0.5f);
+    std::vector<float> labels_data(static_cast<size_t>(num_dets * num_classes), -10.0f);
+
+    auto inference =
+        make_inference({dets_data, labels_data}, {{1, num_dets, 4}, {1, num_dets, num_classes}}, 0.5f, 560);
+
+    std::vector<float> scores;
+    std::vector<int> class_ids;
+    std::vector<std::vector<float>> boxes;
+    std::vector<std::vector<KeypointResult>> keypoints;
+
+    // With MockBackend, run_inference only caches what was set — so 2 outputs won't throw
+    // But postprocess_keypoint_outputs should throw for < 3 outputs
+    EXPECT_THROW(inference->postprocess_keypoint_outputs(1.0f, 1.0f, 100, 200, scores, class_ids, boxes, keypoints),
+                 std::runtime_error);
+}
+
+TEST_F(KeypointPostprocessTest, ClassSelectionAndBboxDecode) {
+    // 1 query, 92 classes (background + 91 COCO classes), keypoints shape [1, 1, 34, 8]
+    // 34 = 2 keypoint classes * 17 padded slots
+    const int num_dets = 1;
+    const int num_classes = 92;
+    const int num_kp_channels = 272;
+
+    // Detection at center (0.5, 0.5), size (0.2, 0.1), resolution=100
+    std::vector<float> dets_data = {0.5f, 0.5f, 0.2f, 0.1f};
+
+    // Labels: high score at class index 1 (person), low elsewhere
+    std::vector<float> labels_data(static_cast<size_t>(num_dets * num_classes), -10.0f);
+    labels_data[1] = 10.0f; // class index 1 → class_id 0 = "person"
+
+    // Keypoints: [batch=1, num_dets=1, slots=34] = 2 keypoint classes * 17 padded slots
+    std::vector<float> kp_data(static_cast<size_t>(num_dets * num_kp_channels), 0.0f);
+    // Set first keypoint at normalized image coordinate (0.25, 0.5) -> (50, 50)
+    // orig_w=200, orig_h=100
+    kp_data[136] = 0.25f; // normalized x
+    kp_data[137] = 0.5f;  // normalized y
+    kp_data[138] = 10.0f; // findability logit → sigmoid ≈ 1.0
+    kp_data[139] = 10.0f; // visibility logit → sigmoid ≈ 1.0
+
+    auto inference = make_inference({dets_data, labels_data, kp_data},
+                                    {{1, num_dets, 4}, {1, num_dets, num_classes}, {1, num_dets, 34, 8}}, 0.5f, 100);
+
+    std::vector<float> scores;
+    std::vector<int> class_ids;
+    std::vector<std::vector<float>> boxes;
+    std::vector<std::vector<KeypointResult>> keypoints;
+
+    inference->postprocess_keypoint_outputs(1.0f, 1.0f, 100, 200, scores, class_ids, boxes, keypoints);
+
+    ASSERT_EQ(scores.size(), 1u);
+    EXPECT_EQ(class_ids[0], 0); // "person"
+    EXPECT_GT(scores[0], 0.0f); // Still positive after uncertainty fusion
+
+    // Bbox: cx=50, cy=50, w=20, h=10 → xyxy=(40, 45, 60, 55), scale=1.0
+    ASSERT_EQ(boxes.size(), 1u);
+    EXPECT_NEAR(boxes[0][0], 40.0f, 0.01f);
+    EXPECT_NEAR(boxes[0][1], 45.0f, 0.01f);
+    EXPECT_NEAR(boxes[0][2], 60.0f, 0.01f);
+    EXPECT_NEAR(boxes[0][3], 55.0f, 0.01f);
+
+    // Keypoints
+    ASSERT_EQ(keypoints.size(), 1u);
+    ASSERT_EQ(keypoints[0].size(), 17u); // COCO person keypoints
+
+    // First keypoint: x=0.25*200=50, y=0.5*100=50
+    EXPECT_NEAR(keypoints[0][0].x, 50.0f, 0.01f);
+    EXPECT_NEAR(keypoints[0][0].y, 50.0f, 0.01f);
+    EXPECT_NEAR(keypoints[0][0].findability, 1.0f, 1e-4f);
+    EXPECT_NEAR(keypoints[0][0].visibility, 1.0f, 1e-4f);
+}
+
+TEST_F(KeypointPostprocessTest, KeypointCoordinateDecode) {
+    // One query, class 1 (person), normalized image-relative coordinate
+    const int num_dets = 1;
+    const int num_classes = 92;
+
+    // Box at normalized (0.3, 0.4) with size (0.4, 0.2), resolution=100
+    // cx=30, cy=40, w=40, h=20
+    std::vector<float> dets_data = {0.3f, 0.4f, 0.4f, 0.2f};
+
+    std::vector<float> labels_data(static_cast<size_t>(num_dets * num_classes), -10.0f);
+    labels_data[1] = 10.0f;
+
+    // Keypoint at normalized image coordinate (0.2, 0.3)
+    // kp_x = 0.2 * 200 = 40, kp_y = 0.3 * 100 = 30
+    std::vector<float> kp_data(static_cast<size_t>(num_dets * 272), 0.0f);
+    kp_data[136] = 0.2f;
+    kp_data[137] = 0.3f;
+    kp_data[138] = 5.0f; // findability logit
+    kp_data[139] = 5.0f; // visibility logit
+
+    auto inference = make_inference({dets_data, labels_data, kp_data},
+                                    {{1, num_dets, 4}, {1, num_dets, num_classes}, {1, num_dets, 34, 8}}, 0.5f, 100);
+
+    std::vector<float> scores;
+    std::vector<int> class_ids;
+    std::vector<std::vector<float>> boxes;
+    std::vector<std::vector<KeypointResult>> keypoints;
+
+    inference->postprocess_keypoint_outputs(1.0f, 1.0f, 100, 200, scores, class_ids, boxes, keypoints);
+
+    ASSERT_EQ(keypoints.size(), 1u);
+    ASSERT_GE(keypoints[0].size(), 1u);
+    EXPECT_NEAR(keypoints[0][0].x, 40.0f, 0.01f);
+    EXPECT_NEAR(keypoints[0][0].y, 30.0f, 0.01f);
+}
+
+TEST_F(KeypointPostprocessTest, ScaleApplied) {
+    // Test that scale_w/scale_h are applied properly
+    const int num_dets = 1;
+    const int num_classes = 92;
+
+    // Box at (0.5, 0.5), size (0.2, 0.1), res=100 → cx=50, cy=50, w=20, h=10
+    std::vector<float> dets_data = {0.5f, 0.5f, 0.2f, 0.1f};
+
+    std::vector<float> labels_data(static_cast<size_t>(num_dets * num_classes), -10.0f);
+    labels_data[1] = 10.0f;
+
+    // Keypoint at normalized image coordinate (0.5, 0.5). scale_w/scale_h are ignored for image-relative keypoints.
+    std::vector<float> kp_data(static_cast<size_t>(num_dets * 272), 0.0f);
+    kp_data[136] = 0.5f;
+    kp_data[137] = 0.5f;
+    kp_data[138] = 5.0f;
+    kp_data[139] = 5.0f;
+
+    auto inference = make_inference({dets_data, labels_data, kp_data},
+                                    {{1, num_dets, 4}, {1, num_dets, num_classes}, {1, num_dets, 34, 8}}, 0.5f, 100);
+
+    std::vector<float> scores;
+    std::vector<int> class_ids;
+    std::vector<std::vector<float>> boxes;
+    std::vector<std::vector<KeypointResult>> keypoints;
+
+    // scale_w=2.0, scale_h=3.0, orig image size 200x300
+    inference->postprocess_keypoint_outputs(2.0f, 3.0f, 300, 200, scores, class_ids, boxes, keypoints);
+
+    ASSERT_GE(keypoints.size(), 1u);
+    ASSERT_GE(keypoints[0].size(), 1u);
+    EXPECT_NEAR(keypoints[0][0].x, 100.0f, 0.01f); // 0.5 * 200
+    EXPECT_NEAR(keypoints[0][0].y, 150.0f, 0.01f); // 0.5 * 300
+}
+
+TEST_F(KeypointPostprocessTest, NoDetectionsBelowThreshold) {
+    const int num_dets = 1;
+    const int num_classes = 92;
+
+    std::vector<float> dets_data = {0.5f, 0.5f, 0.2f, 0.1f};
+    std::vector<float> labels_data(static_cast<size_t>(num_dets * num_classes), -20.0f); // all low
+    std::vector<float> kp_data(static_cast<size_t>(num_dets * 272), 0.0f);
+
+    auto inference = make_inference({dets_data, labels_data, kp_data},
+                                    {{1, num_dets, 4}, {1, num_dets, num_classes}, {1, num_dets, 34, 8}}, 0.5f, 100);
+
+    std::vector<float> scores;
+    std::vector<int> class_ids;
+    std::vector<std::vector<float>> boxes;
+    std::vector<std::vector<KeypointResult>> keypoints;
+
+    inference->postprocess_keypoint_outputs(1.0f, 1.0f, 100, 200, scores, class_ids, boxes, keypoints);
+
+    EXPECT_TRUE(scores.empty());
+    EXPECT_TRUE(class_ids.empty());
+    EXPECT_TRUE(boxes.empty());
+    EXPECT_TRUE(keypoints.empty());
+}
+
+TEST_F(KeypointPostprocessTest, CholeskyToCovariance) {
+    // Test precision Cholesky → pixel covariance math
+    const int num_dets = 1;
+    const int num_classes = 92;
+
+    std::vector<float> dets_data = {0.5f, 0.5f, 0.2f, 0.1f};
+
+    std::vector<float> labels_data(static_cast<size_t>(num_dets * num_classes), -10.0f);
+    labels_data[1] = 10.0f;
+
+    // Set Cholesky params: log_l11 = log(2.0), l21 = 0.5, log_l22 = log(3.0)
+    // L = [[2, 0], [0.5, 3]]
+    // precision = L @ L^T = [[4, 1], [1, 9.25]]
+    // cov = inv(precision) = 1/(4*9.25 - 1) * [[9.25, -1], [-1, 4]]
+    //   = 1/36 * [[9.25, -1], [-1, 4]] = [[0.2569..., -0.02778...], [-0.02778..., 0.1111...]]
+    // Scale by pixel_scale = img_w * img_h
+    std::vector<float> kp_data(static_cast<size_t>(num_dets * 272), 0.0f);
+    kp_data[136] = 0.25f;
+    kp_data[137] = 0.5f;
+    kp_data[138] = 5.0f;
+    kp_data[139] = 5.0f;
+    kp_data[140] = std::log(2.0f); // log_l11
+    kp_data[141] = 0.5f;           // l21
+    kp_data[142] = std::log(3.0f); // log_l22
+
+    auto inference = make_inference({dets_data, labels_data, kp_data},
+                                    {{1, num_dets, 4}, {1, num_dets, num_classes}, {1, num_dets, 34, 8}}, 0.5f, 100);
+
+    std::vector<float> scores;
+    std::vector<int> class_ids;
+    std::vector<std::vector<float>> boxes;
+    std::vector<std::vector<KeypointResult>> keypoints;
+
+    // orig_w=200, orig_h=100
+    inference->postprocess_keypoint_outputs(1.0f, 1.0f, 100, 200, scores, class_ids, boxes, keypoints);
+
+    ASSERT_GE(keypoints.size(), 1u);
+    ASSERT_GE(keypoints[0].size(), 1u);
+
+    const auto &kpr = keypoints[0][0];
+    const float width = 200.0f;
+    const float height = 100.0f;
+
+    // Expected covariance (normalized): [[9.25, -1], [-1, 4]] / 36
+    // scaled by diag(width, height) on both sides
+    const float det = 4.0f * 9.25f - 1.0f;
+    const float inv_det = 1.0f / det;
+    const float expected_cov00 = inv_det * 9.25f * width * width;
+    const float expected_cov01 = inv_det * (-1.0f) * width * height;
+    const float expected_cov11 = inv_det * 4.0f * height * height;
+
+    EXPECT_NEAR(kpr.cov[0], expected_cov00, expected_cov00 * 1e-5f);
+    EXPECT_NEAR(kpr.cov[1], expected_cov01, std::abs(expected_cov01) * 1e-5f);
+    EXPECT_NEAR(kpr.cov[2], expected_cov01, std::abs(expected_cov01) * 1e-5f); // symmetric
+    EXPECT_NEAR(kpr.cov[3], expected_cov11, expected_cov11 * 1e-5f);
+}
+
+TEST_F(KeypointPostprocessTest, BackgroundColumnIgnored) {
+    // Logit column 0 is background; column 1 maps to the first label.
+    const int num_dets = 1;
+    const int num_classes = 4;
+
+    std::vector<float> dets_data = {0.5f, 0.5f, 0.2f, 0.1f};
+
+    // High score only in the background column should be ignored.
+    std::vector<float> labels_data = {10.0f, -10.0f, -10.0f, -10.0f};
+
+    std::vector<float> kp_data(static_cast<size_t>(num_dets * 272), 0.0f);
+
+    auto inference = make_inference({dets_data, labels_data, kp_data},
+                                    {{1, num_dets, 4}, {1, num_dets, num_classes}, {1, num_dets, 34, 8}}, 0.5f, 100);
+
+    std::vector<float> scores;
+    std::vector<int> class_ids;
+    std::vector<std::vector<float>> boxes;
+    std::vector<std::vector<KeypointResult>> keypoints;
+
+    inference->postprocess_keypoint_outputs(1.0f, 1.0f, 100, 200, scores, class_ids, boxes, keypoints);
+
+    // Background maps to class_id -1 and is skipped.
+    EXPECT_TRUE(scores.empty());
+}
+
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
