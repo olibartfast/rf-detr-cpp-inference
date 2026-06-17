@@ -30,8 +30,10 @@ Tracks upstream `rfdetr` version changes that affect this C++ inference project.
 | `deploy/export_detection.py` | Removed `--simplify` arg and deprecation warnings. |
 | `deploy/export_segmentation.py` | Same as detection export script. |
 | `docs/export.md` | Version bumps 1.7.0→1.8.0. Removed `--simplify` from options table. Removed TRT re-export note (1.7.0-specific). |
-| `README.md` | Version bump, keypoint usage examples. |
+| `README.md` | Version bump, keypoint usage examples, keypoint model in ONNX download section. |
 | `tests/integration/integration_test_rfdetr_inference.cpp` | Skip message 1.7.0→1.8.0. |
+| `.github/workflows/ci.yml` | Add `develop` branch to push/PR triggers. |
+| `README.md` | CI section updated to reflect `develop` branch. |
 
 ### Why
 
