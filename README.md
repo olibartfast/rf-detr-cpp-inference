@@ -3,6 +3,7 @@
 [![C++](https://img.shields.io/badge/language-C++20-blue.svg)](https://en.cppreference.com/w/cpp)
 [![CMake](https://img.shields.io/badge/build%20system-CMake-blue.svg)](https://cmake.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](https://github.com/olibartfast/rf-detr-cpp-inference/releases/tag/v0.2.0)
 
 C++ project for performing object detection and instance segmentation inference using the RF-DETR model with **multiple inference backends** (ONNX Runtime and TensorRT) and OpenCV. Supports both single-image and **multi-threaded video processing** via a zero-copy ring buffer pipeline.
 
