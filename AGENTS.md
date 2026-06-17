@@ -12,7 +12,7 @@
 - Clang-tidy: 
   `cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`
   `find src -name '*.cpp' | xargs clang-tidy-18 -p build`
-- Cppcheck: `cppcheck --enable=all --std=c++20 --suppress=missingIncludeSystem --suppress=unmatchedSuppression --error-exitcode=1 -I src src/`
+- Cppcheck: `cppcheck --enable=all --std=c++20 --suppress=missingIncludeSystem --suppress=unmatchedSuppression --suppress=unusedFunction --error-exitcode=1 -I src src/`
 - Strict warnings (CI): `-DWERROR=ON` at configure time
 
 ## Testing

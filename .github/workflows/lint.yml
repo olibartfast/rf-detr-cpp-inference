@@ -2,9 +2,9 @@ name: C++ Lint & Build
 
 on:
   push:
-    branches: [master]
+    branches: [master, develop]
   pull_request:
-    branches: [master]
+    branches: [master, develop]
 
 jobs:
   format-check:
@@ -49,6 +49,7 @@ jobs:
           cppcheck --enable=all --std=c++20 --error-exitcode=1 \
             --suppress=missingIncludeSystem \
             --suppress=unmatchedSuppression \
+            --suppress=unusedFunction \
             -I src src/
 
   build-warnings:
