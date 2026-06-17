@@ -20,11 +20,14 @@ bool is_video_file(const std::filesystem::path &path) {
 int main(int argc, const char *argv[]) {
     if (argc < 4) {
         std::cerr << "Usage: " << argv[0]
-                  << " <path_to_model> <path_to_image_or_video> <path_to_coco_labels> [--segmentation] [--display]"
+                  << " <path_to_model> <path_to_image_or_video> <path_to_coco_labels> [--segmentation|--keypoint] "
+                     "[--threshold <val>] [--display]"
                   << std::endl;
         std::cerr << "Examples:" << std::endl;
         std::cerr << "  Detection:    " << argv[0] << " ./model.onnx ./image.jpg ./coco_labels.txt" << std::endl;
         std::cerr << "  Segmentation: " << argv[0] << " ./model.onnx ./image.jpg ./coco_labels.txt --segmentation"
+                  << std::endl;
+        std::cerr << "  Keypoint:     " << argv[0] << " ./model.onnx ./image.jpg ./coco_labels.txt --keypoint"
                   << std::endl;
         std::cerr << "  Video:        " << argv[0] << " ./model.onnx ./video.mp4 ./coco_labels.txt" << std::endl;
         std::cerr << "  Video+display:" << argv[0] << " ./model.onnx ./video.mp4 ./coco_labels.txt --display"
@@ -41,22 +44,35 @@ int main(int argc, const char *argv[]) {
 
     // Parse optional arguments
     bool use_segmentation = false;
+    bool use_keypoint = false;
     bool display = false;
+    float threshold = -1.0f; // -1 = use Config default
 
     for (int i = 4; i < argc; ++i) {
         if (std::strcmp(argv[i], "--segmentation") == 0) {
             use_segmentation = true;
+        } else if (std::strcmp(argv[i], "--keypoint") == 0) {
+            use_keypoint = true;
         } else if (std::strcmp(argv[i], "--display") == 0) {
             display = true;
+        } else if (std::strcmp(argv[i], "--threshold") == 0 && i + 1 < argc) {
+            threshold = std::stof(argv[++i]);
         }
     }
 
     try {
         Config config;
         config.resolution = 0; // 0 = auto-detect from model
-        config.model_type = use_segmentation ? ModelType::SEGMENTATION : ModelType::DETECTION;
+        if (use_keypoint) {
+            config.model_type = ModelType::KEYPOINT;
+        } else {
+            config.model_type = use_segmentation ? ModelType::SEGMENTATION : ModelType::DETECTION;
+        }
         config.max_detections = 300;
         config.mask_threshold = 0.0F;
+        if (threshold >= 0.0f) {
+            config.threshold = threshold;
+        }
 
         if (is_video_file(input_path)) {
             // --- Video pipeline ---
@@ -90,10 +106,14 @@ int main(int argc, const char *argv[]) {
             std::vector<int> class_ids;
             std::vector<std::vector<float>> boxes;
             std::vector<cv::Mat> masks;
+            std::vector<std::vector<KeypointResult>> keypoints;
             const float scale_w = static_cast<float>(orig_w) / static_cast<float>(inference.get_resolution());
             const float scale_h = static_cast<float>(orig_h) / static_cast<float>(inference.get_resolution());
 
-            if (use_segmentation) {
+            if (use_keypoint) {
+                inference.postprocess_keypoint_outputs(scale_w, scale_h, orig_h, orig_w, scores, class_ids, boxes,
+                                                       keypoints);
+            } else if (use_segmentation) {
                 inference.postprocess_segmentation_outputs(scale_w, scale_h, orig_h, orig_w, scores, class_ids, boxes,
                                                            masks);
             } else {
@@ -105,7 +125,9 @@ int main(int argc, const char *argv[]) {
                 throw std::runtime_error("Could not load image for drawing: " + input_path.string());
             }
 
-            if (use_segmentation) {
+            if (use_keypoint) {
+                inference.draw_keypoints(image, boxes, class_ids, scores, keypoints);
+            } else if (use_segmentation) {
                 inference.draw_segmentation_masks(image, boxes, class_ids, scores, masks);
             } else {
                 inference.draw_detections(image, boxes, class_ids, scores);
@@ -118,15 +140,27 @@ int main(int argc, const char *argv[]) {
                 throw std::runtime_error("Could not save output image to " + output_path.string());
             }
 
-            std::cout << "\n--- " << (use_segmentation ? "Segmentation" : "Detection") << " Results ---" << std::endl;
+            const std::string result_type =
+                use_keypoint ? "Keypoint" : (use_segmentation ? "Segmentation" : "Detection");
+            std::cout << "\n--- " << result_type << " Results ---" << std::endl;
             std::cout << "Found " << boxes.size() << " " << (use_segmentation ? "instances" : "detections")
                       << " above threshold " << config.threshold << std::endl;
             for (size_t i = 0; i < boxes.size(); ++i) {
                 std::cout << (use_segmentation ? "Instance " : "Detection ") << i << ":" << std::endl;
                 std::cout << "  Box: [" << boxes[i][0] << ", " << boxes[i][1] << ", " << boxes[i][2] << ", "
                           << boxes[i][3] << "]" << std::endl;
-                std::cout << "  Class: " << inference.get_coco_labels()[static_cast<size_t>(class_ids[i])]
-                          << " (Score: " << scores[i] << ")" << std::endl;
+                std::cout << "  Class: " << inference.get_label_name(class_ids[i]) << " (Score: " << scores[i] << ")"
+                          << std::endl;
+                if (use_keypoint && i < keypoints.size()) {
+                    std::cout << "  Keypoints: " << keypoints[i].size() << std::endl;
+                    for (size_t k = 0; k < keypoints[i].size(); ++k) {
+                        const auto &kp = keypoints[i][k];
+                        std::string kp_name =
+                            (k < config.keypoint_names.size()) ? config.keypoint_names[k] : std::to_string(k);
+                        std::cout << "    " << kp_name << " (" << kp.x << ", " << kp.y
+                                  << ") findability=" << kp.findability << " visibility=" << kp.visibility << std::endl;
+                    }
+                }
                 if (use_segmentation && i < masks.size()) {
                     const int mask_pixels = cv::countNonZero(masks[i]);
                     std::cout << "  Mask pixels: " << mask_pixels << std::endl;
