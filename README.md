@@ -62,6 +62,7 @@ This project supports both RF-DETR detection and segmentation models from Robofl
    - **Tested with**: `rfdetr[onnx]==1.8.0` (Python 3.10+; 3.11 venv recommended)
    - **Detection models**: Export with standard configuration (outputs: `dets`, `labels`)
    - **Segmentation models**: Export with segmentation configuration (outputs: `dets`, `labels`, `masks`)
+   - **Keypoint models**: Export with keypoint configuration (outputs: `dets`, `labels`, `keypoints`)
    - Place the model (e.g., `rfdetr-medium.onnx` or `rfdetr-seg-medium.onnx`) in a chosen directory.
 
 3. **Prepare the COCO Labels**:
@@ -453,7 +454,7 @@ cmake --build build --target benchmarks --parallel
 
 ### CI
 
-Two GitHub Actions workflows run on every push/PR to `master`:
+Two GitHub Actions workflows run on every push/PR to `master` and `develop`:
 
 | Workflow | File | What it does |
 |----------|------|-------------|
