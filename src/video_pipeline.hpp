@@ -26,7 +26,8 @@ struct FrameSlot {
     std::vector<float> scores;
     std::vector<int> class_ids;
     std::vector<std::vector<float>> boxes;
-    std::vector<cv::Mat> masks; // segmentation only
+    std::vector<cv::Mat> masks;                         // segmentation only
+    std::vector<std::vector<KeypointResult>> keypoints; // keypoint only
     size_t frame_number{0};
 
     void allocate(int resolution) {
@@ -39,6 +40,7 @@ struct FrameSlot {
         class_ids.clear();
         boxes.clear();
         masks.clear();
+        keypoints.clear();
     }
 };
 

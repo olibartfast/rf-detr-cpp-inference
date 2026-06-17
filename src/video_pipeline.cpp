@@ -104,7 +104,7 @@ void draw_segmentation_on_frame(cv::Mat &image, std::span<const std::vector<floa
                     cv::Scalar(255, 255, 255), thickness);
     }
 
-    cv::addWeighted(overlay, alpha, image, 1.0f - alpha, 0, image);
+    cv::addWeighted(overlay, static_cast<double>(alpha), image, static_cast<double>(1.0f - alpha), 0, image);
 }
 
 } // anonymous namespace
@@ -213,6 +213,11 @@ void VideoPipeline::infer_postprocess_stage() {
         if (config_.inference_config.model_type == ModelType::SEGMENTATION) {
             inference.postprocess_segmentation_outputs(scale_w, scale_h, slot.orig_h, slot.orig_w, slot.scores,
                                                        slot.class_ids, slot.boxes, slot.masks);
+        } else if (config_.inference_config.model_type == ModelType::KEYPOINT) {
+            inference.postprocess_keypoint_outputs(scale_w, scale_h, slot.orig_h, slot.orig_w, slot.scores,
+                                                   slot.class_ids, slot.boxes, slot.keypoints);
+            // Draw keypoints on the frame (needs the inference object for get_label_name + config)
+            inference.draw_keypoints(slot.raw_frame, slot.boxes, slot.class_ids, slot.scores, slot.keypoints);
         } else {
             inference.postprocess_outputs(scale_w, scale_h, slot.scores, slot.class_ids, slot.boxes);
         }
@@ -248,6 +253,8 @@ void VideoPipeline::draw_write_stage() {
 
         if (config_.inference_config.model_type == ModelType::SEGMENTATION) {
             draw_segmentation_on_frame(slot.raw_frame, slot.boxes, slot.class_ids, slot.scores, slot.masks, labels_);
+        } else if (config_.inference_config.model_type == ModelType::KEYPOINT) {
+            // Drawing was already done in infer_postprocess_stage (needs RFDETRInference::draw_keypoints)
         } else {
             draw_on_frame(slot.raw_frame, slot.boxes, slot.class_ids, slot.scores, labels_);
         }
