@@ -4,6 +4,41 @@ Tracks upstream `rfdetr` version changes that affect this C++ inference project.
 
 ---
 
+## v0.2.0
+
+**Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.8.0
+
+### Added
+
+| File | Change |
+|------|--------|
+| `deploy/export_keypoint.py` | **New.** Keypoint model export script using `RFDETRKeypointPreview`. |
+| `src/rfdetr_inference.hpp` | `ModelType::KEYPOINT`, `KeypointResult` struct, keypoint Config fields (`keypoint_counts`, `skeleton`, `keypoint_uncertainty_alpha`, `draw_uncertainty`, `keypoint_color`). Declarations for `postprocess_keypoint_outputs()`, `draw_keypoints()`, `get_label_name()`. |
+| `src/rfdetr_inference.cpp` | Keypoint postprocessing pipeline: 3-output validation, background-offset class mapping, per-query class selection, bbox decode, image-relative keypoint coordinate decode, sigmoid findability/visibility, Precision Cholesky → pixel covariance, uncertainty-weighted score fusion. `draw_keypoints()`: boxes + labels, keypoint circles (radius ∝ findability), skeleton lines, optional uncertainty ellipses. `get_label_name()` helper. |
+| `src/main.cpp` | `--keypoint` CLI flag, dispatch to keypoint postprocessing and drawing. Keypoint result output (coordinates, findability, visibility per keypoint). |
+| `src/video_pipeline.hpp` | `keypoints` field in `FrameSlot`. |
+| `src/video_pipeline.cpp` | `draw_keypoint_on_frame()` helper. KEYPOINT dispatch in `infer_postprocess_stage()` and `draw_write_stage()`. |
+| `tests/unit/test_rfdetr_inference.cpp` | 7 keypoint postprocessing unit tests: 3-output validation, class selection + bbox decode, keypoint coordinate decode, scale factor application, no-detection threshold, Cholesky→covariance math, background column skipping. |
+| `tests/integration/integration_test_rfdetr_inference.cpp` | Keypoint E2E integration test with `RFDETR_KEYPOINT_MODEL` env var. |
+| `docs/export.md` | Keypoint model export section. |
+
+### Changed
+
+| File | Change |
+|------|--------|
+| `deploy/requirements.txt` | `rfdetr[onnx]` 1.7.0 → 1.8.0 |
+| `deploy/export_detection.py` | Removed `--simplify` arg and deprecation warnings. |
+| `deploy/export_segmentation.py` | Same as detection export script. |
+| `docs/export.md` | Version bumps 1.7.0→1.8.0. Removed `--simplify` from options table. Removed TRT re-export note (1.7.0-specific). |
+| `README.md` | Version bump, keypoint usage examples. |
+| `tests/integration/integration_test_rfdetr_inference.cpp` | Skip message 1.7.0→1.8.0. |
+
+### Why
+
+RF-DETR 1.8.0 introduces keypoint detection models via `RFDETRKeypointPreview`. The `--simplify` flag (deprecated since 1.7.0) is removed entirely in this release.
+
+---
+
 ## v0.1.3
 
 **Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.7.0

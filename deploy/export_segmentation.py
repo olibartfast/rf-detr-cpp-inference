@@ -16,7 +16,6 @@ The RFDETRSeg* classes handle the export internally and output:
 """
 
 import argparse
-import warnings
 
 
 def expected_onnx_filename(model_type: str) -> str:
@@ -32,8 +31,6 @@ def main():
                         help='Path to save exported model (default: current directory)')
     parser.add_argument('--opset_version', default=17, type=int,
                         help='ONNX opset version (default: 17)')
-    parser.add_argument('--simplify', action='store_true',
-                        help='Deprecated in rfdetr 1.7.0; ignored by model.export()')
     parser.add_argument('--batch_size', default=1, type=int,
                         help='Batch size for export (default: 1)')
     parser.add_argument('--input_size', default=640, type=int,
@@ -78,13 +75,6 @@ def main():
     else:
         raise ValueError(f"Unsupported model type: {args.model_type}")
 
-    if args.simplify:
-        warnings.warn(
-            "--simplify is deprecated in rfdetr 1.7.0 and ignored by model.export()",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
     # Build export kwargs from arguments
     export_kwargs = {
         'opset_version': args.opset_version,
@@ -95,13 +85,14 @@ def main():
     if args.output_dir:
         export_kwargs['output_dir'] = args.output_dir
 
+    if args.input_size is not None:
+        export_kwargs['shape'] = (args.input_size, args.input_size)
+
     # Export using the model's built-in export method
     print("\n[2/2] Exporting to ONNX format...")
     print(f"  - Batch size: {args.batch_size}")
     print(f"  - Input size: {args.input_size}x{args.input_size}")
     print(f"  - ONNX opset: {args.opset_version}")
-    if args.simplify:
-        print("  - Simplify: requested (deprecated, ignored in rfdetr 1.7.0)")
 
     model.export(**export_kwargs)
 

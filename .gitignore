@@ -1,6 +1,4 @@
 build
-build-san
-build-bench
 output
 *.pt
 *.pth
@@ -9,3 +7,4 @@ output
 __pycache__
 .venv
 rfdetr_venv
+build-*

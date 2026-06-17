@@ -4,11 +4,12 @@ Follow the procedure listed at https://rfdetr.roboflow.com/learn/deploy/
 ## Requirements
 
 > [!IMPORTANT]
-> - Python version: **3.10+** (upstream `rfdetr` 1.7.0; Python 3.11 venv still recommended here)
+> - Python version: **3.10+** (upstream `rfdetr` 1.8.0; Python 3.11 venv still recommended here)
 > - Starting with RF-DETR 1.6.0, the export extra was renamed: use `pip install rfdetr[onnx]`
-> - **Tested version**: `rfdetr[onnx]==1.7.0`
+> - **Tested version**: `rfdetr[onnx]==1.8.0`
 > - Starting with RF-DETR 1.7.0, ONNX exports use variant filenames (e.g. `rfdetr-medium.onnx`, `rfdetr-seg-medium.onnx`) instead of the generic `inference_model.onnx`
-> - The `simplify` export flag is deprecated in 1.7.0 and ignored by `model.export()`
+> - The `--simplify` flag was removed in 1.8.0 (already deprecated in 1.7.0). Export scripts no longer accept it.
+> - RF-DETR 1.8.0 adds keypoint model export support via `RFDETRKeypointPreview`.
 
 ### Setup Virtual Environment
 
@@ -25,7 +26,7 @@ python3.11 -m venv rfdetr_venv
 source rfdetr_venv/bin/activate
 
 # Install RF-DETR with export dependencies (tested version)
-pip install rfdetr[onnx]==1.7.0
+pip install rfdetr[onnx]==1.8.0
 ```
 
 ---
@@ -68,7 +69,6 @@ python deploy/export_segmentation.py --model_type medium --input_size 432
 - `--model_type`: Model type: `nano`, `small`, `medium`, `large`, `xlarge`, `2xlarge` (default: medium)
 - `--output_dir`: Path to save exported model (default: current directory)
 - `--opset_version`: ONNX opset version (default: 17)
-- `--simplify`: Deprecated in rfdetr 1.7.0; ignored by `model.export()`
 - `--batch_size`: Batch size for export (default: 1)
 - `--input_size`: Input image size (default: 640)
 
@@ -92,8 +92,34 @@ model.export(
 
 This command saves the ONNX segmentation model to the `output` directory as `rfdetr-seg-medium.onnx`.
 
+---
+
+## Keypoint Model Export
+
+### ONNX Export for Keypoint Detection
+
+RF-DETR 1.8.0 adds keypoint detection via `RFDETRKeypointPreview`. Export with the provided script:
+
+```bash
+python deploy/export_keypoint.py
+```
+
+**Available Options:**
+- `--output_dir`: Path to save exported model (default: `output`)
+- `--opset_version`: ONNX opset version (default: 17)
+- `--batch_size`: Batch size for export (default: 1)
+- `--input_size`: Input image size (default: 576, model resolution). Must be divisible by 24 (`patch_size=12` × `num_windows=2`).
+- `--device`: Device for export, e.g. `cpu` or `cuda` (default: RF-DETR auto)
+
+**Model Outputs:**
+- `dets`: Bounding boxes `[batch, num_queries, 4]` in cxcywh format (normalized)
+- `labels`: Class logits `[batch, num_queries, num_keypoint_classes]` (preview model: 2 classes for COCO person)
+- `keypoints`: Keypoints `[batch, num_queries, C*K_max, 8]` where C = keypoint classes, K_max = max keypoints per class
+
+This command saves the ONNX keypoint model to the `output` directory as `rfdetr-keypoint-preview.onnx`. The export script also writes a compatibility copy as `rfdetr-keypoint.onnx`.
+
 > [!NOTE]
-> Re-export models with rfdetr 1.7.0 before building TensorRT engines. Upstream fixed ONNX/TRT dynamic-batch inference (#950) — older exports may bake in the trace batch size and fail TRT reshape at smaller batch sizes.
+> `RFDETRKeypointPreview` is a Preview API — tensor layout may change in future releases.
 
 ---
 
