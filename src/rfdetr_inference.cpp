@@ -559,10 +559,9 @@ void RFDETRInference::postprocess_keypoint_outputs(float scale_w, float scale_h,
         // Step h: Uncertainty-weighted score fusion
         float final_score = best_score;
         if (config_.keypoint_uncertainty_alpha > 0.0f && !kp_results.empty()) {
-            float trace_sum = 0.0f;
-            for (const auto &kpr : kp_results) {
-                trace_sum += kpr.cov[0] + kpr.cov[3]; // sum of diagonal
-            }
+            const float trace_sum =
+                std::accumulate(kp_results.begin(), kp_results.end(), 0.0f,
+                                [](float sum, const KeypointResult &kpr) { return sum + kpr.cov[0] + kpr.cov[3]; });
             const float avg_trace = trace_sum / static_cast<float>(kp_results.size());
             if (avg_trace > 0.0f) {
                 const float penalty = config_.keypoint_uncertainty_alpha * std::log(avg_trace);
