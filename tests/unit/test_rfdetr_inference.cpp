@@ -99,6 +99,46 @@ TEST(ScaleBox, Scaling) {
 }
 
 // ============================================================================
+// ClampBox tests
+// ============================================================================
+
+TEST(ClampBox, PreservesInBoundsBox) {
+    rfdetr::processing::BoundingBox box{10.0f, 20.0f, 30.0f, 40.0f};
+    auto clamped = rfdetr::processing::clamp_box(box, 100.0f, 100.0f);
+    EXPECT_FLOAT_EQ(clamped.x_min, 10.0f);
+    EXPECT_FLOAT_EQ(clamped.y_min, 20.0f);
+    EXPECT_FLOAT_EQ(clamped.x_max, 30.0f);
+    EXPECT_FLOAT_EQ(clamped.y_max, 40.0f);
+}
+
+TEST(ClampBox, ClampsNegativeToZero) {
+    rfdetr::processing::BoundingBox box{-5.0f, -10.0f, 30.0f, 40.0f};
+    auto clamped = rfdetr::processing::clamp_box(box, 100.0f, 100.0f);
+    EXPECT_FLOAT_EQ(clamped.x_min, 0.0f);
+    EXPECT_FLOAT_EQ(clamped.y_min, 0.0f);
+    EXPECT_FLOAT_EQ(clamped.x_max, 30.0f);
+    EXPECT_FLOAT_EQ(clamped.y_max, 40.0f);
+}
+
+TEST(ClampBox, ClampsOverflowToMax) {
+    rfdetr::processing::BoundingBox box{10.0f, 20.0f, 150.0f, 200.0f};
+    auto clamped = rfdetr::processing::clamp_box(box, 100.0f, 120.0f);
+    EXPECT_FLOAT_EQ(clamped.x_min, 10.0f);
+    EXPECT_FLOAT_EQ(clamped.y_min, 20.0f);
+    EXPECT_FLOAT_EQ(clamped.x_max, 100.0f);
+    EXPECT_FLOAT_EQ(clamped.y_max, 120.0f);
+}
+
+TEST(ClampBox, ClampsWidthAndHeightIndependently) {
+    rfdetr::processing::BoundingBox box{-1.0f, -1.0f, 200.0f, 80.0f};
+    auto clamped = rfdetr::processing::clamp_box(box, 160.0f, 90.0f);
+    EXPECT_FLOAT_EQ(clamped.x_min, 0.0f);
+    EXPECT_FLOAT_EQ(clamped.y_min, 0.0f);
+    EXPECT_FLOAT_EQ(clamped.x_max, 160.0f);
+    EXPECT_FLOAT_EQ(clamped.y_max, 80.0f);
+}
+
+// ============================================================================
 // GetColorForClass tests
 // ============================================================================
 
@@ -345,6 +385,43 @@ TEST_F(PostprocessTest, EmptyResults) {
     EXPECT_TRUE(scores.empty());
     EXPECT_TRUE(class_ids.empty());
     EXPECT_TRUE(boxes.empty());
+}
+
+TEST_F(PostprocessTest, BoxesClampedToImageBounds) {
+    // resolution=100, scale_w=scale_h=1.0 -> clamp bounds = [0, 100] x [0, 100]
+    const int num_dets = 2;
+    const int num_classes = 6;
+    const int resolution = 100;
+
+    // det 0: center (0.05, 0.05), size (0.3, 0.3) -> xyxy=(-10,-10,20,20) before clamp
+    // det 1: center (0.95, 0.95), size (0.3, 0.3) -> xyxy=(80,80,110,110) before clamp
+    std::vector<float> dets_data = {
+        0.05f, 0.05f, 0.3f, 0.3f, 0.95f, 0.95f, 0.3f, 0.3f,
+    };
+
+    std::vector<float> labels_data(static_cast<size_t>(num_dets * num_classes), -10.0f);
+    labels_data[1] = 10.0f;               // det 0, class index 1
+    labels_data[1 + num_classes] = 10.0f; // det 1, class index 1
+
+    auto inference =
+        make_inference({dets_data, labels_data}, {{1, num_dets, 4}, {1, num_dets, num_classes}}, 0.5f, resolution);
+
+    std::vector<float> scores;
+    std::vector<int> class_ids;
+    std::vector<std::vector<float>> boxes;
+    inference->postprocess_outputs(1.0f, 1.0f, scores, class_ids, boxes);
+
+    ASSERT_EQ(boxes.size(), 2u);
+    // det 0: negative x_min/y_min clamped to 0
+    EXPECT_NEAR(boxes[0][0], 0.0f, 0.01f);
+    EXPECT_NEAR(boxes[0][1], 0.0f, 0.01f);
+    EXPECT_NEAR(boxes[0][2], 20.0f, 0.01f);
+    EXPECT_NEAR(boxes[0][3], 20.0f, 0.01f);
+    // det 1: overflowing x_max/y_max clamped to 100
+    EXPECT_NEAR(boxes[1][0], 80.0f, 0.01f);
+    EXPECT_NEAR(boxes[1][1], 80.0f, 0.01f);
+    EXPECT_NEAR(boxes[1][2], 100.0f, 0.01f);
+    EXPECT_NEAR(boxes[1][3], 100.0f, 0.01f);
 }
 
 // ============================================================================
