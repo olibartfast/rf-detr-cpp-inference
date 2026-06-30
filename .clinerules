@@ -1,0 +1,5 @@
+# Cline / Roo Code Rules
+
+Canonical project instructions live in AGENTS.md (repo root).
+Read AGENTS.md before editing — it defines build, test, lint, sanitizer,
+and usage commands for rf-detr-cpp-inference.

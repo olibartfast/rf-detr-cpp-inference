@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /workspace
 COPY . .
 
-RUN cmake -S . -B build -G Ninja \
+RUN rm -rf build && cmake -S . -B build -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER=/usr/bin/clang-18 \
     -DCMAKE_CXX_COMPILER=/usr/bin/clang++-18 \
