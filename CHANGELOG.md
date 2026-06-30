@@ -4,6 +4,25 @@ Tracks upstream `rfdetr` version changes that affect this C++ inference project.
 
 ---
 
+## v0.2.1
+
+**Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.8.3 (partial backport)
+
+### Fixed
+
+| File | Change |
+|------|--------|
+| `src/processing_utils.hpp` | New `clamp_box()` declaration. |
+| `src/processing_utils.cpp` | Implement `clamp_box()` using `std::clamp` to constrain boxes to `[0, max_w] x [0, max_h]`. |
+| `src/rfdetr_inference.cpp` | Apply `clamp_box()` after `scale_box()` in detection, segmentation, and keypoint postprocess paths. |
+| `tests/unit/test_rfdetr_inference.cpp` | 4 `ClampBox` unit tests + 1 end-to-end `PostprocessTest.BoxesClampedToImageBounds` test. |
+
+### Why
+
+Ports the box-clamping fix from upstream rf-detr v1.8.3 (`PostProcess._postprocess_boxes()`, #1168). Predicted boxes are now guaranteed within `[0,width] x [0,height]`, so objects at image edges no longer produce negative `x1/y1` or out-of-frame `x2/y2` coordinates. Partial backport: the fp16 `scale_fct` dtype-cast is N/A in C++; training/export-side 1.8.3 changes do not affect postprocessing, so no model re-export is required.
+
+---
+
 ## v0.2.0
 
 **Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.8.0
