@@ -132,6 +132,8 @@ void RFDETRInference::postprocess_outputs(float scale_w, float scale_h, std::vec
     const auto num_detections = static_cast<size_t>(dets_shape[1]);
     const auto num_classes = static_cast<size_t>(labels_shape[2]);
     const auto res = static_cast<float>(config_.resolution);
+    const auto max_w = scale_w * res;
+    const auto max_h = scale_h * res;
 
     for (size_t i = 0; i < num_detections; ++i) {
         const size_t det_offset = i * static_cast<size_t>(dets_shape[2]);
@@ -159,8 +161,9 @@ void RFDETRInference::postprocess_outputs(float scale_w, float scale_h, std::vec
 
             auto xyxy = rfdetr::processing::cxcywh_to_xyxy(cx, cy, w, h);
             auto scaled = rfdetr::processing::scale_box(xyxy, scale_w, scale_h);
+            auto clamped = rfdetr::processing::clamp_box(scaled, max_w, max_h);
 
-            std::vector<float> box = {scaled.x_min, scaled.y_min, scaled.x_max, scaled.y_max};
+            std::vector<float> box = {clamped.x_min, clamped.y_min, clamped.x_max, clamped.y_max};
 
             scores.push_back(max_score);
             class_ids.push_back(max_class_idx);
@@ -244,8 +247,9 @@ void RFDETRInference::postprocess_segmentation_outputs(float scale_w, float scal
 
         auto xyxy = rfdetr::processing::cxcywh_to_xyxy(cx, cy, w, h);
         auto scaled = rfdetr::processing::scale_box(xyxy, scale_w, scale_h);
+        auto clamped = rfdetr::processing::clamp_box(scaled, static_cast<float>(orig_w), static_cast<float>(orig_h));
 
-        std::vector<float> box = {scaled.x_min, scaled.y_min, scaled.x_max, scaled.y_max};
+        std::vector<float> box = {clamped.x_min, clamped.y_min, clamped.x_max, clamped.y_max};
 
         // Get mask for this detection and resize to original image size
         const size_t mask_offset = detection_idx * mask_h * mask_w;
@@ -480,8 +484,9 @@ void RFDETRInference::postprocess_keypoint_outputs(float scale_w, float scale_h,
 
         auto xyxy = rfdetr::processing::cxcywh_to_xyxy(cx, cy, w, h);
         auto scaled = rfdetr::processing::scale_box(xyxy, scale_w, scale_h);
+        auto clamped = rfdetr::processing::clamp_box(scaled, static_cast<float>(orig_w), static_cast<float>(orig_h));
 
-        std::vector<float> box = {scaled.x_min, scaled.y_min, scaled.x_max, scaled.y_max};
+        std::vector<float> box = {clamped.x_min, clamped.y_min, clamped.x_max, clamped.y_max};
 
         std::vector<KeypointResult> kp_results;
         size_t selected_kp_class = default_kp_class;

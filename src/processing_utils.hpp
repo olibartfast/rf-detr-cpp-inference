@@ -28,6 +28,9 @@ struct BoundingBox {
 /// Scale a bounding box by independent width/height factors
 [[nodiscard]] BoundingBox scale_box(const BoundingBox &box, float scale_w, float scale_h) noexcept;
 
+/// Clamp a bounding box to image bounds [0, max_w] x [0, max_h]
+[[nodiscard]] BoundingBox clamp_box(const BoundingBox &box, float max_w, float max_h) noexcept;
+
 /// Deterministic color for a class ID (golden-angle hue distribution)
 [[nodiscard]] cv::Scalar get_color_for_class(int class_id) noexcept;
 

@@ -1,5 +1,6 @@
 #include "processing_utils.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <opencv2/imgproc.hpp>
@@ -25,6 +26,11 @@ BoundingBox cxcywh_to_xyxy(float cx, float cy, float w, float h) noexcept {
 
 BoundingBox scale_box(const BoundingBox &box, float scale_w, float scale_h) noexcept {
     return {box.x_min * scale_w, box.y_min * scale_h, box.x_max * scale_w, box.y_max * scale_h};
+}
+
+BoundingBox clamp_box(const BoundingBox &box, float max_w, float max_h) noexcept {
+    return {std::clamp(box.x_min, 0.0f, max_w), std::clamp(box.y_min, 0.0f, max_h), std::clamp(box.x_max, 0.0f, max_w),
+            std::clamp(box.y_max, 0.0f, max_h)};
 }
 
 cv::Scalar get_color_for_class(int class_id) noexcept {
