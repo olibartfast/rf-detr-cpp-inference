@@ -9,7 +9,7 @@ namespace {
 void warn_once(bool &flag, const std::string &msg) {
     if (!flag) {
         flag = true;
-        std::cerr << "warning: " << msg << std::endl;
+        std::cerr << "warning: " << msg << '\n';
     }
 }
 

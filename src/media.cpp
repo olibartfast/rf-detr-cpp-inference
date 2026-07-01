@@ -5,15 +5,18 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <font8x8_basic.h>
 #include <stdexcept>
 #include <string>
 
+// clang-format off: the STB *_IMPLEMENTATION macros must each immediately
+// precede their corresponding header so the implementation is emitted exactly
+// once in this TU.
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include <stb_image.h>
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image_write.h"
-
-#include <font8x8_basic.h>
+#include <stb_image_write.h>
+// clang-format on
 
 namespace rfdetr::media {
 namespace {

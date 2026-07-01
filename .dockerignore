@@ -1,7 +1,15 @@
-build/
+build*/
 build-san/
 output/
 output_detection/
+data/*.mp4
+data/*.avi
+data/*.mov
+data/*.mkv
+data/*.webm
+output_image.jpg
+output_video.mp4
+rfdetr_venv/
 *.pth
 *.pt
 .clang-format
