@@ -30,9 +30,14 @@ C++ project for performing object detection, instance segmentation, and keypoint
 ### Required (All Backends)
 - **C++20 Compiler**: Clang 15+ or GCC 12+ (e.g., `clang++-15` or `g++-12`)
 - **CMake**: Version 3.12 or higher
-- **OpenCV**: Version 4.x (modules: core, imgproc, imgcodecs, videoio, highgui)
+- **FFmpeg** (libavcodec/libavformat/libavutil/libswscale): 5.x+ for video decode/encode
+- **SDL2**: 2.x for the optional `--display` live preview window
 - **Google Test**: Version 1.12.1 (automatically fetched during build)
 - **Ninja**: Optional but recommended (`sudo apt-get install ninja-build`)
+
+> Image I/O uses the vendored [stb](third_party/stb) single-header libraries
+> and an 8x8 bitmap font ([third_party/font8x8](third_party/font8x8)) for
+> annotations — no OpenCV dependency is required.
 
 ### Python / Pip Packages (Export Tooling)
 - **RF-DETR export package**: `rfdetr[onnx]==1.8.3` from `deploy/requirements.txt`
@@ -96,8 +101,11 @@ sudo apt-get install -y cmake
 sudo apt-get install -y clang-15
 # or use the system default gcc (no install needed if already present)
 
-# OpenCV (the full -dev package is needed for CMake integration):
-sudo apt-get install -y libopencv-dev
+# FFmpeg development libraries (video decode/encode) + pkg-config:
+sudo apt-get install -y pkg-config libavcodec-dev libavformat-dev libavutil-dev libswscale-dev
+
+# SDL2 (optional — only needed for the --display live preview window):
+sudo apt-get install -y libsdl2-dev
 
 # Optional (faster incremental builds):
 sudo apt-get install -y ninja-build
@@ -361,12 +369,13 @@ Video files are processed using a **four-stage ring buffer pipeline** that maxim
                  +-------------------------+
                  |                         |
                  v                         |
-+--------+ idx  +-----------+ idx  +------++ idx  +------+
-| Decode | ---> | Preprocess| ---> | Infer| ----> | Draw |
-+--------+      +-----------+      +------+       +------+
- VideoCapture    resize+norm        run model      annotate +
- into slot       into slot.tensor   postprocess    VideoWriter
- .raw_frame      (pre-allocated)    into slot.*    + optional imshow
+ +--------+ idx  +-----------+ idx  +------++ idx  +------+
+ | Decode | ---> | Preprocess| ---> | Infer| ----> | Draw |
+ +--------+      +-----------+      +------+       +------+
+  FFmpeg          resize+norm        run model      annotate +
+  demux+decode    into slot.tensor   postprocess    FFmpeg encode
+  into slot       (pre-allocated)    into slot.*    + optional SDL2
+  .raw_frame                                        preview
 ```
 
 - **4 `std::jthread`s** run concurrently, one per stage

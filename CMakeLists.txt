@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.12)
-project(rfdetr_inference CXX)
+project(rfdetr_inference CXX C)
 
 # Set C++ standard to C++20
 set(CMAKE_CXX_STANDARD 20)
@@ -208,14 +208,15 @@ if(USE_TENSORRT)
     message(STATUS "CUDA runtime library: ${CUDA_RUNTIME_LIBRARY}")
 endif()
 
-# --- Find OpenCV ---
-find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs videoio highgui)
+# --- Find FFmpeg + SDL2 (via pkg-config) ---
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavcodec libavformat libavutil libswscale)
+pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
 find_package(Threads REQUIRED)
-if(NOT OpenCV_FOUND)
-    message(FATAL_ERROR "OpenCV not found. Install via: sudo apt-get install libopencv-dev")
-endif()
-message(STATUS "OpenCV include directories: ${OpenCV_INCLUDE_DIRS}")
-message(STATUS "OpenCV libraries: ${OpenCV_LIBS}")
+message(STATUS "FFmpeg include: ${FFMPEG_INCLUDE_DIRS}")
+message(STATUS "FFmpeg libs: ${FFMPEG_LIBRARIES}")
+message(STATUS "SDL2 include: ${SDL2_INCLUDE_DIRS}")
+message(STATUS "SDL2 libs: ${SDL2_LIBRARIES}")
 
 # --- Fetch Google Test ---
 include(FetchContent)
@@ -230,6 +231,7 @@ FetchContent_MakeAvailable(googletest)
 set(SOURCE_DIR "${CMAKE_SOURCE_DIR}/src")
 set(TEST_DIR "${CMAKE_SOURCE_DIR}/tests")
 set(DATA_DIR "${CMAKE_SOURCE_DIR}/data")
+set(THIRD_PARTY_DIR "${CMAKE_SOURCE_DIR}/third_party")
 
 # Create the data directory if it doesn't exist
 file(MAKE_DIRECTORY "${DATA_DIR}")
@@ -238,8 +240,13 @@ file(MAKE_DIRECTORY "${DATA_DIR}")
 set(RFDETR_SOURCES
     "${SOURCE_DIR}/rfdetr_inference.cpp"
     "${SOURCE_DIR}/processing_utils.cpp"
+    "${SOURCE_DIR}/media.cpp"
+    "${SOURCE_DIR}/video_reader.cpp"
+    "${SOURCE_DIR}/video_writer.cpp"
+    "${SOURCE_DIR}/display.cpp"
     "${SOURCE_DIR}/video_pipeline.cpp"
     "${SOURCE_DIR}/backends/inference_backend.cpp"
+    "${THIRD_PARTY_DIR}/font8x8/font8x8_basic.c"
 )
 
 # Add backend-specific sources
@@ -259,10 +266,11 @@ target_include_directories(rfdetr_inference_lib
         "${SOURCE_DIR}"
 )
 
-# Third-party includes as SYSTEM to suppress warnings from their headers
+# Third-party vendored headers (stb, font8x8) as SYSTEM to suppress warnings
 target_include_directories(rfdetr_inference_lib SYSTEM
     PUBLIC
-        "${OpenCV_INCLUDE_DIRS}"
+        "${THIRD_PARTY_DIR}/stb"
+        "${THIRD_PARTY_DIR}/font8x8"
 )
 
 # Add backend-specific includes and compile definitions
@@ -279,7 +287,8 @@ endif()
 # Link libraries
 target_link_libraries(rfdetr_inference_lib
     PUBLIC
-        "${OpenCV_LIBS}"
+        PkgConfig::FFMPEG
+        PkgConfig::SDL2
         Threads::Threads
 )
 

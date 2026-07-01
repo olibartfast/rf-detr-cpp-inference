@@ -105,7 +105,7 @@ int main(int argc, const char *argv[]) {
             std::vector<float> scores;
             std::vector<int> class_ids;
             std::vector<std::vector<float>> boxes;
-            std::vector<cv::Mat> masks;
+            std::vector<rfdetr::media::Mask> masks;
             std::vector<std::vector<KeypointResult>> keypoints;
             const float scale_w = static_cast<float>(orig_w) / static_cast<float>(inference.get_resolution());
             const float scale_h = static_cast<float>(orig_h) / static_cast<float>(inference.get_resolution());
@@ -120,7 +120,7 @@ int main(int argc, const char *argv[]) {
                 inference.postprocess_outputs(scale_w, scale_h, scores, class_ids, boxes);
             }
 
-            cv::Mat image = cv::imread(input_path.string(), cv::IMREAD_COLOR);
+            rfdetr::media::Image image = rfdetr::media::load_image(input_path);
             if (image.empty()) {
                 throw std::runtime_error("Could not load image for drawing: " + input_path.string());
             }
@@ -162,7 +162,7 @@ int main(int argc, const char *argv[]) {
                     }
                 }
                 if (use_segmentation && i < masks.size()) {
-                    const int mask_pixels = cv::countNonZero(masks[i]);
+                    const auto mask_pixels = rfdetr::media::count_nonzero(masks[i]);
                     std::cout << "  Mask pixels: " << mask_pixels << std::endl;
                 }
             }
