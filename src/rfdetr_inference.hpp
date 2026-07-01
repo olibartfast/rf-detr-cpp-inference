@@ -1,9 +1,9 @@
 #pragma once
 #include "backends/inference_backend.hpp"
+#include "media.hpp"
 
 #include <filesystem>
 #include <memory>
-#include <opencv2/opencv.hpp>
 #include <optional>
 #include <span>
 #include <string>
@@ -14,15 +14,6 @@ using rfdetr::backend::create_backend;
 using rfdetr::backend::InferenceBackend;
 
 enum class ModelType { DETECTION, SEGMENTATION, KEYPOINT };
-
-/// A single detected keypoint with associated metadata.
-struct KeypointResult {
-    float x;           ///< Pixel x-coordinate
-    float y;           ///< Pixel y-coordinate
-    float findability; ///< Sigmoid(findability_logit) — [0, 1], radius multiplier
-    float visibility;  ///< Sigmoid(visibility_logit) — [0, 1], occlusion flag
-    float cov[4];      ///< 2x2 pixel covariance matrix, row-major: [a, b, b, c]
-};
 
 struct Config {
     int resolution{560};
@@ -43,9 +34,9 @@ struct Config {
     std::vector<std::pair<int, int>> skeleton{{15, 13}, {13, 11}, {16, 14}, {14, 12}, {11, 12}, {5, 11}, {6, 12},
                                               {5, 6},   {5, 7},   {6, 8},   {7, 9},   {8, 10},  {1, 2},  {0, 1},
                                               {0, 2},   {1, 3},   {2, 4},   {3, 5},   {4, 6}};
-    float keypoint_uncertainty_alpha{0.2f}; ///< Uncertainty-weighted score fusion; 0 = disable
-    bool draw_uncertainty{false};           ///< Draw uncertainty ellipses on keypoints
-    cv::Scalar keypoint_color{0, 255, 0};   ///< Default keypoint color (green)
+    float keypoint_uncertainty_alpha{0.2f};         ///< Uncertainty-weighted score fusion; 0 = disable
+    bool draw_uncertainty{false};                   ///< Draw uncertainty ellipses on keypoints
+    rfdetr::media::Color keypoint_color{0, 255, 0}; ///< Default keypoint color (green)
 };
 
 class RFDETRInference {
@@ -62,8 +53,8 @@ class RFDETRInference {
     // Preprocess the input image (from file path)
     std::vector<float> preprocess_image(const std::filesystem::path &image_path, int &orig_h, int &orig_w);
 
-    // Preprocess the input image (from cv::Mat, avoids disk I/O for video frames)
-    std::vector<float> preprocess_image(const cv::Mat &bgr_image, int &orig_h, int &orig_w);
+    // Preprocess the input image (from an in-memory BGR image, avoids disk I/O for video frames)
+    std::vector<float> preprocess_image(const rfdetr::media::Image &bgr_image, int &orig_h, int &orig_w);
 
     // Run inference
     void run_inference(std::span<const float> input_data);
@@ -75,16 +66,17 @@ class RFDETRInference {
     // Post-process the inference outputs for segmentation
     void postprocess_segmentation_outputs(float scale_w, float scale_h, int orig_h, int orig_w,
                                           std::vector<float> &scores, std::vector<int> &class_ids,
-                                          std::vector<std::vector<float>> &boxes, std::vector<cv::Mat> &masks);
+                                          std::vector<std::vector<float>> &boxes,
+                                          std::vector<rfdetr::media::Mask> &masks);
 
     // Draw detections on the image
-    void draw_detections(cv::Mat &image, std::span<const std::vector<float>> boxes, std::span<const int> class_ids,
-                         std::span<const float> scores);
+    void draw_detections(rfdetr::media::Image &image, std::span<const std::vector<float>> boxes,
+                         std::span<const int> class_ids, std::span<const float> scores);
 
     // Draw segmentation masks on the image
-    void draw_segmentation_masks(cv::Mat &image, std::span<const std::vector<float>> boxes,
+    void draw_segmentation_masks(rfdetr::media::Image &image, std::span<const std::vector<float>> boxes,
                                  std::span<const int> class_ids, std::span<const float> scores,
-                                 std::span<const cv::Mat> masks);
+                                 std::span<const rfdetr::media::Mask> masks);
 
     // Post-process inference outputs for keypoint detection
     void postprocess_keypoint_outputs(float scale_w, float scale_h, int orig_h, int orig_w, std::vector<float> &scores,
@@ -92,11 +84,12 @@ class RFDETRInference {
                                       std::vector<std::vector<KeypointResult>> &keypoints);
 
     // Draw keypoints on the image
-    void draw_keypoints(cv::Mat &image, std::span<const std::vector<float>> boxes, std::span<const int> class_ids,
-                        std::span<const float> scores, std::span<const std::vector<KeypointResult>> keypoints);
+    void draw_keypoints(rfdetr::media::Image &image, std::span<const std::vector<float>> boxes,
+                        std::span<const int> class_ids, std::span<const float> scores,
+                        std::span<const std::vector<KeypointResult>> keypoints);
 
     // Save the output image
-    std::optional<std::filesystem::path> save_output_image(const cv::Mat &image,
+    std::optional<std::filesystem::path> save_output_image(const rfdetr::media::Image &image,
                                                            const std::filesystem::path &output_path);
 
     // Getters for testing

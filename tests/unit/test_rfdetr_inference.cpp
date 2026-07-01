@@ -143,13 +143,13 @@ TEST(ClampBox, ClampsWidthAndHeightIndependently) {
 // ============================================================================
 
 TEST(GetColorForClass, Deterministic) {
-    auto c1 = rfdetr::processing::get_color_for_class(5);
-    auto c2 = rfdetr::processing::get_color_for_class(5);
+    auto c1 = rfdetr::media::get_color_for_class(5);
+    auto c2 = rfdetr::media::get_color_for_class(5);
     EXPECT_EQ(c1, c2);
 
     // Different classes should (very likely) give different colors
-    auto c3 = rfdetr::processing::get_color_for_class(0);
-    auto c4 = rfdetr::processing::get_color_for_class(1);
+    auto c3 = rfdetr::media::get_color_for_class(0);
+    auto c4 = rfdetr::media::get_color_for_class(1);
     EXPECT_NE(c3, c4);
 }
 
@@ -212,8 +212,10 @@ TEST(LabelLoading, MissingFile) {
 TEST(Preprocess, OutputDimensions) {
     // Create a temporary test image
     auto tmp_img = std::filesystem::temp_directory_path() / "test_preprocess.jpg";
-    cv::Mat img(100, 200, CV_8UC3, cv::Scalar(128, 128, 128));
-    cv::imwrite(tmp_img.string(), img);
+    rfdetr::media::Image img;
+    img.resize(200, 100); // width=200, height=100
+    std::fill(img.bgr.begin(), img.bgr.end(), 128);
+    ASSERT_TRUE(rfdetr::media::save_image(img, tmp_img));
 
     TempLabelFile labels("person\ncar\n");
     Config config;
@@ -425,17 +427,19 @@ TEST_F(PostprocessTest, BoxesClampedToImageBounds) {
 }
 
 // ============================================================================
-// PreprocessFrame free function tests
+// preprocess_bgr_image free function tests
 // ============================================================================
 
 TEST(PreprocessFrame, OutputDimensions) {
-    cv::Mat img(100, 200, CV_8UC3, cv::Scalar(128, 128, 128));
+    rfdetr::media::Image img;
+    img.resize(200, 100); // width=200, height=100
+    std::fill(img.bgr.begin(), img.bgr.end(), 128);
     const int res = 224;
     std::vector<float> tensor(3 * 224 * 224);
     std::array<float, 3> means = {0.485f, 0.456f, 0.406f};
     std::array<float, 3> stds = {0.229f, 0.224f, 0.225f};
 
-    rfdetr::processing::preprocess_frame(img, tensor, res, means, stds);
+    rfdetr::media::preprocess_bgr_image(img, tensor, res, means, stds);
 
     for (float v : tensor) {
         EXPECT_TRUE(std::isfinite(v));
@@ -443,11 +447,13 @@ TEST(PreprocessFrame, OutputDimensions) {
 }
 
 // ============================================================================
-// cv::Mat preprocess overload tests
+// Image preprocess overload tests
 // ============================================================================
 
-TEST(Preprocess, MatOverload) {
-    cv::Mat img(100, 200, CV_8UC3, cv::Scalar(128, 128, 128));
+TEST(Preprocess, ImageOverload) {
+    rfdetr::media::Image img;
+    img.resize(200, 100); // width=200, height=100
+    std::fill(img.bgr.begin(), img.bgr.end(), 128);
     TempLabelFile labels("person\ncar\n");
     Config config;
     config.resolution = 224;
@@ -465,7 +471,7 @@ TEST(Preprocess, MatOverload) {
     EXPECT_EQ(data.size(), static_cast<size_t>(3 * 224 * 224));
 }
 
-TEST(Preprocess, MatOverloadEmptyImage) {
+TEST(Preprocess, ImageOverloadEmptyImage) {
     TempLabelFile labels("person\ncar\n");
     Config config;
     config.resolution = 224;
@@ -474,7 +480,7 @@ TEST(Preprocess, MatOverloadEmptyImage) {
     backend->set_outputs({{}, {}}, {{1, 1, 4}, {1, 1, 3}});
     RFDETRInference inference(std::move(backend), labels.path(), config);
 
-    cv::Mat empty;
+    rfdetr::media::Image empty;
     int orig_h = 0;
     int orig_w = 0;
     EXPECT_THROW(inference.preprocess_image(empty, orig_h, orig_w), std::runtime_error);

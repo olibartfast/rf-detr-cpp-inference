@@ -1,10 +1,14 @@
 #include "video_pipeline.hpp"
 
-#include "processing_utils.hpp"
+#include "display.hpp"
+#include "video_reader.hpp"
+#include "video_writer.hpp"
 
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
+#include <string>
 
 namespace rfdetr::video {
 
@@ -26,85 +30,42 @@ void load_labels(const std::filesystem::path &path, std::vector<std::string> &la
     }
 }
 
-void draw_on_frame(cv::Mat &image, std::span<const std::vector<float>> boxes, std::span<const int> class_ids,
-                   std::span<const float> scores, const std::vector<std::string> &labels) {
+std::string make_label(const std::vector<std::string> &labels, int class_id, float score) {
+    const auto idx = static_cast<size_t>(class_id);
+    std::string name = (idx < labels.size()) ? labels[idx] : std::string("cls") + std::to_string(class_id);
+    name += ": ";
+    // Keep 4 chars of the score like the previous implementation ("0.50").
+    const std::string s = std::to_string(score);
+    name.append(s, 0, std::min<std::size_t>(s.size(), 4));
+    return name;
+}
+
+int choose_font_scale(int width, int height) {
+    const int min_dim = std::max(1, std::min(width, height));
+    return std::max(1, min_dim / 300);
+}
+
+void draw_on_frame(rfdetr::media::Image &image, std::span<const std::vector<float>> boxes,
+                   std::span<const int> class_ids, std::span<const float> scores,
+                   const std::vector<std::string> &labels) {
+    const int scale = choose_font_scale(image.width, image.height);
     for (size_t i = 0; i < boxes.size(); ++i) {
-        const auto &box = boxes[i];
-        const cv::Point2f top_left(box[0], box[1]);
-        const cv::Point2f bottom_right(box[2], box[3]);
-        cv::rectangle(image, top_left, bottom_right, cv::Scalar(0, 0, 255), 2);
-
-        const std::string label =
-            labels[static_cast<size_t>(class_ids[i])] + ": " + std::to_string(scores[i]).substr(0, 4);
-        int baseline = 0;
-        constexpr double font_scale = 0.5;
-        constexpr int thickness = 1;
-        const cv::Size text_size = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, font_scale, thickness, &baseline);
-        const auto text_h = static_cast<float>(text_size.height);
-        const auto text_w = static_cast<float>(text_size.width);
-
-        cv::Point2f text_pos(top_left.x, top_left.y - 5);
-        if (text_pos.y - text_h < 0) {
-            text_pos.y = top_left.y + text_h + 5;
-        }
-        if (text_pos.x + text_w > static_cast<float>(image.cols)) {
-            text_pos.x = static_cast<float>(image.cols) - text_w - 5;
-        }
-
-        constexpr int padding = 2;
-        const cv::Point2f rect_tl(text_pos.x - padding, text_pos.y - text_h - padding);
-        const cv::Point2f rect_br(text_pos.x + text_w + padding, text_pos.y + padding);
-        cv::rectangle(image, rect_tl, rect_br, cv::Scalar(0, 0, 0), cv::FILLED);
-        cv::putText(image, label, cv::Point2f(text_pos.x, text_pos.y - padding), cv::FONT_HERSHEY_SIMPLEX, font_scale,
-                    cv::Scalar(255, 255, 255), thickness);
+        const auto color = rfdetr::media::get_color_for_class(class_ids[i]);
+        rfdetr::media::draw_labeled_box(image, boxes[i], color, make_label(labels, class_ids[i], scores[i]),
+                                        {255, 255, 255}, {0, 0, 0}, 2, scale);
     }
 }
 
-void draw_segmentation_on_frame(cv::Mat &image, std::span<const std::vector<float>> boxes,
+void draw_segmentation_on_frame(rfdetr::media::Image &image, std::span<const std::vector<float>> boxes,
                                 std::span<const int> class_ids, std::span<const float> scores,
-                                std::span<const cv::Mat> masks, const std::vector<std::string> &labels) {
-    cv::Mat overlay = image.clone();
-    constexpr float alpha = 0.5f;
-
+                                std::span<const rfdetr::media::Mask> masks, const std::vector<std::string> &labels) {
+    rfdetr::media::draw_segmentation_masks(image, boxes, class_ids, masks);
+    const int scale = choose_font_scale(image.width, image.height);
     for (size_t i = 0; i < boxes.size(); ++i) {
-        const auto &box = boxes[i];
-        const cv::Scalar color = rfdetr::processing::get_color_for_class(class_ids[i]);
-
-        const cv::Mat &mask = masks[i];
-        if (mask.rows == image.rows && mask.cols == image.cols) {
-            overlay.setTo(color, mask);
-        }
-
-        const cv::Point2f top_left(box[0], box[1]);
-        const cv::Point2f bottom_right(box[2], box[3]);
-        cv::rectangle(image, top_left, bottom_right, color, 2);
-
-        const std::string label =
-            labels[static_cast<size_t>(class_ids[i])] + ": " + std::to_string(scores[i]).substr(0, 4);
-        int baseline = 0;
-        constexpr double font_scale = 0.5;
-        constexpr int thickness = 1;
-        const cv::Size text_size = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, font_scale, thickness, &baseline);
-        const auto text_h = static_cast<float>(text_size.height);
-        const auto text_w = static_cast<float>(text_size.width);
-
-        cv::Point2f text_pos(top_left.x, top_left.y - 5);
-        if (text_pos.y - text_h < 0) {
-            text_pos.y = top_left.y + text_h + 5;
-        }
-        if (text_pos.x + text_w > static_cast<float>(image.cols)) {
-            text_pos.x = static_cast<float>(image.cols) - text_w - 5;
-        }
-
-        constexpr int padding = 2;
-        const cv::Point2f rect_tl(text_pos.x - padding, text_pos.y - text_h - padding);
-        const cv::Point2f rect_br(text_pos.x + text_w + padding, text_pos.y + padding);
-        cv::rectangle(image, rect_tl, rect_br, cv::Scalar(0, 0, 0), cv::FILLED);
-        cv::putText(image, label, cv::Point2f(text_pos.x, text_pos.y - padding), cv::FONT_HERSHEY_SIMPLEX, font_scale,
-                    cv::Scalar(255, 255, 255), thickness);
+        const auto color = rfdetr::media::get_color_for_class(class_ids[i]);
+        rfdetr::media::draw_labeled_box(image, boxes[i], color, make_label(labels, class_ids[i], scores[i]),
+                                        {255, 255, 255}, {0, 0, 0}, 2, scale);
     }
-
-    cv::addWeighted(overlay, static_cast<double>(alpha), image, static_cast<double>(1.0f - alpha), 0, image);
 }
 
 } // anonymous namespace
@@ -116,6 +77,13 @@ VideoPipeline::VideoPipeline(const VideoPipelineConfig &config)
 
     load_labels(config_.label_path, labels_);
 
+    // Probe the input once so the writer/display can be sized before decode
+    // produces the first frame.
+    rfdetr::media::VideoReader probe(config_.video_path);
+    width_ = probe.width();
+    height_ = probe.height();
+    fps_ = probe.fps();
+
     for (size_t i = 0; i < slots_.size(); ++i) {
         slots_[i].allocate(config_.inference_config.resolution);
         free_slots_.push(i);
@@ -123,12 +91,14 @@ VideoPipeline::VideoPipeline(const VideoPipelineConfig &config)
 }
 
 VideoPipeline::~VideoPipeline() {
-    // Safety net: push poison pills to unblock any threads still waiting.
-    // Under normal flow, threads have already exited via the poison pill chain.
-    decode_to_preprocess_.push(kPoisonPill);
-    preprocess_to_infer_.push(kPoisonPill);
-    infer_to_draw_.push(kPoisonPill);
-    free_slots_.push(kPoisonPill);
+    // Safety net: push poison pills to unblock any threads still waiting. After
+    // a normal run() all threads are already joined, so use try_push (non-
+    // blocking) to avoid deadlocking on a queue that is now full (e.g. all
+    // recycled slots sitting in free_slots_).
+    (void)decode_to_preprocess_.try_push(kPoisonPill);
+    (void)preprocess_to_infer_.try_push(kPoisonPill);
+    (void)infer_to_draw_.try_push(kPoisonPill);
+    (void)free_slots_.try_push(kPoisonPill);
 }
 
 size_t VideoPipeline::run() {
@@ -147,10 +117,7 @@ size_t VideoPipeline::run() {
 }
 
 void VideoPipeline::decode_stage() {
-    cv::VideoCapture cap(config_.video_path.string());
-    if (!cap.isOpened()) {
-        throw std::runtime_error("Cannot open video: " + config_.video_path.string());
-    }
+    rfdetr::media::VideoReader reader(config_.video_path);
 
     size_t frame_num = 0;
     while (true) {
@@ -160,14 +127,14 @@ void VideoPipeline::decode_stage() {
         }
 
         FrameSlot &slot = slots_[slot_idx];
-        if (!cap.read(slot.raw_frame)) {
+        if (!reader.read(slot.raw_frame)) {
             free_slots_.push(slot_idx);
             decode_to_preprocess_.push(kPoisonPill);
             break;
         }
 
-        slot.orig_h = slot.raw_frame.rows;
-        slot.orig_w = slot.raw_frame.cols;
+        slot.orig_h = slot.raw_frame.height;
+        slot.orig_w = slot.raw_frame.width;
         slot.frame_number = frame_num++;
         decode_to_preprocess_.push(slot_idx);
     }
@@ -186,7 +153,7 @@ void VideoPipeline::preprocess_stage() {
         }
 
         FrameSlot &slot = slots_[slot_idx];
-        rfdetr::processing::preprocess_frame(slot.raw_frame, slot.tensor, res, means, stds);
+        rfdetr::media::preprocess_bgr_image(slot.raw_frame, slot.tensor, res, means, stds);
         preprocess_to_infer_.push(slot_idx);
     }
 }
@@ -227,12 +194,11 @@ void VideoPipeline::infer_postprocess_stage() {
 }
 
 void VideoPipeline::draw_write_stage() {
-    cv::VideoWriter writer;
-    bool writer_initialized = false;
-
-    cv::VideoCapture cap(config_.video_path.string());
-    const double fps = cap.get(cv::CAP_PROP_FPS);
-    cap.release();
+    rfdetr::media::VideoWriter writer(config_.output_path, width_, height_, fps_);
+    std::unique_ptr<rfdetr::media::Display> display;
+    if (config_.display) {
+        display = std::make_unique<rfdetr::media::Display>("RF-DETR Inference", width_, height_);
+    }
 
     while (true) {
         const size_t slot_idx = infer_to_draw_.pop();
@@ -242,39 +208,24 @@ void VideoPipeline::draw_write_stage() {
 
         FrameSlot &slot = slots_[slot_idx];
 
-        if (!writer_initialized) {
-            const int fourcc = cv::VideoWriter::fourcc('m', 'p', '4', 'v');
-            writer.open(config_.output_path.string(), fourcc, fps, cv::Size(slot.orig_w, slot.orig_h));
-            if (!writer.isOpened()) {
-                throw std::runtime_error("Cannot open video writer: " + config_.output_path.string());
-            }
-            writer_initialized = true;
-        }
-
         if (config_.inference_config.model_type == ModelType::SEGMENTATION) {
             draw_segmentation_on_frame(slot.raw_frame, slot.boxes, slot.class_ids, slot.scores, slot.masks, labels_);
-        } else if (config_.inference_config.model_type == ModelType::KEYPOINT) {
-            // Drawing was already done in infer_postprocess_stage (needs RFDETRInference::draw_keypoints)
-        } else {
+        } else if (config_.inference_config.model_type != ModelType::KEYPOINT) {
+            // Keypoint frames were already annotated in infer_postprocess_stage.
             draw_on_frame(slot.raw_frame, slot.boxes, slot.class_ids, slot.scores, labels_);
         }
 
         writer.write(slot.raw_frame);
 
-        if (config_.display) {
-            cv::imshow("RF-DETR Inference", slot.raw_frame);
-            if (cv::waitKey(1) == 27) { // ESC to quit early
+        if (display != nullptr) {
+            if (!display->show(slot.raw_frame)) {
+                free_slots_.push(slot_idx);
                 break;
             }
         }
 
         frames_processed_.fetch_add(1, std::memory_order_relaxed);
         free_slots_.push(slot_idx);
-    }
-
-    writer.release();
-    if (config_.display) {
-        cv::destroyAllWindows();
     }
 }
 

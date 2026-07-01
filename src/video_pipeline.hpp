@@ -6,7 +6,6 @@
 #include <condition_variable>
 #include <cstddef>
 #include <mutex>
-#include <opencv2/opencv.hpp>
 #include <queue>
 #include <thread>
 #include <vector>
@@ -19,14 +18,14 @@ inline constexpr size_t kPoisonPill = SIZE_MAX;
 /// Pre-allocated slot holding all per-frame data. Exactly one thread accesses
 /// a slot at any given time — ownership is transferred via queue indices.
 struct FrameSlot {
-    cv::Mat raw_frame;
+    rfdetr::media::Image raw_frame;
     int orig_h{0};
     int orig_w{0};
     std::vector<float> tensor; // pre-allocated to 3 * res * res
     std::vector<float> scores;
     std::vector<int> class_ids;
     std::vector<std::vector<float>> boxes;
-    std::vector<cv::Mat> masks;                         // segmentation only
+    std::vector<rfdetr::media::Mask> masks;             // segmentation only
     std::vector<std::vector<KeypointResult>> keypoints; // keypoint only
     size_t frame_number{0};
 
@@ -58,6 +57,20 @@ template <typename T> class BoundedQueue {
         queue_.push(std::move(value));
         lock.unlock();
         not_empty_.notify_one();
+    }
+
+    /// Non-blocking push: drops `value` and returns false if the queue is full.
+    /// Used for shutdown poison-pills where blocking would deadlock once all
+    /// consumer threads have exited.
+    bool try_push(T value) {
+        std::unique_lock lock(mutex_);
+        if (queue_.size() >= capacity_) {
+            return false;
+        }
+        queue_.push(std::move(value));
+        lock.unlock();
+        not_empty_.notify_one();
+        return true;
     }
 
     T pop() {
@@ -113,6 +126,11 @@ class VideoPipeline {
 
     VideoPipelineConfig config_;
     std::vector<std::string> labels_;
+
+    // Probed input properties (used to size the writer + display up front)
+    int width_{0};
+    int height_{0};
+    double fps_{25.0};
 
     // Ring buffer
     std::vector<FrameSlot> slots_;

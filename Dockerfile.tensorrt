@@ -11,7 +11,12 @@ RUN apt-get update && apt-get install -y \
     cmake \
     ninja-build \
     clang-15 \
-    libopencv-dev \
+    pkg-config \
+    libavcodec-dev \
+    libavformat-dev \
+    libavutil-dev \
+    libswscale-dev \
+    libsdl2-dev \
     wget \
     git \
     && rm -rf /var/lib/apt/lists/*

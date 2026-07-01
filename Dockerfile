@@ -10,7 +10,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     ninja-build \
     clang-18 \
-    libopencv-dev \
+    pkg-config \
+    libavcodec-dev \
+    libavformat-dev \
+    libavutil-dev \
+    libswscale-dev \
+    libsdl2-dev \
     wget \
     ca-certificates \
     git \
@@ -34,9 +39,12 @@ FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libopencv-core4.5d \
-    libopencv-imgproc4.5d \
-    libopencv-imgcodecs4.5d \
+    libavcodec60 \
+    libavformat60 \
+    libavutil58 \
+    libswscale7 \
+    libx264-164 \
+    libsdl2-2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /workspace/build/inference_app /usr/local/bin/inference_app
