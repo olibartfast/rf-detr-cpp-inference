@@ -71,9 +71,9 @@ void draw_segmentation_on_frame(rfdetr::media::Image &image, std::span<const std
 } // anonymous namespace
 
 VideoPipeline::VideoPipeline(const VideoPipelineConfig &config)
-    : config_(config), slots_(config.ring_buffer_size), decode_to_preprocess_(config.ring_buffer_size),
-      preprocess_to_infer_(config.ring_buffer_size), infer_to_draw_(config.ring_buffer_size),
-      free_slots_(config.ring_buffer_size) {
+    : config_(config), slots_(config.ring_buffer_size), decode_to_preprocess_(config.ring_buffer_size, kPoisonPill),
+      preprocess_to_infer_(config.ring_buffer_size, kPoisonPill), infer_to_draw_(config.ring_buffer_size, kPoisonPill),
+      free_slots_(config.ring_buffer_size, kPoisonPill) {
 
     load_labels(config_.label_path, labels_);
 
@@ -90,15 +90,14 @@ VideoPipeline::VideoPipeline(const VideoPipelineConfig &config)
     }
 }
 
-VideoPipeline::~VideoPipeline() {
-    // Safety net: push poison pills to unblock any threads still waiting. After
-    // a normal run() all threads are already joined, so use try_push (non-
-    // blocking) to avoid deadlocking on a queue that is now full (e.g. all
-    // recycled slots sitting in free_slots_).
-    (void)decode_to_preprocess_.try_push(kPoisonPill);
-    (void)preprocess_to_infer_.try_push(kPoisonPill);
-    (void)infer_to_draw_.try_push(kPoisonPill);
-    (void)free_slots_.try_push(kPoisonPill);
+VideoPipeline::~VideoPipeline() { request_shutdown(); }
+
+void VideoPipeline::request_shutdown() noexcept {
+    stop_requested_.store(true, std::memory_order_release);
+    decode_to_preprocess_.close();
+    preprocess_to_infer_.close();
+    infer_to_draw_.close();
+    free_slots_.close();
 }
 
 size_t VideoPipeline::run() {
@@ -122,7 +121,7 @@ void VideoPipeline::decode_stage() {
     size_t frame_num = 0;
     while (true) {
         const size_t slot_idx = free_slots_.pop();
-        if (slot_idx == kPoisonPill) {
+        if (slot_idx == kPoisonPill || stop_requested_.load(std::memory_order_acquire)) {
             break;
         }
 
@@ -136,6 +135,9 @@ void VideoPipeline::decode_stage() {
         slot.orig_h = slot.raw_frame.height;
         slot.orig_w = slot.raw_frame.width;
         slot.frame_number = frame_num++;
+        if (stop_requested_.load(std::memory_order_acquire)) {
+            break;
+        }
         decode_to_preprocess_.push(slot_idx);
     }
 }
@@ -147,13 +149,16 @@ void VideoPipeline::preprocess_stage() {
 
     while (true) {
         const size_t slot_idx = decode_to_preprocess_.pop();
-        if (slot_idx == kPoisonPill) {
+        if (slot_idx == kPoisonPill || stop_requested_.load(std::memory_order_acquire)) {
             preprocess_to_infer_.push(kPoisonPill);
             break;
         }
 
         FrameSlot &slot = slots_[slot_idx];
         rfdetr::media::preprocess_bgr_image(slot.raw_frame, slot.tensor, res, means, stds);
+        if (stop_requested_.load(std::memory_order_acquire)) {
+            break;
+        }
         preprocess_to_infer_.push(slot_idx);
     }
 }
@@ -164,7 +169,7 @@ void VideoPipeline::infer_postprocess_stage() {
 
     while (true) {
         const size_t slot_idx = preprocess_to_infer_.pop();
-        if (slot_idx == kPoisonPill) {
+        if (slot_idx == kPoisonPill || stop_requested_.load(std::memory_order_acquire)) {
             infer_to_draw_.push(kPoisonPill);
             break;
         }
@@ -189,6 +194,10 @@ void VideoPipeline::infer_postprocess_stage() {
             inference.postprocess_outputs(scale_w, scale_h, slot.scores, slot.class_ids, slot.boxes);
         }
 
+        if (stop_requested_.load(std::memory_order_acquire)) {
+            break;
+        }
+
         infer_to_draw_.push(slot_idx);
     }
 }
@@ -202,7 +211,7 @@ void VideoPipeline::draw_write_stage() {
 
     while (true) {
         const size_t slot_idx = infer_to_draw_.pop();
-        if (slot_idx == kPoisonPill) {
+        if (slot_idx == kPoisonPill || stop_requested_.load(std::memory_order_acquire)) {
             break;
         }
 
@@ -219,7 +228,7 @@ void VideoPipeline::draw_write_stage() {
 
         if (display != nullptr) {
             if (!display->show(slot.raw_frame)) {
-                free_slots_.push(slot_idx);
+                request_shutdown();
                 break;
             }
         }
