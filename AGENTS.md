@@ -15,6 +15,12 @@
 - Cppcheck: `cppcheck --enable=all --std=c++20 --suppress=missingIncludeSystem --suppress=unmatchedSuppression --suppress=unusedFunction --error-exitcode=1 -I src src/`
 - Strict warnings (CI): `-DWERROR=ON` at configure time
 
+## Release Documentation Sync
+- Mandatory for every release or dependency-facing patch: update `README.md` in the same change when code, build options, backend versions, Docker images, or Python export packages change.
+- Verify README dependency/version statements against `CMakeLists.txt`, `CMakePresets.json`, `deploy/requirements.txt`, `Dockerfile*`, and `docs/export.md`.
+- README must list current C++ library/runtime versions, CMake options, backend constraints, and pip packages used for export tooling.
+- If a release intentionally needs no README change, say why in `CHANGELOG.md` or the PR/release notes.
+
 ## Testing
 - Unit tests: `ctest --test-dir build --output-on-failure -R UnitTests`
 - Integration tests: `ctest --test-dir build --output-on-failure -R IntegrationTests`

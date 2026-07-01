@@ -3,9 +3,9 @@
 [![C++](https://img.shields.io/badge/language-C++20-blue.svg)](https://en.cppreference.com/w/cpp)
 [![CMake](https://img.shields.io/badge/build%20system-CMake-blue.svg)](https://cmake.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.2.1-blue.svg)](https://github.com/olibartfast/rf-detr-cpp-inference/releases/tag/v0.2.1)
+[![Version](https://img.shields.io/badge/version-0.2.2-blue.svg)](https://github.com/olibartfast/rf-detr-cpp-inference/releases/tag/v0.2.2)
 
-C++ project for performing object detection and instance segmentation inference using the RF-DETR model with **multiple inference backends** (ONNX Runtime and TensorRT) and OpenCV. Supports both single-image and **multi-threaded video processing** via a zero-copy ring buffer pipeline.
+C++ project for performing object detection, instance segmentation, and keypoint inference using the RF-DETR model with **multiple inference backends** (ONNX Runtime and TensorRT) and OpenCV. Supports both single-image and **multi-threaded video processing** via a zero-copy ring buffer pipeline.
 
 ---
 
@@ -34,6 +34,11 @@ C++ project for performing object detection and instance segmentation inference 
 - **Google Test**: Version 1.12.1 (automatically fetched during build)
 - **Ninja**: Optional but recommended (`sudo apt-get install ninja-build`)
 
+### Python / Pip Packages (Export Tooling)
+- **RF-DETR export package**: `rfdetr[onnx]==1.8.3` from `deploy/requirements.txt`
+- **Python**: 3.10+ (Python 3.11 virtual environment recommended)
+- **pre-commit**: Optional for local hooks; install with `pip install pre-commit`
+
 ### Backend-Specific Dependencies
 
 #### ONNX Runtime Backend (Default)
@@ -42,8 +47,8 @@ C++ project for performing object detection and instance segmentation inference 
 - **Acceleration**: CPU and GPU (CUDA/DirectML)
 
 #### TensorRT Backend (Optional)
-- **TensorRT**: Version 10.x or 8.x+ (automatically downloaded during build if not found)
-- **CUDA Toolkit**: Used version 13.x  - **must be installed manually**
+- **TensorRT**: Version 10.13.3.9 (automatically downloaded during build if not found)
+- **CUDA Toolkit**: Version 13.x for the bundled TensorRT 10.13.3.9 archive - **must be installed manually**
 - **Platform**: Linux with NVIDIA GPU
 - **Acceleration**: NVIDIA GPU only
 - **Note**: TensorRT libraries are automatically configured with RPATH, no LD_LIBRARY_PATH needed
@@ -60,7 +65,7 @@ This project supports both RF-DETR detection and segmentation models from Robofl
 
 2. **Download the ONNX Model**:
    - Follow instructions in the [export documentation](docs/export.md) to export models in ONNX format.
-   - **Tested with**: `rfdetr[onnx]==1.8.0` (Python 3.10+; 3.11 venv recommended)
+   - **Tested with**: `rfdetr[onnx]==1.8.3` (Python 3.10+; 3.11 venv recommended)
    - **Detection models**: Export with standard configuration (outputs: `dets`, `labels`)
    - **Segmentation models**: Export with segmentation configuration (outputs: `dets`, `labels`, `masks`)
    - **Keypoint models**: Export with keypoint configuration (outputs: `dets`, `labels`, `keypoints`)
@@ -241,7 +246,7 @@ cmake --build build --parallel
 - TensorRT 10.13.3.9 is automatically downloaded if not found
 - Libraries are configured with RPATH - no need to set `LD_LIBRARY_PATH`
 - The executable will use TensorRT for inference
-- Requires CUDA 12.x (or 11.x+) installed manually
+- Requires CUDA 13.x installed manually for the bundled TensorRT 10.13.3.9 build
 - Pre-built `.engine` or `.trt` files are loaded directly, skipping ONNX-to-TensorRT conversion
 
 ### Build Options
