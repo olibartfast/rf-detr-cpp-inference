@@ -3,17 +3,13 @@
 #include "media.hpp"
 
 #include <filesystem>
-
-extern "C" {
-#include <libavcodec/avcodec.h>
-#include <libavformat/avformat.h>
-#include <libswscale/swscale.h>
-}
+#include <memory>
 
 namespace rfdetr::media {
 
-/// FFmpeg-backed video writer: encodes BGR24 Image frames into an MP4 file
-/// (libx264 when available, otherwise MPEG-4 Part 2 fallback).
+/// Video writer: encodes BGR24 Image frames into a video file (MP4). The
+/// backend (FFmpeg or OpenCV VideoWriter) is selected at compile time via the
+/// CMake `USE_OPENCV` option.
 class VideoWriter {
   public:
     VideoWriter(const std::filesystem::path &path, int width, int height, double fps);
@@ -27,25 +23,12 @@ class VideoWriter {
     /// Encode one BGR24 frame. `frame` must match the writer's width/height.
     bool write(const Image &frame);
 
-    [[nodiscard]] int width() const noexcept { return width_; }
-    [[nodiscard]] int height() const noexcept { return height_; }
+    [[nodiscard]] int width() const noexcept;
+    [[nodiscard]] int height() const noexcept;
 
   private:
-    void open(const std::filesystem::path &path, double fps);
-    void encode_and_write(const AVFrame *frame);
-    void flush();
-
-    AVFormatContext *fmt_ctx_{nullptr};
-    AVCodecContext *enc_ctx_{nullptr};
-    AVStream *stream_{nullptr};
-    SwsContext *sws_{nullptr};
-    AVFrame *yuv_frame_{nullptr};
-    AVPacket *packet_{nullptr};
-
-    int width_{0};
-    int height_{0};
-    int64_t pts_{0};
-    bool header_written_{false};
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 } // namespace rfdetr::media

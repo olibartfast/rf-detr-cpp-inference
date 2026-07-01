@@ -9,6 +9,9 @@
 #include <stdexcept>
 #include <string>
 
+#ifdef USE_OPENCV
+#include <opencv2/imgcodecs.hpp>
+#else
 // clang-format off: the STB *_IMPLEMENTATION macros must each immediately
 // precede their corresponding header so the implementation is emitted exactly
 // once in this TU.
@@ -17,6 +20,7 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 // clang-format on
+#endif
 
 namespace rfdetr::media {
 namespace {
@@ -103,6 +107,24 @@ void draw_circle(Image &image, int cx, int cy, int radius, Color color) noexcept
 } // namespace
 
 Image load_image(const std::filesystem::path &path) {
+#ifdef USE_OPENCV
+    cv::Mat mat = cv::imread(path.string(), cv::IMREAD_COLOR); // always 3-channel BGR
+    if (mat.empty()) {
+        throw std::runtime_error("Could not load image from: " + path.string());
+    }
+
+    Image image;
+    image.resize(mat.cols, mat.rows);
+    if (mat.isContinuous()) {
+        std::memcpy(image.data(), mat.data, image.bgr.size());
+    } else {
+        for (int r = 0; r < mat.rows; ++r) {
+            std::memcpy(image.data() + static_cast<size_t>(r) * static_cast<size_t>(mat.cols) * 3, mat.ptr<uint8_t>(r),
+                        static_cast<size_t>(mat.cols) * 3);
+        }
+    }
+    return image;
+#else
     int width = 0;
     int height = 0;
     int channels = 0;
@@ -121,6 +143,7 @@ Image load_image(const std::filesystem::path &path) {
     }
     stbi_image_free(rgb);
     return image;
+#endif
 }
 
 bool save_image(const Image &image, const std::filesystem::path &path) {
@@ -128,6 +151,19 @@ bool save_image(const Image &image, const std::filesystem::path &path) {
         return false;
     }
 
+#ifdef USE_OPENCV
+    // Wrap the contiguous BGR buffer without copying.
+    cv::Mat mat(image.height, image.width, CV_8UC3, const_cast<uint8_t *>(image.data()));
+    std::string ext = path.extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(),
+                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    if (ext == ".png") {
+        const std::vector<int> params{cv::IMWRITE_PNG_COMPRESSION, 3};
+        return cv::imwrite(path.string(), mat, params);
+    }
+    const std::vector<int> params{cv::IMWRITE_JPEG_QUALITY, 95};
+    return cv::imwrite(path.string(), mat, params);
+#else
     std::vector<uint8_t> rgb(image.bgr.size());
     const size_t pixels = static_cast<size_t>(image.width) * static_cast<size_t>(image.height);
     for (size_t i = 0; i < pixels; ++i) {
@@ -143,6 +179,7 @@ bool save_image(const Image &image, const std::filesystem::path &path) {
         return stbi_write_png(path.string().c_str(), image.width, image.height, 3, rgb.data(), image.width * 3) != 0;
     }
     return stbi_write_jpg(path.string().c_str(), image.width, image.height, 3, rgb.data(), 95) != 0;
+#endif
 }
 
 size_t count_nonzero(const Mask &mask) noexcept {

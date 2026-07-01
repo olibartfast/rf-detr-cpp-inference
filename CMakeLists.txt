@@ -41,6 +41,7 @@ endif()
 # --- Backend Selection Options ---
 option(USE_ONNX_RUNTIME "Build with ONNX Runtime backend support" ON)
 option(USE_TENSORRT "Build with TensorRT backend support" OFF)
+option(USE_OPENCV "Use OpenCV for image/video/display I/O instead of FFmpeg+SDL2+stb" OFF)
 
 # Validate that at least one backend is enabled
 if(NOT USE_ONNX_RUNTIME AND NOT USE_TENSORRT)
@@ -208,15 +209,23 @@ if(USE_TENSORRT)
     message(STATUS "CUDA runtime library: ${CUDA_RUNTIME_LIBRARY}")
 endif()
 
-# --- Find FFmpeg + SDL2 (via pkg-config) ---
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavcodec libavformat libavutil libswscale)
-pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
+# --- Find media/display I/O backend (FFmpeg+SDL2 OR OpenCV) ---
+if(USE_OPENCV)
+    find_package(OpenCV REQUIRED COMPONENTS core imgcodecs imgproc videoio highgui)
+    message(STATUS "Media/display backend: OpenCV ${OpenCV_VERSION}")
+else()
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavcodec libavformat libavutil libswscale)
+    pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
+    message(STATUS "Media/display backend: FFmpeg + SDL2 + stb")
+endif()
 find_package(Threads REQUIRED)
-message(STATUS "FFmpeg include: ${FFMPEG_INCLUDE_DIRS}")
-message(STATUS "FFmpeg libs: ${FFMPEG_LIBRARIES}")
-message(STATUS "SDL2 include: ${SDL2_INCLUDE_DIRS}")
-message(STATUS "SDL2 libs: ${SDL2_LIBRARIES}")
+if(NOT USE_OPENCV)
+    message(STATUS "FFmpeg include: ${FFMPEG_INCLUDE_DIRS}")
+    message(STATUS "FFmpeg libs: ${FFMPEG_LIBRARIES}")
+    message(STATUS "SDL2 include: ${SDL2_INCLUDE_DIRS}")
+    message(STATUS "SDL2 libs: ${SDL2_LIBRARIES}")
+endif()
 
 # --- Fetch Google Test ---
 include(FetchContent)
@@ -284,13 +293,27 @@ if(USE_TENSORRT)
     target_compile_definitions(rfdetr_inference_lib PUBLIC USE_TENSORRT)
 endif()
 
+# OpenCV media/display backend (replaces FFmpeg+SDL2+stb at compile time)
+if(USE_OPENCV)
+    target_include_directories(rfdetr_inference_lib SYSTEM PUBLIC ${OpenCV_INCLUDE_DIRS})
+    target_compile_definitions(rfdetr_inference_lib PUBLIC USE_OPENCV)
+endif()
+
 # Link libraries
-target_link_libraries(rfdetr_inference_lib
-    PUBLIC
-        PkgConfig::FFMPEG
-        PkgConfig::SDL2
-        Threads::Threads
-)
+if(USE_OPENCV)
+    target_link_libraries(rfdetr_inference_lib
+        PUBLIC
+            ${OpenCV_LIBS}
+            Threads::Threads
+    )
+else()
+    target_link_libraries(rfdetr_inference_lib
+        PUBLIC
+            PkgConfig::FFMPEG
+            PkgConfig::SDL2
+            Threads::Threads
+    )
+endif()
 
 if(USE_ONNX_RUNTIME)
     target_link_libraries(rfdetr_inference_lib PUBLIC "${ONNXRUNTIME_LIBRARY}")

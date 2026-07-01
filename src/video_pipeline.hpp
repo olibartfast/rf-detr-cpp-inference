@@ -8,6 +8,7 @@
 #include <mutex>
 #include <queue>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace rfdetr::video {
@@ -46,14 +47,18 @@ struct FrameSlot {
 /// Thread-safe bounded queue. push() blocks when full; pop() blocks when empty.
 template <typename T> class BoundedQueue {
   public:
-    explicit BoundedQueue(size_t capacity) : capacity_(capacity) {}
+    explicit BoundedQueue(size_t capacity, T closed_value = T{})
+        : capacity_(capacity), closed_value_(std::move(closed_value)) {}
 
     BoundedQueue(const BoundedQueue &) = delete;
     BoundedQueue &operator=(const BoundedQueue &) = delete;
 
     void push(T value) {
         std::unique_lock lock(mutex_);
-        not_full_.wait(lock, [this] { return queue_.size() < capacity_; });
+        not_full_.wait(lock, [this] { return closed_ || queue_.size() < capacity_; });
+        if (closed_) {
+            return;
+        }
         queue_.push(std::move(value));
         lock.unlock();
         not_empty_.notify_one();
@@ -64,7 +69,7 @@ template <typename T> class BoundedQueue {
     /// consumer threads have exited.
     bool try_push(T value) {
         std::unique_lock lock(mutex_);
-        if (queue_.size() >= capacity_) {
+        if (closed_ || queue_.size() >= capacity_) {
             return false;
         }
         queue_.push(std::move(value));
@@ -75,7 +80,10 @@ template <typename T> class BoundedQueue {
 
     T pop() {
         std::unique_lock lock(mutex_);
-        not_empty_.wait(lock, [this] { return !queue_.empty(); });
+        not_empty_.wait(lock, [this] { return closed_ || !queue_.empty(); });
+        if (queue_.empty()) {
+            return closed_value_;
+        }
         T value = std::move(queue_.front());
         queue_.pop();
         lock.unlock();
@@ -83,9 +91,20 @@ template <typename T> class BoundedQueue {
         return value;
     }
 
+    void close() {
+        {
+            std::lock_guard lock(mutex_);
+            closed_ = true;
+        }
+        not_full_.notify_all();
+        not_empty_.notify_all();
+    }
+
   private:
     std::queue<T> queue_;
     size_t capacity_;
+    T closed_value_;
+    bool closed_{false};
     std::mutex mutex_;
     std::condition_variable not_full_;
     std::condition_variable not_empty_;
@@ -123,6 +142,7 @@ class VideoPipeline {
     void preprocess_stage();
     void infer_postprocess_stage();
     void draw_write_stage();
+    void request_shutdown() noexcept;
 
     VideoPipelineConfig config_;
     std::vector<std::string> labels_;
@@ -148,6 +168,7 @@ class VideoPipeline {
     std::jthread draw_thread_;
 
     std::atomic<size_t> frames_processed_{0};
+    std::atomic<bool> stop_requested_{false};
 };
 
 } // namespace rfdetr::video

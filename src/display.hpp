@@ -2,14 +2,16 @@
 
 #include "media.hpp"
 
-#include <SDL.h>
+#include <memory>
 #include <string>
 
 namespace rfdetr::media {
 
-/// SDL2-backed live preview window for the --display flag. Presents BGR24 Image
-/// frames. Degrades to a no-op (with a one-time warning) on headless systems or
-/// when SDL cannot create a window, so the pipeline keeps running regardless.
+/// Live preview window for the --display flag. Presents BGR24 Image frames.
+/// The backend (SDL2 or OpenCV HighGUI) is selected at compile time via the
+/// CMake `USE_OPENCV` option. Degrades to a no-op (with a one-time warning) on
+/// headless systems or when the window cannot be created, so the pipeline keeps
+/// running regardless.
 class Display {
   public:
     Display(const std::string &title, int width, int height);
@@ -26,17 +28,11 @@ class Display {
     bool show(const Image &frame);
 
     /// True if a real window is backing this display.
-    [[nodiscard]] bool ok() const noexcept { return ok_; }
+    [[nodiscard]] bool ok() const noexcept;
 
   private:
-    SDL_Window *window_{nullptr};
-    SDL_Renderer *renderer_{nullptr};
-    SDL_Texture *texture_{nullptr};
-    int width_{0};
-    int height_{0};
-    bool ok_{false};
-    bool quit_{false};
-    bool warned_{false};
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 } // namespace rfdetr::media

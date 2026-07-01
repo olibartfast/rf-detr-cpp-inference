@@ -529,6 +529,29 @@ TEST(BoundedQueue, PoisonPill) {
     EXPECT_EQ(q.pop(), rfdetr::video::kPoisonPill);
 }
 
+TEST(BoundedQueue, CloseWakesEmptyPop) {
+    rfdetr::video::BoundedQueue<size_t> q(4, rfdetr::video::kPoisonPill);
+    q.close();
+    EXPECT_EQ(q.pop(), rfdetr::video::kPoisonPill);
+}
+
+TEST(BoundedQueue, CloseWakesBlockedPush) {
+    rfdetr::video::BoundedQueue<size_t> q(1, rfdetr::video::kPoisonPill);
+    q.push(1);
+    std::atomic<bool> returned{false};
+    std::thread t([&] {
+        q.push(2);
+        returned.store(true);
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    EXPECT_FALSE(returned.load());
+    q.close();
+    t.join();
+    EXPECT_TRUE(returned.load());
+    EXPECT_EQ(q.pop(), 1u);
+    EXPECT_EQ(q.pop(), rfdetr::video::kPoisonPill);
+}
+
 // ============================================================================
 // Keypoint postprocessing tests
 // ============================================================================
