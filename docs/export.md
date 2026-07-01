@@ -4,12 +4,12 @@ Follow the procedure listed at https://rfdetr.roboflow.com/learn/deploy/
 ## Requirements
 
 > [!IMPORTANT]
-> - Python version: **3.10+** (upstream `rfdetr` 1.8.0; Python 3.11 venv still recommended here)
+> - Python version: **3.10+** (upstream `rfdetr` 1.8.3; Python 3.11 venv still recommended here)
 > - Starting with RF-DETR 1.6.0, the export extra was renamed: use `pip install rfdetr[onnx]`
-> - **Tested version**: `rfdetr[onnx]==1.8.0`
+> - **Tested version**: `rfdetr[onnx]==1.8.3`
 > - Starting with RF-DETR 1.7.0, ONNX exports use variant filenames (e.g. `rfdetr-medium.onnx`, `rfdetr-seg-medium.onnx`) instead of the generic `inference_model.onnx`
 > - The `--simplify` flag was removed in 1.8.0 (already deprecated in 1.7.0). Export scripts no longer accept it.
-> - RF-DETR 1.8.0 adds keypoint model export support via `RFDETRKeypointPreview`.
+> - RF-DETR 1.8.x adds keypoint model export support via `RFDETRKeypointPreview`.
 
 ### Setup Virtual Environment
 
@@ -26,7 +26,7 @@ python3.11 -m venv rfdetr_venv
 source rfdetr_venv/bin/activate
 
 # Install RF-DETR with export dependencies (tested version)
-pip install rfdetr[onnx]==1.8.0
+pip install rfdetr[onnx]==1.8.3
 ```
 
 ---
@@ -98,7 +98,7 @@ This command saves the ONNX segmentation model to the `output` directory as `rfd
 
 ### ONNX Export for Keypoint Detection
 
-RF-DETR 1.8.0 adds keypoint detection via `RFDETRKeypointPreview`. Export with the provided script:
+RF-DETR 1.8.x adds keypoint detection via `RFDETRKeypointPreview`. Export with the provided script:
 
 ```bash
 python deploy/export_keypoint.py

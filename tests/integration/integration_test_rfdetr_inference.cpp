@@ -59,7 +59,7 @@ std::filesystem::path resolve_keypoint_model_path() {
 #define SKIP_IF_NO_MODEL(fixture)                                                                                      \
     do {                                                                                                               \
         if (!(fixture).model_available_) {                                                                             \
-            GTEST_SKIP() << "No ONNX model found. Export with rfdetr 1.8.0 or set RFDETR_TEST_MODEL.";                 \
+            GTEST_SKIP() << "No ONNX model found. Export with rfdetr 1.8.3 or set RFDETR_TEST_MODEL.";                 \
         }                                                                                                              \
     } while (0)
 

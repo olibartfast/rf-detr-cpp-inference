@@ -4,6 +4,26 @@ Tracks upstream `rfdetr` version changes that affect this C++ inference project.
 
 ---
 
+## v0.2.2
+
+**Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.8.3
+
+### Changed
+
+| File | Change |
+|------|--------|
+| `README.md` | Updated release badge, feature summary, Python export package listing to `rfdetr[onnx]==1.8.3`, TensorRT/CUDA version wording. |
+| `AGENTS.md` | Added mandatory release documentation sync rule for README dependency, backend, build-option, Docker, and pip package changes. |
+| `deploy/requirements.txt` | Bumped export package from `rfdetr[onnx]==1.8.0` to `rfdetr[onnx]==1.8.3`. |
+| `docs/export.md` | Updated current RF-DETR export version guidance to `1.8.3`. |
+| `tests/integration/integration_test_rfdetr_inference.cpp` | Updated missing-model skip guidance to `rfdetr 1.8.3`. |
+
+### Why
+
+Completes the upstream RF-DETR 1.8.3 release alignment by moving the Python export package and release-facing docs to `rfdetr[onnx]==1.8.3`. Future release work must verify README dependency/version statements against CMake, Docker, export docs, and pip requirements before shipping.
+
+---
+
 ## v0.2.1
 
 **Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.8.3 (partial backport)
