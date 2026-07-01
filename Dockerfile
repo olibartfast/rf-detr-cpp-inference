@@ -2,7 +2,7 @@
 # Multi-stage build to keep final image small
 
 # --- Build stage ---
-FROM ubuntu:22.04 AS builder
+FROM ubuntu:24.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -34,7 +34,7 @@ RUN rm -rf build && cmake -S . -B build -G Ninja \
 RUN cmake --build build --parallel
 
 # --- Runtime stage ---
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
