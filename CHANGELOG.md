@@ -30,6 +30,7 @@ backend (ONNX Runtime / TensorRT).
 ### Fixed
 
 - Stabilized media backend shutdown.
+- `VideoWriter::write` return type changed `bool` → `void` (it never returned false; clears cppcheck `knownConditionTrueFalse`).
 - CI cppcheck `missingInclude` and Dockerfile matrix build.
 
 ### Why
