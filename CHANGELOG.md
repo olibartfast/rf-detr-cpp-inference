@@ -4,6 +4,32 @@ Tracks upstream `rfdetr` version changes that affect this C++ inference project.
 
 ---
 
+## [Unreleased]
+
+Expanded the runtime-verification toolchain: ThreadSanitizer (data-race
+detection) and Valgrind (memcheck correctness + callgrind/massif profiling),
+wired into both CI and local CMake targets.
+
+### Added
+
+| File | Change |
+|------|--------|
+| `CMakeLists.txt` | `THREAD_SANITIZER` option (mutually exclusive with `SANITIZERS`); Valgrind detection + `memcheck`, `callgrind`, `massif` custom targets with `VALGRIND_MEMCHECK_OPTS` / `VALGRIND_PROFILE_ARGS` overrides. |
+| `.github/workflows/ci.yml` | New `thread-sanitizer` and `valgrind` jobs running the unit tests under TSan and Valgrind memcheck respectively. |
+| `CMakePresets.json` | `debug-tsan` and `debug-valgrind` configure/build presets. |
+| `AGENTS.md` | ThreadSanitizer subsection and a Valgrind/Profiling section (memcheck, callgrind, massif, perf). |
+| `README.md` | Sanitizers section extended (TSan), new Valgrind/Profiling section, build-options list and Code Quality Tools table updated. |
+
+### Why
+
+The multi-threaded video pipeline (zero-copy ring buffer) is the project's main
+concurrency surface; TSan now guards it in CI. Valgrind complements ASan/UBSan
+with leak detection (memcheck) and gives local CPU/heap profiling (callgrind/
+massif) without sanitizer overhead. All three are opt-in via separate build
+directories to stay mutually compatible.
+
+---
+
 ## v0.3.0
 
 Swappable media/display backend and a unified Docker image matrix. The default

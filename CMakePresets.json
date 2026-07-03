@@ -21,6 +21,27 @@
         "USE_ONNX_RUNTIME": "ON",
         "SANITIZERS": "ON"
       }
+    },
+    {
+      "name": "debug-tsan",
+      "displayName": "Debug with ThreadSanitizer",
+      "description": "Debug build with ThreadSanitizer (data-race detection). Mutually exclusive with SANITIZERS.",
+      "binaryDir": "${sourceDir}/build-tsan",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "USE_ONNX_RUNTIME": "ON",
+        "THREAD_SANITIZER": "ON"
+      }
+    },
+    {
+      "name": "debug-valgrind",
+      "displayName": "Debug for Valgrind",
+      "description": "Plain Debug build (no sanitizers) for Valgrind memcheck/profiling. Enables the memcheck/callgrind/massif targets.",
+      "binaryDir": "${sourceDir}/build-valg",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "USE_ONNX_RUNTIME": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -31,6 +52,14 @@
     {
       "name": "debug-sanitizers",
       "configurePreset": "debug-sanitizers"
+    },
+    {
+      "name": "debug-tsan",
+      "configurePreset": "debug-tsan"
+    },
+    {
+      "name": "debug-valgrind",
+      "configurePreset": "debug-valgrind"
     }
   ]
 }
