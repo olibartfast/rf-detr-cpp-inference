@@ -533,19 +533,41 @@ Two GitHub Actions workflows run on every push/PR to `master` and `develop`:
 
 ## Docker
 
-### ONNX Runtime (CPU)
+A single parametric `Dockerfile` builds the full **inference-backend × media-backend** matrix via two build args:
+
+| `INFERENCE_BACKEND` | `MEDIA_BACKEND` | Image |
+|---------------------|-----------------|-------|
+| `onnx` (default)    | `ffmpeg` (default) | ONNX Runtime + FFmpeg/SDL2/stb |
+| `onnx`              | `opencv`        | ONNX Runtime + OpenCV |
+| `tensorrt`          | `ffmpeg`        | TensorRT + FFmpeg/SDL2/stb |
+| `tensorrt`          | `opencv`        | TensorRT + OpenCV |
+
+Build all four variants:
 
 ```bash
-docker build -t rfdetr-onnx .
-docker run -v $(pwd)/data:/data rfdetr-onnx /data/model.onnx /data/image.jpg /data/labels.txt
+# ONNX Runtime (CPU) — FFmpeg/SDL2/stb media backend (default)
+docker build -t rfdetr-onnx-ffmpeg .
+# ONNX Runtime (CPU) — OpenCV media backend
+docker build -t rfdetr-onnx-opencv --build-arg MEDIA_BACKEND=opencv .
+# TensorRT (GPU) — FFmpeg/SDL2/stb media backend
+docker build -t rfdetr-trt-ffmpeg --build-arg INFERENCE_BACKEND=tensorrt .
+# TensorRT (GPU) — OpenCV media backend
+docker build -t rfdetr-trt-opencv --build-arg INFERENCE_BACKEND=tensorrt --build-arg MEDIA_BACKEND=opencv .
 ```
 
-### TensorRT (GPU)
+Run (mount your model, image, and labels under `/data`):
 
 ```bash
-docker build -f Dockerfile.tensorrt -t rfdetr-tensorrt .
-docker run --gpus all -v $(pwd)/data:/data rfdetr-tensorrt /data/model.onnx /data/image.jpg /data/labels.txt
+# ONNX Runtime — use an .onnx model
+docker run -v $(pwd)/data:/data -v $(pwd)/exports:/exports rfdetr-onnx-ffmpeg \
+  /exports/model.onnx /data/dog.jpg /data/coco-labels-91.txt
+
+# TensorRT — requires --gpus all and a .engine/.trt model
+docker run --gpus all -v $(pwd)/data:/data -v $(pwd)/exports:/exports rfdetr-trt-opencv \
+  /exports/model.engine /data/dog.jpg /data/coco-labels-91.txt
 ```
+
+> The ONNX Runtime images are multi-stage and slim (Ubuntu 24.04 runtime). The TensorRT images use the `nvcr.io/nvidia/tensorrt:25.12-py3` base for the bundled CUDA/TensorRT runtime.
 
 ---
 
