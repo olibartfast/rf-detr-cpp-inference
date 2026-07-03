@@ -21,7 +21,8 @@ class VideoWriter {
     VideoWriter &operator=(VideoWriter &&) = delete;
 
     /// Encode one BGR24 frame. `frame` must match the writer's width/height.
-    bool write(const Image &frame);
+    /// Throws std::runtime_error on failure.
+    void write(const Image &frame);
 
     [[nodiscard]] int width() const noexcept;
     [[nodiscard]] int height() const noexcept;
