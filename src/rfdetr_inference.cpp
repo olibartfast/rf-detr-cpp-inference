@@ -72,25 +72,21 @@ std::vector<float> RFDETRInference::preprocess_image(const std::filesystem::path
         throw std::runtime_error("Image file does not exist: " + image_path.string());
     }
 
-    cv::Mat image = cv::imread(image_path.string(), cv::IMREAD_COLOR);
-    if (image.empty()) {
-        throw std::runtime_error("Could not load image from: " + image_path.string());
-    }
-
+    auto image = rfdetr::media::load_image(image_path);
     return preprocess_image(image, orig_h, orig_w);
 }
 
-std::vector<float> RFDETRInference::preprocess_image(const cv::Mat &bgr_image, int &orig_h, int &orig_w) {
+std::vector<float> RFDETRInference::preprocess_image(const rfdetr::media::Image &bgr_image, int &orig_h, int &orig_w) {
     if (bgr_image.empty()) {
         throw std::runtime_error("Input image is empty");
     }
-    orig_h = bgr_image.rows;
-    orig_w = bgr_image.cols;
+    orig_h = bgr_image.height;
+    orig_w = bgr_image.width;
 
     const auto res = static_cast<size_t>(config_.resolution);
     std::vector<float> input_tensor_values(3 * res * res);
-    rfdetr::processing::preprocess_frame(bgr_image, input_tensor_values, config_.resolution, config_.means,
-                                         config_.stds);
+    rfdetr::media::preprocess_bgr_image(bgr_image, input_tensor_values, config_.resolution, config_.means,
+                                        config_.stds);
     return input_tensor_values;
 }
 
@@ -175,7 +171,7 @@ void RFDETRInference::postprocess_outputs(float scale_w, float scale_h, std::vec
 void RFDETRInference::postprocess_segmentation_outputs(float scale_w, float scale_h, int orig_h, int orig_w,
                                                        std::vector<float> &scores, std::vector<int> &class_ids,
                                                        std::vector<std::vector<float>> &boxes,
-                                                       std::vector<cv::Mat> &masks) {
+                                                       std::vector<rfdetr::media::Mask> &masks) {
     if (output_data_cache_.size() != 3) {
         throw std::runtime_error("Expected 3 output tensors for segmentation, got " +
                                  std::to_string(output_data_cache_.size()));
@@ -251,17 +247,10 @@ void RFDETRInference::postprocess_segmentation_outputs(float scale_w, float scal
 
         std::vector<float> box = {clamped.x_min, clamped.y_min, clamped.x_max, clamped.y_max};
 
-        // Get mask for this detection and resize to original image size
         const size_t mask_offset = detection_idx * mask_h * mask_w;
-        cv::Mat mask_small(static_cast<int>(mask_h), static_cast<int>(mask_w), CV_32F);
-        std::memcpy(mask_small.data, masks_data.data() + mask_offset, mask_h * mask_w * sizeof(float));
-
-        // Resize mask to original image size using bilinear interpolation
-        cv::Mat mask_resized;
-        cv::resize(mask_small, mask_resized, cv::Size(orig_w, orig_h), 0, 0, cv::INTER_LINEAR);
-
-        // Apply threshold to create binary mask
-        cv::Mat binary_mask = mask_resized > static_cast<double>(config_.mask_threshold);
+        auto binary_mask = rfdetr::media::resize_threshold_mask(
+            std::span<const float>(masks_data.data() + mask_offset, mask_h * mask_w), static_cast<int>(mask_w),
+            static_cast<int>(mask_h), orig_w, orig_h, config_.mask_threshold);
 
         scores.push_back(score);
         class_ids.push_back(class_id);
@@ -270,108 +259,23 @@ void RFDETRInference::postprocess_segmentation_outputs(float scale_w, float scal
     }
 }
 
-void RFDETRInference::draw_detections(cv::Mat &image, std::span<const std::vector<float>> boxes,
+void RFDETRInference::draw_detections(rfdetr::media::Image &image, std::span<const std::vector<float>> boxes,
                                       std::span<const int> class_ids, std::span<const float> scores) {
+    (void)scores;
     if (boxes.size() != class_ids.size() || boxes.size() != scores.size()) {
         throw std::runtime_error("Mismatch in sizes of boxes, class_ids, and scores");
     }
-
-    for (size_t i = 0; i < boxes.size(); ++i) {
-        const auto &box = boxes[i];
-        if (box.size() != 4) {
-            throw std::runtime_error("Invalid box format at index " + std::to_string(i));
-        }
-
-        const cv::Point2f top_left(box[0], box[1]);
-        const cv::Point2f bottom_right(box[2], box[3]);
-        cv::rectangle(image, top_left, bottom_right, cv::Scalar(0, 0, 255), 2);
-
-        const std::string label =
-            coco_labels_[static_cast<size_t>(class_ids[i])] + ": " + std::to_string(scores[i]).substr(0, 4);
-        int baseline = 0;
-        constexpr double font_scale = 0.5;
-        constexpr int thickness = 1;
-        const cv::Size text_size = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, font_scale, thickness, &baseline);
-        const auto text_h = static_cast<float>(text_size.height);
-        const auto text_w = static_cast<float>(text_size.width);
-
-        cv::Point2f text_pos(top_left.x, top_left.y - 5);
-        if (text_pos.y - text_h < 0) {
-            text_pos.y = top_left.y + text_h + 5;
-        }
-        if (text_pos.x + text_w > static_cast<float>(image.cols)) {
-            text_pos.x = static_cast<float>(image.cols) - text_w - 5;
-        }
-
-        constexpr int padding = 2;
-        const cv::Point2f rect_top_left(text_pos.x - padding, text_pos.y - text_h - padding);
-        const cv::Point2f rect_bottom_right(text_pos.x + text_w + padding, text_pos.y + padding);
-        cv::rectangle(image, rect_top_left, rect_bottom_right, cv::Scalar(0, 0, 0), cv::FILLED);
-
-        cv::putText(image, label, cv::Point2f(text_pos.x, text_pos.y - padding), cv::FONT_HERSHEY_SIMPLEX, font_scale,
-                    cv::Scalar(255, 255, 255), thickness);
-    }
+    rfdetr::media::draw_detections(image, boxes, class_ids);
 }
 
-void RFDETRInference::draw_segmentation_masks(cv::Mat &image, std::span<const std::vector<float>> boxes,
+void RFDETRInference::draw_segmentation_masks(rfdetr::media::Image &image, std::span<const std::vector<float>> boxes,
                                               std::span<const int> class_ids, std::span<const float> scores,
-                                              std::span<const cv::Mat> masks) {
+                                              std::span<const rfdetr::media::Mask> masks) {
+    (void)scores;
     if (boxes.size() != class_ids.size() || boxes.size() != scores.size() || boxes.size() != masks.size()) {
         throw std::runtime_error("Mismatch in sizes of boxes, class_ids, scores, and masks");
     }
-
-    // Create overlay for transparent masks
-    cv::Mat overlay = image.clone();
-    constexpr float alpha = 0.5f;
-
-    for (size_t i = 0; i < boxes.size(); ++i) {
-        const auto &box = boxes[i];
-        if (box.size() != 4) {
-            throw std::runtime_error("Invalid box format at index " + std::to_string(i));
-        }
-
-        const cv::Scalar color = rfdetr::processing::get_color_for_class(class_ids[i]);
-
-        // Draw mask
-        const cv::Mat &mask = masks[i];
-        if (mask.rows == image.rows && mask.cols == image.cols) {
-            overlay.setTo(color, mask);
-        }
-
-        // Draw bounding box
-        const cv::Point2f top_left(box[0], box[1]);
-        const cv::Point2f bottom_right(box[2], box[3]);
-        cv::rectangle(image, top_left, bottom_right, color, 2);
-
-        // Draw label
-        const std::string label =
-            coco_labels_[static_cast<size_t>(class_ids[i])] + ": " + std::to_string(scores[i]).substr(0, 4);
-        int baseline = 0;
-        constexpr double font_scale = 0.5;
-        constexpr int thickness = 1;
-        const cv::Size text_size = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, font_scale, thickness, &baseline);
-        const auto text_h = static_cast<float>(text_size.height);
-        const auto text_w = static_cast<float>(text_size.width);
-
-        cv::Point2f text_pos(top_left.x, top_left.y - 5);
-        if (text_pos.y - text_h < 0) {
-            text_pos.y = top_left.y + text_h + 5;
-        }
-        if (text_pos.x + text_w > static_cast<float>(image.cols)) {
-            text_pos.x = static_cast<float>(image.cols) - text_w - 5;
-        }
-
-        constexpr int padding = 2;
-        const cv::Point2f rect_top_left(text_pos.x - padding, text_pos.y - text_h - padding);
-        const cv::Point2f rect_bottom_right(text_pos.x + text_w + padding, text_pos.y + padding);
-        cv::rectangle(image, rect_top_left, rect_bottom_right, cv::Scalar(0, 0, 0), cv::FILLED);
-
-        cv::putText(image, label, cv::Point2f(text_pos.x, text_pos.y - padding), cv::FONT_HERSHEY_SIMPLEX, font_scale,
-                    cv::Scalar(255, 255, 255), thickness);
-    }
-
-    // Blend overlay with original image
-    cv::addWeighted(overlay, static_cast<double>(alpha), image, static_cast<double>(1.0f - alpha), 0, image);
+    rfdetr::media::draw_segmentation_masks(image, boxes, class_ids, masks);
 }
 
 std::string RFDETRInference::get_label_name(int class_id) const {
@@ -581,128 +485,19 @@ void RFDETRInference::postprocess_keypoint_outputs(float scale_w, float scale_h,
     }
 }
 
-void RFDETRInference::draw_keypoints(cv::Mat &image, std::span<const std::vector<float>> boxes,
+void RFDETRInference::draw_keypoints(rfdetr::media::Image &image, std::span<const std::vector<float>> boxes,
                                      std::span<const int> class_ids, std::span<const float> scores,
                                      std::span<const std::vector<KeypointResult>> keypoints) {
+    (void)scores;
     if (boxes.size() != class_ids.size() || boxes.size() != scores.size() || boxes.size() != keypoints.size()) {
         throw std::runtime_error("Mismatch in sizes of boxes, class_ids, scores, and keypoints");
     }
-
-    for (size_t i = 0; i < boxes.size(); ++i) {
-        const auto &box = boxes[i];
-        if (box.size() != 4) {
-            throw std::runtime_error("Invalid box format at index " + std::to_string(i));
-        }
-
-        const cv::Scalar color = rfdetr::processing::get_color_for_class(class_ids[i]);
-        const int min_dim = std::max(1, std::min(image.rows, image.cols));
-        const int line_thickness = std::max(2, min_dim / 900);
-        const float base_radius = std::max(4.0f, static_cast<float>(min_dim) / 500.0f);
-        const auto is_drawable_keypoint = [&image](const KeypointResult &kpr) {
-            return std::isfinite(kpr.x) && std::isfinite(kpr.y) && kpr.x >= 0.0f && kpr.y >= 0.0f &&
-                   kpr.x < static_cast<float>(image.cols) && kpr.y < static_cast<float>(image.rows) &&
-                   kpr.findability > 0.05f && kpr.visibility > 0.01f;
-        };
-
-        // Draw bounding box
-        const cv::Point2f top_left(box[0], box[1]);
-        const cv::Point2f bottom_right(box[2], box[3]);
-        cv::rectangle(image, top_left, bottom_right, color, 2);
-
-        // Draw label with score
-        const std::string label = get_label_name(class_ids[i]) + ": " + std::to_string(scores[i]).substr(0, 4);
-        int baseline = 0;
-        constexpr double font_scale = 0.5;
-        constexpr int thickness = 1;
-        const cv::Size text_size = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, font_scale, thickness, &baseline);
-        const auto text_h = static_cast<float>(text_size.height);
-        const auto text_w = static_cast<float>(text_size.width);
-
-        cv::Point2f text_pos(top_left.x, top_left.y - 5);
-        if (text_pos.y - text_h < 0) {
-            text_pos.y = top_left.y + text_h + 5;
-        }
-        if (text_pos.x + text_w > static_cast<float>(image.cols)) {
-            text_pos.x = static_cast<float>(image.cols) - text_w - 5;
-        }
-
-        constexpr int padding = 2;
-        const cv::Point2f rect_top_left(text_pos.x - padding, text_pos.y - text_h - padding);
-        const cv::Point2f rect_bottom_right(text_pos.x + text_w + padding, text_pos.y + padding);
-        cv::rectangle(image, rect_top_left, rect_bottom_right, cv::Scalar(0, 0, 0), cv::FILLED);
-
-        cv::putText(image, label, cv::Point2f(text_pos.x, text_pos.y - padding), cv::FONT_HERSHEY_SIMPLEX, font_scale,
-                    cv::Scalar(255, 255, 255), thickness);
-
-        // Draw skeleton lines (if skeleton is configured)
-        const auto &kps = keypoints[i];
-        const auto &skel = config_.skeleton;
-        if (!skel.empty()) {
-            for (const auto &[idx1, idx2] : skel) {
-                if (idx1 < static_cast<int>(kps.size()) && idx2 < static_cast<int>(kps.size())) {
-                    const auto &kp1 = kps[static_cast<size_t>(idx1)];
-                    const auto &kp2 = kps[static_cast<size_t>(idx2)];
-                    if (!is_drawable_keypoint(kp1) || !is_drawable_keypoint(kp2)) {
-                        continue;
-                    }
-                    const cv::Point2f p1(kp1.x, kp1.y);
-                    const cv::Point2f p2(kp2.x, kp2.y);
-                    cv::line(image, p1, p2, cv::Scalar(0, 0, 0), line_thickness + 2, cv::LINE_AA);
-                    cv::line(image, p1, p2, color, line_thickness, cv::LINE_AA);
-                }
-            }
-        }
-
-        // Draw keypoint circles
-        for (const auto &kpr : kps) {
-            if (!is_drawable_keypoint(kpr)) {
-                continue;
-            }
-            const float radius = std::max(base_radius, base_radius * (0.75f + kpr.findability));
-            const cv::Point2f cp(kpr.x, kpr.y);
-            cv::circle(image, cp, static_cast<int>(radius + static_cast<float>(line_thickness)), cv::Scalar(0, 0, 0),
-                       -1, cv::LINE_AA);
-            cv::circle(image, cp, static_cast<int>(radius), config_.keypoint_color, -1, cv::LINE_AA);
-
-            // Draw uncertainty ellipse if enabled and visibility > threshold
-            if (config_.draw_uncertainty && kpr.visibility > 0.5f) {
-                const float a = kpr.cov[0];
-                const float b = kpr.cov[1];
-                const float c = kpr.cov[3];
-
-                // Compute eigenvalues for ellipse axes
-                const float trace = a + c;
-                const float det = a * c - b * b;
-                if (det >= 0.0f && trace >= 0.0f) {
-                    // 1-sigma: sqrt(eigenvalues) as axes
-                    const float disc = trace * trace - 4.0f * det;
-                    if (disc >= 0.0f) {
-                        const float sqrt_disc = std::sqrt(disc);
-                        const float lambda1 = (trace + sqrt_disc) / 2.0f;
-                        const float lambda2 = (trace - sqrt_disc) / 2.0f;
-
-                        // Compute angle from eigenvector
-                        float angle = 0.0f;
-                        if (std::abs(b) > 1e-6f) {
-                            angle = std::atan2(lambda1 - a, b) * 180.0f / 3.14159265f;
-                        }
-
-                        const float axis1 = std::sqrt(lambda1);
-                        const float axis2 = std::sqrt(lambda2);
-                        const cv::Size axes(static_cast<int>(axis1 + 0.5f), static_cast<int>(axis2 + 0.5f));
-
-                        cv::ellipse(image, cp, axes, static_cast<double>(angle), 0, 360, cv::Scalar(255, 0, 0), 1,
-                                    cv::LINE_AA);
-                    }
-                }
-            }
-        }
-    }
+    rfdetr::media::draw_keypoints(image, boxes, class_ids, keypoints, config_.skeleton, config_.keypoint_color);
 }
 
-std::optional<std::filesystem::path> RFDETRInference::save_output_image(const cv::Mat &image,
+std::optional<std::filesystem::path> RFDETRInference::save_output_image(const rfdetr::media::Image &image,
                                                                         const std::filesystem::path &output_path) {
-    if (cv::imwrite(output_path.string(), image)) {
+    if (rfdetr::media::save_image(image, output_path)) {
         return output_path;
     }
     return std::nullopt;

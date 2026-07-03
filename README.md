@@ -3,9 +3,9 @@
 [![C++](https://img.shields.io/badge/language-C++20-blue.svg)](https://en.cppreference.com/w/cpp)
 [![CMake](https://img.shields.io/badge/build%20system-CMake-blue.svg)](https://cmake.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.2.2-blue.svg)](https://github.com/olibartfast/rf-detr-cpp-inference/releases/tag/v0.2.2)
+[![Version](https://img.shields.io/badge/version-0.3.0-blue.svg)](https://github.com/olibartfast/rf-detr-cpp-inference/releases/tag/v0.3.0)
 
-C++ project for performing object detection, instance segmentation, and keypoint inference using the RF-DETR model with **multiple inference backends** (ONNX Runtime and TensorRT) and OpenCV. Supports both single-image and **multi-threaded video processing** via a zero-copy ring buffer pipeline.
+C++ project for performing object detection, instance segmentation, and keypoint inference using the RF-DETR model with **multiple inference backends** (ONNX Runtime and TensorRT) and a swappable **media/display backend** (FFmpeg + SDL2 + stb by default, or OpenCV). Supports both single-image and **multi-threaded video processing** via a zero-copy ring buffer pipeline.
 
 ---
 
@@ -30,9 +30,28 @@ C++ project for performing object detection, instance segmentation, and keypoint
 ### Required (All Backends)
 - **C++20 Compiler**: Clang 15+ or GCC 12+ (e.g., `clang++-15` or `g++-12`)
 - **CMake**: Version 3.12 or higher
-- **OpenCV**: Version 4.x (modules: core, imgproc, imgcodecs, videoio, highgui)
 - **Google Test**: Version 1.12.1 (automatically fetched during build)
 - **Ninja**: Optional but recommended (`sudo apt-get install ninja-build`)
+
+> Annotation text is drawn with an 8x8 bitmap font
+> ([third_party/font8x8](third_party/font8x8)), which is used by **both**
+> media backends below.
+
+### Media/Display Backend (choose one via CMake)
+
+The image load/save, video decode/encode, and `--display` preview window are
+backed by either **FFmpeg + SDL2 + stb** (the default) or **OpenCV**. Exactly
+one is compiled in via `-DUSE_OPENCV=ON/OFF`.
+
+#### FFmpeg + SDL2 + stb (default, `-DUSE_OPENCV=OFF`)
+- **FFmpeg** (libavcodec/libavformat/libavutil/libswscale): 5.x+ for video decode/encode
+- **SDL2**: 2.x for the `--display` live preview window
+- **stb** ([third_party/stb](third_party/stb)): vendored single-header image I/O — no install needed
+- No OpenCV dependency
+
+#### OpenCV (`-DUSE_OPENCV=ON`)
+- **OpenCV**: 4.x (`core`, `imgcodecs`, `imgproc`, `videoio`, `highgui`) for image I/O, video decode/encode, and the `--display` preview
+- Replaces FFmpeg, SDL2, **and** stb entirely — none of those are required when OpenCV is enabled
 
 ### Python / Pip Packages (Export Tooling)
 - **RF-DETR export package**: `rfdetr[onnx]==1.8.3` from `deploy/requirements.txt`
@@ -96,7 +115,14 @@ sudo apt-get install -y cmake
 sudo apt-get install -y clang-15
 # or use the system default gcc (no install needed if already present)
 
-# OpenCV (the full -dev package is needed for CMake integration):
+# FFmpeg development libraries (video decode/encode) + pkg-config:
+sudo apt-get install -y pkg-config libavcodec-dev libavformat-dev libavutil-dev libswscale-dev
+
+# SDL2 (required for the default FFmpeg + SDL2 + stb media/display backend):
+sudo apt-get install -y libsdl2-dev
+
+# OpenCV (alternative media/display backend — install ONLY if you will build with -DUSE_OPENCV=ON,
+#          in which case you do NOT need the FFmpeg/SDL2 packages above):
 sudo apt-get install -y libopencv-dev
 
 # Optional (faster incremental builds):
@@ -249,10 +275,31 @@ cmake --build build --parallel
 - Requires CUDA 13.x installed manually for the bundled TensorRT 10.13.3.9 build
 - Pre-built `.engine` or `.trt` files are loaded directly, skipping ONNX-to-TensorRT conversion
 
+### Build with OpenCV Media/Display Backend
+
+By default the project uses FFmpeg + SDL2 + stb for image/video I/O and the
+preview window. Pass `-DUSE_OPENCV=ON` to compile OpenCV in instead (image I/O
+via `imgcodecs`, video decode/encode via `videoio`, `--display` via `highgui`):
+
+```bash
+cmake -S . -B build -G Ninja \
+  -DUSE_OPENCV=ON \
+  -DCMAKE_BUILD_TYPE=Release
+
+cmake --build build --parallel
+```
+
+**What happens**:
+- OpenCV (`core`, `imgcodecs`, `imgproc`, `videoio`, `highgui`) is found via CMake's `find_package`
+- FFmpeg, SDL2, and stb are **not** required and not linked
+- `VideoReader`, `VideoWriter`, `Display`, and image load/save swap to their OpenCV implementations
+- Orthogonal to the inference backend — combine freely, e.g. `-DUSE_TENSORRT=ON -DUSE_OPENCV=ON`
+
 ### Build Options
 
 - `-DUSE_ONNX_RUNTIME=ON/OFF` - Enable ONNX Runtime backend (default: ON)
 - `-DUSE_TENSORRT=ON/OFF` - Enable TensorRT backend (default: OFF)
+- `-DUSE_OPENCV=ON/OFF` - Use OpenCV for image/video/display I/O instead of FFmpeg+SDL2+stb (default: OFF)
 - `-DCMAKE_BUILD_TYPE=Release/Debug` - Build configuration
 - `-DSANITIZERS=ON/OFF` - Enable AddressSanitizer + UndefinedBehaviorSanitizer (default: OFF)
 - `-DWERROR=ON/OFF` - Treat compiler warnings as errors (default: OFF)
@@ -310,6 +357,16 @@ Video with segmentation:
 
 Supported video formats: `.mp4`, `.avi`, `.mov`, `.mkv`, `.webm`, `.flv`, `.wmv`. Output is written to `output_video.mp4`.
 
+#### Custom Confidence Threshold
+
+Override the default confidence threshold (0.5) without recompiling using the `--threshold` flag:
+
+```bash
+./build/inference_app /path/to/model.onnx /path/to/image.jpg /path/to/coco-labels-91.txt --threshold 0.7
+```
+
+`--threshold` works with all modes (`--segmentation`, `--keypoint`, video input, and `--display`).
+
 #### Using Pre-built TensorRT Engine
 
 If you have a pre-built TensorRT engine file (`.engine` or `.trt`), use it directly:
@@ -332,7 +389,7 @@ If you have a pre-built TensorRT engine file (`.engine` or `.trt`), use it direc
 
 The inference engine supports various configuration options that can be modified in `src/main.cpp`:
 
-- **Model Type**: `ModelType::DETECTION` or `ModelType::SEGMENTATION`
+- **Model Type**: `ModelType::DETECTION`, `ModelType::SEGMENTATION`, or `ModelType::KEYPOINT` (selected via the `--segmentation` / `--keypoint` CLI flags)
 - **Resolution**: Set to `0` for auto-detection from model, or specify manually (e.g., `432`, `560`)
 - **Confidence Threshold**: Default `0.5` (adjustable in `Config::threshold`)
 - **Max Detections**: Default `300` for top-k selection (adjustable in `Config::max_detections`)
@@ -361,13 +418,18 @@ Video files are processed using a **four-stage ring buffer pipeline** that maxim
                  +-------------------------+
                  |                         |
                  v                         |
-+--------+ idx  +-----------+ idx  +------++ idx  +------+
-| Decode | ---> | Preprocess| ---> | Infer| ----> | Draw |
-+--------+      +-----------+      +------+       +------+
- VideoCapture    resize+norm        run model      annotate +
- into slot       into slot.tensor   postprocess    VideoWriter
- .raw_frame      (pre-allocated)    into slot.*    + optional imshow
+ +--------+ idx  +-----------+ idx  +------++ idx  +------+
+ | Decode | ---> | Preprocess| ---> | Infer| ----> | Draw |
+ +--------+      +-----------+      +------+       +------+
+  media           resize+norm        run model      annotate +
+  decode into     into slot.tensor   postprocess    media encode
+  slot.raw_frame  (pre-allocated)    into slot.*    + optional
+                                                    preview
 ```
+
+The default media/display backend uses FFmpeg for video decode/encode, SDL2 for
+preview, and stb for image I/O. `-DUSE_OPENCV=ON` swaps those pieces for OpenCV
+`videoio`, `highgui`, and `imgcodecs`.
 
 - **4 `std::jthread`s** run concurrently, one per stage
 - **Pre-allocated `FrameSlot`s** are reused via a ring buffer (default size: 8)
@@ -471,19 +533,41 @@ Two GitHub Actions workflows run on every push/PR to `master` and `develop`:
 
 ## Docker
 
-### ONNX Runtime (CPU)
+A single parametric `Dockerfile` builds the full **inference-backend × media-backend** matrix via two build args:
+
+| `INFERENCE_BACKEND` | `MEDIA_BACKEND` | Image |
+|---------------------|-----------------|-------|
+| `onnx` (default)    | `ffmpeg` (default) | ONNX Runtime + FFmpeg/SDL2/stb |
+| `onnx`              | `opencv`        | ONNX Runtime + OpenCV |
+| `tensorrt`          | `ffmpeg`        | TensorRT + FFmpeg/SDL2/stb |
+| `tensorrt`          | `opencv`        | TensorRT + OpenCV |
+
+Build all four variants:
 
 ```bash
-docker build -t rfdetr-onnx .
-docker run -v $(pwd)/data:/data rfdetr-onnx /data/model.onnx /data/image.jpg /data/labels.txt
+# ONNX Runtime (CPU) — FFmpeg/SDL2/stb media backend (default)
+docker build -t rfdetr-onnx-ffmpeg .
+# ONNX Runtime (CPU) — OpenCV media backend
+docker build -t rfdetr-onnx-opencv --build-arg MEDIA_BACKEND=opencv .
+# TensorRT (GPU) — FFmpeg/SDL2/stb media backend
+docker build -t rfdetr-trt-ffmpeg --build-arg INFERENCE_BACKEND=tensorrt .
+# TensorRT (GPU) — OpenCV media backend
+docker build -t rfdetr-trt-opencv --build-arg INFERENCE_BACKEND=tensorrt --build-arg MEDIA_BACKEND=opencv .
 ```
 
-### TensorRT (GPU)
+Run (mount your model, image, and labels under `/data`):
 
 ```bash
-docker build -f Dockerfile.tensorrt -t rfdetr-tensorrt .
-docker run --gpus all -v $(pwd)/data:/data rfdetr-tensorrt /data/model.onnx /data/image.jpg /data/labels.txt
+# ONNX Runtime — use an .onnx model
+docker run -v $(pwd)/data:/data -v $(pwd)/exports:/exports rfdetr-onnx-ffmpeg \
+  /exports/model.onnx /data/dog.jpg /data/coco-labels-91.txt
+
+# TensorRT — requires --gpus all and a .engine/.trt model
+docker run --gpus all -v $(pwd)/data:/data -v $(pwd)/exports:/exports rfdetr-trt-opencv \
+  /exports/model.engine /data/dog.jpg /data/coco-labels-91.txt
 ```
+
+> The ONNX Runtime images are multi-stage and slim (Ubuntu 24.04 runtime). The TensorRT images use the `nvcr.io/nvidia/tensorrt:25.12-py3` base for the bundled CUDA/TensorRT runtime.
 
 ---
 
