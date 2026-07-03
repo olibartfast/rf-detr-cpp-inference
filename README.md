@@ -191,21 +191,39 @@ This is also run automatically on every commit via pre-commit (see [Pre-commit](
 
 ### Sanitizers (Optional)
 
-Build with AddressSanitizer and UndefinedBehaviorSanitizer enabled via `-DSANITIZERS=ON`. Use a separate build directory to keep sanitizer and release builds independent:
+Build with **AddressSanitizer + UndefinedBehaviorSanitizer** via `-DSANITIZERS=ON`, or with **ThreadSanitizer** (data-race detection) via `-DTHREAD_SANITIZER=ON`. The two are mutually exclusive — enable only one per build directory. Use separate build directories to keep them independent:
 
 ```bash
-cmake -S . -B build-san \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DSANITIZERS=ON
-
+# ASan + UBSan
+cmake -S . -B build-san -DCMAKE_BUILD_TYPE=Debug -DSANITIZERS=ON
 cmake --build build-san --parallel
-
-# Run tests under sanitizers:
 ./build-san/unit_tests
-./build-san/integration_tests
+
+# ThreadSanitizer (data races)
+cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=Debug -DTHREAD_SANITIZER=ON
+cmake --build build-tsan --parallel
+TSAN_OPTIONS="halt_on_error=1" ./build-tsan/unit_tests
 ```
 
-Sanitizers catch memory errors, use-after-free, undefined behaviour, and integer overflow at runtime with minimal code changes.
+Sanitizers catch memory errors, use-after-free, undefined behaviour, integer overflow (ASan+UBSan), and data races (TSan) at runtime. Both run in CI.
+
+### Valgrind / Profiling (Optional)
+
+A plain **Debug build without sanitizers** is required (ASan/TSan conflict with Valgrind). When Valgrind is detected, CMake generates `memcheck`, `callgrind`, and `massif` targets:
+
+```bash
+cmake -S . -B build-valg -DCMAKE_BUILD_TYPE=Debug
+
+cmake --build build-valg --target memcheck      # memory errors + leaks (run by CI)
+cmake --build build-valg --target callgrind     # CPU/cache profile -> callgrind.out.<pid>
+cmake --build build-valg --target massif        # heap profile       -> massif.out.<pid>
+
+# Read the profiles:
+callgrind_annotate build-valg/callgrind.out.<pid>
+ms_print build-valg/massif.out.<pid>
+```
+
+The profilers target `benchmarks` (if built with `-DBENCHMARKS=ON`, recommended for self-contained workloads) or `inference_app`; pass extra args with `-DVALGRIND_PROFILE_ARGS="model.onnx image.jpg labels.txt"`. A lower-overhead alternative is `perf record ./build/benchmarks && perf report`. An optional `valgrind.supp` at the repo root is picked up automatically if present.
 
 ### Pre-commit (Optional)
 
@@ -302,6 +320,7 @@ cmake --build build --parallel
 - `-DUSE_OPENCV=ON/OFF` - Use OpenCV for image/video/display I/O instead of FFmpeg+SDL2+stb (default: OFF)
 - `-DCMAKE_BUILD_TYPE=Release/Debug` - Build configuration
 - `-DSANITIZERS=ON/OFF` - Enable AddressSanitizer + UndefinedBehaviorSanitizer (default: OFF)
+- `-DTHREAD_SANITIZER=ON/OFF` - Enable ThreadSanitizer/data-race detection (default: OFF; mutually exclusive with `SANITIZERS`)
 - `-DWERROR=ON/OFF` - Treat compiler warnings as errors (default: OFF)
 - `-DBENCHMARKS=ON/OFF` - Build Google Benchmark targets (default: OFF)
 
@@ -579,6 +598,9 @@ docker run --gpus all -v $(pwd)/data:/data -v $(pwd)/exports:/exports rfdetr-trt
 | `clang-tidy-18` | Static analysis (AST-based) | `find src -name '*.cpp' \| xargs clang-tidy-18 -p build` |
 | `cppcheck` | Static analysis (flow-based) | `cppcheck --enable=all --std=c++20 -I src src/` |
 | AddressSanitizer(ASan) + UndefinedBehaviorSanitizer(UBSan) | Runtime memory/UB detection | `-DSANITIZERS=ON` at configure time |
+| ThreadSanitizer (TSan) | Runtime data-race detection | `-DTHREAD_SANITIZER=ON` at configure time |
+| Valgrind (memcheck) | Memory errors + leak detection | `cmake --build build-valg --target memcheck` |
+| Valgrind (callgrind/massif) | CPU/cache + heap profiling | `cmake --build build-valg --target callgrind` / `massif` |
 | pre-commit | Automates format + cppcheck on commit | `pre-commit install` |
 
 ---

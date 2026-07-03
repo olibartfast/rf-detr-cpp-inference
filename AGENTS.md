@@ -28,10 +28,28 @@
 - Benchmarks (if enabled): `./build/benchmarks`
 
 ## Sanitizers
+ASan+UBSan and TSan are mutually exclusive (pick one).
+
+### AddressSanitizer + UndefinedBehaviorSanitizer
 - Configure: `cmake -S . -B build-san -DCMAKE_BUILD_TYPE=Debug -DSANITIZERS=ON`
 - Build: `cmake --build build-san --parallel`
 - Run unit tests: `./build-san/unit_tests`
 - Run integration tests: `./build-san/integration_tests`
+
+### ThreadSanitizer (data races)
+- Configure: `cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=Debug -DTHREAD_SANITIZER=ON`
+- Build: `cmake --build build-tsan --parallel`
+- Run: `TSAN_OPTIONS="halt_on_error=1" ./build-tsan/unit_tests`
+
+## Valgrind / Profiling
+Requires a plain Debug build (no sanitizers — ASan/TSan conflict with Valgrind). The `memcheck`, `callgrind`, and `massif` CMake targets are auto-generated when Valgrind is found.
+- Configure: `cmake -S . -B build-valg -DCMAKE_BUILD_TYPE=Debug`
+- Memcheck (correctness — run by CI): `cmake --build build-valg --target memcheck`
+- CPU/cache profile: `cmake --build build-valg --target callgrind` → read with `callgrind_annotate build-valg/callgrind.out.<pid>`
+- Heap profile: `cmake --build build-valg --target massif` → read with `ms_print build-valg/massif.out.<pid>`
+- Profilers run on `benchmarks` if built (`-DBENCHMARKS=ON`), else `inference_app` (pass args via `-DVALGRIND_PROFILE_ARGS="..."`).
+- Lower-overhead alternative: `perf record ./build/benchmarks && perf report`.
+- Optional suppressions file: `valgrind.supp` at repo root is picked up automatically if present.
 
 ## Pre-commit
 - Install: `pip install pre-commit && pre-commit install`

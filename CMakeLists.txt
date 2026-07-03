@@ -30,12 +30,24 @@ if(WERROR)
     list(APPEND PROJECT_WARNING_FLAGS -Werror)
 endif()
 
-# Enable sanitizers in debug builds (opt-in via -DSANITIZERS=ON)
-option(SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+# --- Sanitizers (debug builds, opt-in) ---
+# ASan+UBSan and TSan are mutually exclusive: clang/gcc forbid combining them
+# (e.g. -fsanitize=address,thread is a hard error).
+option(SANITIZERS "Enable AddressSanitizer + UndefinedBehaviorSanitizer" OFF)
+option(THREAD_SANITIZER "Enable ThreadSanitizer (data-race detection)" OFF)
+
+if(SANITIZERS AND THREAD_SANITIZER)
+    message(FATAL_ERROR "SANITIZERS (ASan+UBSan) and THREAD_SANITIZER (TSan) are mutually exclusive. Enable only one.")
+endif()
+
 if(SANITIZERS)
     add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
     add_link_options(-fsanitize=address,undefined)
     message(STATUS "Sanitizers: AddressSanitizer + UndefinedBehaviorSanitizer enabled")
+elseif(THREAD_SANITIZER)
+    add_compile_options(-fsanitize=thread -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=thread)
+    message(STATUS "Sanitizer: ThreadSanitizer enabled")
 endif()
 
 # --- Backend Selection Options ---
@@ -412,3 +424,60 @@ add_custom_target(run_tests
     COMMENT "Running all tests..."
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
+
+# --- Valgrind: memcheck (correctness) + profilers (callgrind/massif) ---
+# memcheck runs valgrind directly on the unit_tests binary (more predictable
+# than `ctest -T MemCheck`, which requires full CTest/Dart dashboard config).
+# The profilers run on the `benchmarks` target (preferred) or `inference_app`,
+# producing callgrind.out / massif.out.<pid>. Read with `callgrind_annotate` /
+# `ms_print`; `perf record/report` is a lower-overhead alternative.
+find_program(VALGRIND_EXECUTABLE NAMES valgrind)
+mark_as_advanced(VALGRIND_EXECUTABLE)
+if(VALGRIND_EXECUTABLE)
+    set(VALGRIND_MEMCHECK_OPTS
+        "--error-exitcode=1 --leak-check=full --show-leak-kinds=definite,indirect --errors-for-leak-kinds=definite,indirect"
+        CACHE STRING "Flags passed to valgrind by the 'memcheck' target")
+    if(EXISTS "${CMAKE_SOURCE_DIR}/valgrind.supp")
+        string(APPEND VALGRIND_MEMCHECK_OPTS " --suppressions=${CMAKE_SOURCE_DIR}/valgrind.supp")
+    endif()
+    # Split into a CMake list so COMMAND passes each flag as a separate argument.
+    separate_arguments(_VALGRIND_MEMCHECK_ARGS UNIX_COMMAND "${VALGRIND_MEMCHECK_OPTS}")
+
+    add_custom_target(memcheck
+        COMMAND ${VALGRIND_EXECUTABLE} ${_VALGRIND_MEMCHECK_ARGS} "$<TARGET_FILE:unit_tests>"
+        DEPENDS unit_tests
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        COMMENT "Running unit_tests under Valgrind memcheck"
+        VERBATIM
+    )
+
+    if(TARGET benchmarks)
+        set(_VALGRIND_PROFILE_TARGET benchmarks)
+    else()
+        set(_VALGRIND_PROFILE_TARGET inference_app)
+    endif()
+    set(VALGRIND_PROFILE_ARGS "" CACHE STRING "Extra args passed to the profiled binary by the callgrind/massif targets")
+    separate_arguments(_VALGRIND_PROFILE_ARGS UNIX_COMMAND "${VALGRIND_PROFILE_ARGS}")
+
+    add_custom_target(callgrind
+        COMMAND ${VALGRIND_EXECUTABLE} --tool=callgrind --collect-jumps=yes --cache-sim=yes
+                "$<TARGET_FILE:${_VALGRIND_PROFILE_TARGET}>" ${_VALGRIND_PROFILE_ARGS}
+        DEPENDS ${_VALGRIND_PROFILE_TARGET}
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+        COMMENT "CPU/cache profile of ${_VALGRIND_PROFILE_TARGET} with callgrind -> callgrind.out.<pid>"
+        VERBATIM
+    )
+
+    add_custom_target(massif
+        COMMAND ${VALGRIND_EXECUTABLE} --tool=massif --stacks=yes
+                "$<TARGET_FILE:${_VALGRIND_PROFILE_TARGET}>" ${_VALGRIND_PROFILE_ARGS}
+        DEPENDS ${_VALGRIND_PROFILE_TARGET}
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+        COMMENT "Heap profile of ${_VALGRIND_PROFILE_TARGET} with massif -> massif.out.<pid>"
+        VERBATIM
+    )
+
+    message(STATUS "Valgrind found: targets 'memcheck', 'callgrind', 'massif' available")
+else()
+    message(STATUS "Valgrind not found; memcheck/profiler targets disabled (install valgrind to enable)")
+endif()
