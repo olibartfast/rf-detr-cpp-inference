@@ -54,6 +54,15 @@ std::filesystem::path resolve_keypoint_model_path() {
     return {};
 }
 
+void save_white_test_image(const std::filesystem::path &path, int width = 100, int height = 100) {
+    rfdetr::media::Image img;
+    img.resize(width, height);
+    std::fill(img.bgr.begin(), img.bgr.end(), 255);
+    if (!rfdetr::media::save_image(img, path)) {
+        throw std::runtime_error("Failed to write test image: " + path.string());
+    }
+}
+
 } // namespace
 
 #define SKIP_IF_NO_MODEL(fixture)                                                                                      \
@@ -67,8 +76,7 @@ class RFDETRIntegrationTest : public ::testing::Test {
   protected:
     void SetUp() override {
         // Create a small test image
-        cv::Mat test_image(100, 100, CV_8UC3, cv::Scalar(255, 255, 255));
-        cv::imwrite("data/test_image.jpg", test_image);
+        save_white_test_image("data/test_image.jpg");
 
         // Create a label file
         std::ofstream label_file("data/test_labels.txt");
@@ -127,7 +135,7 @@ TEST_F(RFDETRIntegrationTest, EndToEndPipeline) {
     inference.postprocess_outputs(scale_w, scale_h, scores, class_ids, boxes);
 
     // Load image for drawing
-    cv::Mat image = cv::imread(image_path_.string(), cv::IMREAD_COLOR);
+    rfdetr::media::Image image = rfdetr::media::load_image(image_path_);
     ASSERT_FALSE(image.empty());
 
     // Draw detections
@@ -184,8 +192,7 @@ TEST_F(RFDETRIntegrationTest, InvalidImagePath) {
 class RFDETRKeypointIntegrationTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        cv::Mat test_image(100, 100, CV_8UC3, cv::Scalar(255, 255, 255));
-        cv::imwrite("data/test_kp_image.jpg", test_image);
+        save_white_test_image("data/test_kp_image.jpg");
 
         std::ofstream label_file("data/test_labels.txt");
         label_file << "person\nbicycle\ncar\nmotorbike\naeroplane\n";
@@ -253,7 +260,7 @@ TEST_F(RFDETRKeypointIntegrationTest, EndToEndKeypointPipeline) {
     EXPECT_EQ(scores.size(), keypoints.size());
 
     // Draw and save
-    cv::Mat image = cv::imread(image_path_.string(), cv::IMREAD_COLOR);
+    rfdetr::media::Image image = rfdetr::media::load_image(image_path_);
     ASSERT_FALSE(image.empty());
 
     inference.draw_keypoints(image, boxes, class_ids, scores, keypoints);

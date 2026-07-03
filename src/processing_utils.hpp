@@ -2,7 +2,6 @@
 
 #include <array>
 #include <cstddef>
-#include <opencv2/core.hpp>
 #include <span>
 
 namespace rfdetr::processing {
@@ -30,14 +29,5 @@ struct BoundingBox {
 
 /// Clamp a bounding box to image bounds [0, max_w] x [0, max_h]
 [[nodiscard]] BoundingBox clamp_box(const BoundingBox &box, float max_w, float max_h) noexcept;
-
-/// Deterministic color for a class ID (golden-angle hue distribution)
-[[nodiscard]] cv::Scalar get_color_for_class(int class_id) noexcept;
-
-/// Preprocess a BGR cv::Mat frame into a pre-allocated CHW float tensor.
-/// output must have size >= 3 * resolution * resolution.
-/// Performs: resize → BGR2RGB → float32 [0,1] → CHW split → normalize.
-void preprocess_frame(const cv::Mat &bgr_frame, std::span<float> output, int resolution,
-                      std::span<const float, 3> means, std::span<const float, 3> stds);
 
 } // namespace rfdetr::processing
