@@ -4,6 +4,44 @@ Tracks upstream `rfdetr` version changes that affect this C++ inference project.
 
 ---
 
+## v0.3.0
+
+Swappable media/display backend and a unified Docker image matrix. The default
+image/video I/O + display layer moves from OpenCV to **FFmpeg + SDL2 + stb**;
+OpenCV remains selectable via `-DUSE_OPENCV=ON`, orthogonal to the inference
+backend (ONNX Runtime / TensorRT).
+
+### Changed
+
+| File | Change |
+|------|--------|
+| `src/video_reader.*`, `src/video_writer.*`, `src/display.*`, `src/media.cpp` | Replaced the OpenCV media/display layer with FFmpeg (decode/encode), SDL2 (preview), and stb (image I/O). OpenCV implementations retained behind `#ifdef USE_OPENCV`. |
+| `CMakeLists.txt` | Added `USE_OPENCV` option (default `OFF`); media backend selected between `pkg-config` FFmpeg+SDL2 and `find_package(OpenCV)`. |
+| `Dockerfile` | Unified into a single parametric Dockerfile driven by `INFERENCE_BACKEND` (onnx\|tensorrt) and `MEDIA_BACKEND` (ffmpeg\|opencv), producing all 4 image variants. Reuses NGC-bundled TensorRT (skips the ~1GB tarball download). |
+| `README.md` | Documented the media-backend choice, the `USE_OPENCV` build option, and the 4-variant Docker matrix; release badge bumped to `0.3.0`. |
+| `.gitignore` | Ignore root-level media artifacts (`output_video.mp4`), review working docs (`hermes_review.md`), and the `Testing/` temp dir. |
+
+### Removed
+
+| File | Change |
+|------|--------|
+| `Dockerfile.onnx`, `Dockerfile.tensorrt` | Superseded by the unified parametric `Dockerfile`. |
+
+### Fixed
+
+- Stabilized media backend shutdown.
+- CI cppcheck `missingInclude` and Dockerfile matrix build.
+
+### Why
+
+Decouples the media/display stack from OpenCV so the project can run with a
+lighter, license-friendly dependency set by default, while keeping OpenCV as a
+compile-time option. The Docker matrix makes all four backend combinations
+first-class and independently testable. Backward-compatible: existing
+`USE_OPENCV=ON` and `USE_TENSORRT=ON` builds are unchanged.
+
+---
+
 ## v0.2.2
 
 **Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.8.3

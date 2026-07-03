@@ -8,3 +8,6 @@ __pycache__
 .venv
 rfdetr_venv
 build-*
+output_video.mp4
+hermes_review.md
+Testing/
