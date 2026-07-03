@@ -44,7 +44,7 @@ struct VideoWriter::Impl {
         }
     }
 
-    bool write(const Image &frame) {
+    void write(const Image &frame) {
         if (frame.width != width || frame.height != height) {
             throw std::runtime_error("VideoWriter: frame size " + std::to_string(frame.width) + "x" +
                                      std::to_string(frame.height) + " does not match writer " + std::to_string(width) +
@@ -53,7 +53,6 @@ struct VideoWriter::Impl {
         // Wrap the contiguous BGR buffer without copying. VideoWriter treats it as read-only.
         cv::Mat mat(height, width, CV_8UC3, const_cast<uint8_t *>(frame.data()));
         writer.write(mat);
-        return true;
     }
 };
 
@@ -236,7 +235,7 @@ struct VideoWriter::Impl {
         }
     }
 
-    bool write(const Image &frame) {
+    void write(const Image &frame) {
         if (frame.width != width || frame.height != height) {
             throw std::runtime_error("VideoWriter: frame size " + std::to_string(frame.width) + "x" +
                                      std::to_string(frame.height) + " does not match writer " + std::to_string(width) +
@@ -254,7 +253,6 @@ struct VideoWriter::Impl {
         sws_scale(sws, src_data, src_linesize, 0, height, yuv_frame->data, yuv_frame->linesize);
         yuv_frame->pts = pts++;
         encode_and_write(yuv_frame);
-        return true;
     }
 
     void flush() {
@@ -272,7 +270,7 @@ VideoWriter::VideoWriter(const std::filesystem::path &path, int width, int heigh
 
 VideoWriter::~VideoWriter() = default;
 
-bool VideoWriter::write(const Image &frame) { return impl_->write(frame); }
+void VideoWriter::write(const Image &frame) { impl_->write(frame); }
 
 int VideoWriter::width() const noexcept { return impl_->width; }
 int VideoWriter::height() const noexcept { return impl_->height; }
