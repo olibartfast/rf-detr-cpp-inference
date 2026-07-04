@@ -479,6 +479,10 @@ Use `--display` to open a live preview window (press ESC to quit early).
 - **labels**: `float32[batch, num_queries, num_classes+1]` - Class logits (index 0 = background)
 - **keypoints**: `float32[batch, num_queries, C*K_max, 8]` - Keypoints (8 channels per keypoint)
 
+### C++ Result Types
+
+Postprocessing APIs expose decoded boxes as `std::vector<BoundingBox>`, with `x_min`, `y_min`, `x_max`, and `y_max` fields in pixel-space `xyxy` format. Segmentation masks use `std::vector<rfdetr::media::Mask>`, and keypoints use `std::vector<std::vector<KeypointResult>>` for per-detection keypoint metadata.
+
 ### Processing Pipeline
 
 1. **Preprocessing**:

@@ -309,7 +309,7 @@ TEST_F(PostprocessTest, ThresholdFiltering) {
 
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     inference->postprocess_outputs(1.0f, 1.0f, scores, class_ids, boxes);
 
     // Only detection 0 should pass the threshold
@@ -336,14 +336,14 @@ TEST_F(PostprocessTest, CoordinateConversion) {
 
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     inference->postprocess_outputs(1.0f, 1.0f, scores, class_ids, boxes);
 
     ASSERT_EQ(boxes.size(), 1u);
-    EXPECT_NEAR(boxes[0][0], 40.0f, 0.01f); // x_min
-    EXPECT_NEAR(boxes[0][1], 45.0f, 0.01f); // y_min
-    EXPECT_NEAR(boxes[0][2], 60.0f, 0.01f); // x_max
-    EXPECT_NEAR(boxes[0][3], 55.0f, 0.01f); // y_max
+    EXPECT_NEAR(boxes[0].x_min, 40.0f, 0.01f); // x_min
+    EXPECT_NEAR(boxes[0].y_min, 45.0f, 0.01f); // y_min
+    EXPECT_NEAR(boxes[0].x_max, 60.0f, 0.01f); // x_max
+    EXPECT_NEAR(boxes[0].y_max, 55.0f, 0.01f); // y_max
 }
 
 TEST_F(PostprocessTest, ClassIdOffset) {
@@ -361,7 +361,7 @@ TEST_F(PostprocessTest, ClassIdOffset) {
 
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     inference->postprocess_outputs(1.0f, 1.0f, scores, class_ids, boxes);
 
     ASSERT_EQ(class_ids.size(), 1u);
@@ -381,7 +381,7 @@ TEST_F(PostprocessTest, EmptyResults) {
 
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     inference->postprocess_outputs(1.0f, 1.0f, scores, class_ids, boxes);
 
     EXPECT_TRUE(scores.empty());
@@ -410,20 +410,20 @@ TEST_F(PostprocessTest, BoxesClampedToImageBounds) {
 
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     inference->postprocess_outputs(1.0f, 1.0f, scores, class_ids, boxes);
 
     ASSERT_EQ(boxes.size(), 2u);
     // det 0: negative x_min/y_min clamped to 0
-    EXPECT_NEAR(boxes[0][0], 0.0f, 0.01f);
-    EXPECT_NEAR(boxes[0][1], 0.0f, 0.01f);
-    EXPECT_NEAR(boxes[0][2], 20.0f, 0.01f);
-    EXPECT_NEAR(boxes[0][3], 20.0f, 0.01f);
+    EXPECT_NEAR(boxes[0].x_min, 0.0f, 0.01f);
+    EXPECT_NEAR(boxes[0].y_min, 0.0f, 0.01f);
+    EXPECT_NEAR(boxes[0].x_max, 20.0f, 0.01f);
+    EXPECT_NEAR(boxes[0].y_max, 20.0f, 0.01f);
     // det 1: overflowing x_max/y_max clamped to 100
-    EXPECT_NEAR(boxes[1][0], 80.0f, 0.01f);
-    EXPECT_NEAR(boxes[1][1], 80.0f, 0.01f);
-    EXPECT_NEAR(boxes[1][2], 100.0f, 0.01f);
-    EXPECT_NEAR(boxes[1][3], 100.0f, 0.01f);
+    EXPECT_NEAR(boxes[1].x_min, 80.0f, 0.01f);
+    EXPECT_NEAR(boxes[1].y_min, 80.0f, 0.01f);
+    EXPECT_NEAR(boxes[1].x_max, 100.0f, 0.01f);
+    EXPECT_NEAR(boxes[1].y_max, 100.0f, 0.01f);
 }
 
 // ============================================================================
@@ -599,7 +599,7 @@ TEST_F(KeypointPostprocessTest, ThreeOutputsRequired) {
 
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     std::vector<std::vector<KeypointResult>> keypoints;
 
     // With MockBackend, run_inference only caches what was set — so 2 outputs won't throw
@@ -636,7 +636,7 @@ TEST_F(KeypointPostprocessTest, ClassSelectionAndBboxDecode) {
 
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     std::vector<std::vector<KeypointResult>> keypoints;
 
     inference->postprocess_keypoint_outputs(1.0f, 1.0f, 100, 200, scores, class_ids, boxes, keypoints);
@@ -647,10 +647,10 @@ TEST_F(KeypointPostprocessTest, ClassSelectionAndBboxDecode) {
 
     // Bbox: cx=50, cy=50, w=20, h=10 → xyxy=(40, 45, 60, 55), scale=1.0
     ASSERT_EQ(boxes.size(), 1u);
-    EXPECT_NEAR(boxes[0][0], 40.0f, 0.01f);
-    EXPECT_NEAR(boxes[0][1], 45.0f, 0.01f);
-    EXPECT_NEAR(boxes[0][2], 60.0f, 0.01f);
-    EXPECT_NEAR(boxes[0][3], 55.0f, 0.01f);
+    EXPECT_NEAR(boxes[0].x_min, 40.0f, 0.01f);
+    EXPECT_NEAR(boxes[0].y_min, 45.0f, 0.01f);
+    EXPECT_NEAR(boxes[0].x_max, 60.0f, 0.01f);
+    EXPECT_NEAR(boxes[0].y_max, 55.0f, 0.01f);
 
     // Keypoints
     ASSERT_EQ(keypoints.size(), 1u);
@@ -688,7 +688,7 @@ TEST_F(KeypointPostprocessTest, KeypointCoordinateDecode) {
 
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     std::vector<std::vector<KeypointResult>> keypoints;
 
     inference->postprocess_keypoint_outputs(1.0f, 1.0f, 100, 200, scores, class_ids, boxes, keypoints);
@@ -722,7 +722,7 @@ TEST_F(KeypointPostprocessTest, ScaleApplied) {
 
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     std::vector<std::vector<KeypointResult>> keypoints;
 
     // scale_w=2.0, scale_h=3.0, orig image size 200x300
@@ -747,7 +747,7 @@ TEST_F(KeypointPostprocessTest, NoDetectionsBelowThreshold) {
 
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     std::vector<std::vector<KeypointResult>> keypoints;
 
     inference->postprocess_keypoint_outputs(1.0f, 1.0f, 100, 200, scores, class_ids, boxes, keypoints);
@@ -788,7 +788,7 @@ TEST_F(KeypointPostprocessTest, CholeskyToCovariance) {
 
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     std::vector<std::vector<KeypointResult>> keypoints;
 
     // orig_w=200, orig_h=100
@@ -832,7 +832,7 @@ TEST_F(KeypointPostprocessTest, BackgroundColumnIgnored) {
 
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     std::vector<std::vector<KeypointResult>> keypoints;
 
     inference->postprocess_keypoint_outputs(1.0f, 1.0f, 100, 200, scores, class_ids, boxes, keypoints);

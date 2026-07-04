@@ -113,7 +113,7 @@ void RFDETRInference::run_inference(std::span<const float> input_data) {
 }
 
 void RFDETRInference::postprocess_outputs(float scale_w, float scale_h, std::vector<float> &scores,
-                                          std::vector<int> &class_ids, std::vector<std::vector<float>> &boxes) {
+                                          std::vector<int> &class_ids, std::vector<BoundingBox> &boxes) {
     if (output_data_cache_.size() < 2) {
         throw std::runtime_error("Expected at least 2 output tensors, got " +
                                  std::to_string(output_data_cache_.size()));
@@ -159,7 +159,7 @@ void RFDETRInference::postprocess_outputs(float scale_w, float scale_h, std::vec
             auto scaled = rfdetr::processing::scale_box(xyxy, scale_w, scale_h);
             auto clamped = rfdetr::processing::clamp_box(scaled, max_w, max_h);
 
-            std::vector<float> box = {clamped.x_min, clamped.y_min, clamped.x_max, clamped.y_max};
+            BoundingBox box{clamped.x_min, clamped.y_min, clamped.x_max, clamped.y_max};
 
             scores.push_back(max_score);
             class_ids.push_back(max_class_idx);
@@ -170,7 +170,7 @@ void RFDETRInference::postprocess_outputs(float scale_w, float scale_h, std::vec
 
 void RFDETRInference::postprocess_segmentation_outputs(float scale_w, float scale_h, int orig_h, int orig_w,
                                                        std::vector<float> &scores, std::vector<int> &class_ids,
-                                                       std::vector<std::vector<float>> &boxes,
+                                                       std::vector<BoundingBox> &boxes,
                                                        std::vector<rfdetr::media::Mask> &masks) {
     if (output_data_cache_.size() != 3) {
         throw std::runtime_error("Expected 3 output tensors for segmentation, got " +
@@ -245,7 +245,7 @@ void RFDETRInference::postprocess_segmentation_outputs(float scale_w, float scal
         auto scaled = rfdetr::processing::scale_box(xyxy, scale_w, scale_h);
         auto clamped = rfdetr::processing::clamp_box(scaled, static_cast<float>(orig_w), static_cast<float>(orig_h));
 
-        std::vector<float> box = {clamped.x_min, clamped.y_min, clamped.x_max, clamped.y_max};
+        BoundingBox box{clamped.x_min, clamped.y_min, clamped.x_max, clamped.y_max};
 
         const size_t mask_offset = detection_idx * mask_h * mask_w;
         auto binary_mask = rfdetr::media::resize_threshold_mask(
@@ -259,7 +259,7 @@ void RFDETRInference::postprocess_segmentation_outputs(float scale_w, float scal
     }
 }
 
-void RFDETRInference::draw_detections(rfdetr::media::Image &image, std::span<const std::vector<float>> boxes,
+void RFDETRInference::draw_detections(rfdetr::media::Image &image, std::span<const BoundingBox> boxes,
                                       std::span<const int> class_ids, std::span<const float> scores) {
     (void)scores;
     if (boxes.size() != class_ids.size() || boxes.size() != scores.size()) {
@@ -268,7 +268,7 @@ void RFDETRInference::draw_detections(rfdetr::media::Image &image, std::span<con
     rfdetr::media::draw_detections(image, boxes, class_ids);
 }
 
-void RFDETRInference::draw_segmentation_masks(rfdetr::media::Image &image, std::span<const std::vector<float>> boxes,
+void RFDETRInference::draw_segmentation_masks(rfdetr::media::Image &image, std::span<const BoundingBox> boxes,
                                               std::span<const int> class_ids, std::span<const float> scores,
                                               std::span<const rfdetr::media::Mask> masks) {
     (void)scores;
@@ -288,7 +288,7 @@ std::string RFDETRInference::get_label_name(int class_id) const {
 
 void RFDETRInference::postprocess_keypoint_outputs(float scale_w, float scale_h, int orig_h, int orig_w,
                                                    std::vector<float> &scores, std::vector<int> &class_ids,
-                                                   std::vector<std::vector<float>> &boxes,
+                                                   std::vector<BoundingBox> &boxes,
                                                    std::vector<std::vector<KeypointResult>> &keypoints) {
     if (output_data_cache_.size() < 3) {
         throw std::runtime_error("Expected at least 3 output tensors for keypoint, got " +
@@ -390,7 +390,7 @@ void RFDETRInference::postprocess_keypoint_outputs(float scale_w, float scale_h,
         auto scaled = rfdetr::processing::scale_box(xyxy, scale_w, scale_h);
         auto clamped = rfdetr::processing::clamp_box(scaled, static_cast<float>(orig_w), static_cast<float>(orig_h));
 
-        std::vector<float> box = {clamped.x_min, clamped.y_min, clamped.x_max, clamped.y_max};
+        BoundingBox box{clamped.x_min, clamped.y_min, clamped.x_max, clamped.y_max};
 
         std::vector<KeypointResult> kp_results;
         size_t selected_kp_class = default_kp_class;
@@ -485,7 +485,7 @@ void RFDETRInference::postprocess_keypoint_outputs(float scale_w, float scale_h,
     }
 }
 
-void RFDETRInference::draw_keypoints(rfdetr::media::Image &image, std::span<const std::vector<float>> boxes,
+void RFDETRInference::draw_keypoints(rfdetr::media::Image &image, std::span<const BoundingBox> boxes,
                                      std::span<const int> class_ids, std::span<const float> scores,
                                      std::span<const std::vector<KeypointResult>> keypoints) {
     (void)scores;

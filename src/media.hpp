@@ -55,10 +55,10 @@ void preprocess_bgr_image(const Image &image, std::span<float> output, int resol
                                          int out_height, float threshold);
 
 [[nodiscard]] Color get_color_for_class(int class_id) noexcept;
-void draw_detections(Image &image, std::span<const std::vector<float>> boxes, std::span<const int> class_ids);
-void draw_segmentation_masks(Image &image, std::span<const std::vector<float>> boxes, std::span<const int> class_ids,
+void draw_detections(Image &image, std::span<const BoundingBox> boxes, std::span<const int> class_ids);
+void draw_segmentation_masks(Image &image, std::span<const BoundingBox> boxes, std::span<const int> class_ids,
                              std::span<const Mask> masks);
-void draw_keypoints(Image &image, std::span<const std::vector<float>> boxes, std::span<const int> class_ids,
+void draw_keypoints(Image &image, std::span<const BoundingBox> boxes, std::span<const int> class_ids,
                     std::span<const std::vector<KeypointResult>> keypoints,
                     std::span<const std::pair<int, int>> skeleton, Color keypoint_color);
 
@@ -74,7 +74,7 @@ void draw_text(Image &image, std::string_view text, int x, int y, Color color, i
 
 /// Draw a labeled box: rectangle outline + filled label background + text.
 /// Useful for detection/segmentation annotations where the label string matters.
-void draw_labeled_box(Image &image, const std::vector<float> &box, Color box_color, std::string_view label,
+void draw_labeled_box(Image &image, const BoundingBox &box, Color box_color, std::string_view label,
                       Color text_color = {255, 255, 255}, Color bg_color = {0, 0, 0}, int thickness = 2,
                       int font_scale = 1);
 

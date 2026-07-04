@@ -1,5 +1,13 @@
 #pragma once
 
+/// Axis-aligned bounding box in xyxy pixel format.
+struct BoundingBox {
+    float x_min;
+    float y_min;
+    float x_max;
+    float y_max;
+};
+
 /// A single detected keypoint with associated metadata.
 struct KeypointResult {
     float x;           ///< Pixel x-coordinate
