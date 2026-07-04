@@ -104,7 +104,7 @@ int main(int argc, const char *argv[]) {
 
             std::vector<float> scores;
             std::vector<int> class_ids;
-            std::vector<std::vector<float>> boxes;
+            std::vector<BoundingBox> boxes;
             std::vector<rfdetr::media::Mask> masks;
             std::vector<std::vector<KeypointResult>> keypoints;
             const float scale_w = static_cast<float>(orig_w) / static_cast<float>(inference.get_resolution());
@@ -147,8 +147,8 @@ int main(int argc, const char *argv[]) {
                       << " above threshold " << config.threshold << std::endl;
             for (size_t i = 0; i < boxes.size(); ++i) {
                 std::cout << (use_segmentation ? "Instance " : "Detection ") << i << ":" << std::endl;
-                std::cout << "  Box: [" << boxes[i][0] << ", " << boxes[i][1] << ", " << boxes[i][2] << ", "
-                          << boxes[i][3] << "]" << std::endl;
+                std::cout << "  Box: [" << boxes[i].x_min << ", " << boxes[i].y_min << ", " << boxes[i].x_max << ", "
+                          << boxes[i].y_max << "]" << std::endl;
                 std::cout << "  Class: " << inference.get_label_name(class_ids[i]) << " (Score: " << scores[i] << ")"
                           << std::endl;
                 if (use_keypoint && i < keypoints.size()) {

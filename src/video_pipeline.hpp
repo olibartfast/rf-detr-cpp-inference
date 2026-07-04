@@ -25,7 +25,7 @@ struct FrameSlot {
     std::vector<float> tensor; // pre-allocated to 3 * res * res
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     std::vector<rfdetr::media::Mask> masks;             // segmentation only
     std::vector<std::vector<KeypointResult>> keypoints; // keypoint only
     size_t frame_number{0};

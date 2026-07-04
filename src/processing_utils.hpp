@@ -1,5 +1,7 @@
 #pragma once
 
+#include "rfdetr_types.hpp"
+
 #include <array>
 #include <cstddef>
 #include <span>
@@ -13,13 +15,7 @@ namespace rfdetr::processing {
 void normalize_image(std::span<float> data, size_t channel_size, std::span<const float, 3> means,
                      std::span<const float, 3> stds);
 
-/// Axis-aligned bounding box in xyxy format
-struct BoundingBox {
-    float x_min;
-    float y_min;
-    float x_max;
-    float y_max;
-};
+using ::BoundingBox;
 
 /// Convert center-format (cx, cy, w, h) to corner-format (x_min, y_min, x_max, y_max)
 [[nodiscard]] BoundingBox cxcywh_to_xyxy(float cx, float cy, float w, float h) noexcept;
