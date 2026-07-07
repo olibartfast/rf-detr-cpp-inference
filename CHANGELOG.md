@@ -14,11 +14,11 @@ wired into both CI and local CMake targets.
 
 | File | Change |
 |------|--------|
-| `CMakeLists.txt` | `THREAD_SANITIZER` option (mutually exclusive with `SANITIZERS`); Valgrind detection + `memcheck`, `callgrind`, `massif` custom targets with `VALGRIND_MEMCHECK_OPTS` / `VALGRIND_PROFILE_ARGS` overrides. |
+| `CMakeLists.txt` | `THREAD_SANITIZER` option and opt-in `STRICT_UBSAN` mode (mutually exclusive with `SANITIZERS`); Valgrind detection + `memcheck`, `callgrind`, `massif` custom targets with `VALGRIND_MEMCHECK_OPTS` / `VALGRIND_PROFILE_ARGS` overrides. |
 | `.github/workflows/ci.yml` | New `thread-sanitizer` and `valgrind` jobs running the unit tests under TSan and Valgrind memcheck respectively. |
-| `CMakePresets.json` | `debug-tsan` and `debug-valgrind` configure/build presets. |
-| `AGENTS.md` | ThreadSanitizer subsection and a Valgrind/Profiling section (memcheck, callgrind, massif, perf). |
-| `README.md` | Sanitizers section extended (TSan), new Valgrind/Profiling section, build-options list and Code Quality Tools table updated. |
+| `CMakePresets.json` | `debug-tsan`, `debug-strict-ubsan`, and `debug-valgrind` configure/build presets. |
+| `AGENTS.md` | Strict UBSan and ThreadSanitizer subsections plus a Valgrind/Profiling section (memcheck, callgrind, massif, perf). |
+| `README.md` | Sanitizers section extended (strict UBSan and TSan) and clarified as compiler-provided instrumentation, not a dependency on the archived `google/sanitizers` repository; new Valgrind/Profiling section, build-options list and Code Quality Tools table updated. |
 
 ### Why
 

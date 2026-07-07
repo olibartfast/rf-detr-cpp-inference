@@ -28,13 +28,19 @@
 - Benchmarks (if enabled): `./build/benchmarks`
 
 ## Sanitizers
-ASan+UBSan and TSan are mutually exclusive (pick one).
+ASan+UBSan, strict UBSan, and TSan are mutually exclusive (pick one).
 
 ### AddressSanitizer + UndefinedBehaviorSanitizer
 - Configure: `cmake -S . -B build-san -DCMAKE_BUILD_TYPE=Debug -DSANITIZERS=ON`
 - Build: `cmake --build build-san --parallel`
 - Run unit tests: `./build-san/unit_tests`
 - Run integration tests: `./build-san/integration_tests`
+
+### Strict UndefinedBehaviorSanitizer
+- Configure: `cmake -S . -B build-strict-ubsan -DCMAKE_BUILD_TYPE=Debug -DSTRICT_UBSAN=ON`
+- Build: `cmake --build build-strict-ubsan --parallel`
+- Run unit tests: `./build-strict-ubsan/unit_tests`
+- Run integration tests: `./build-strict-ubsan/integration_tests`
 
 ### ThreadSanitizer (data races)
 - Configure: `cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=Debug -DTHREAD_SANITIZER=ON`

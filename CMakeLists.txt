@@ -31,19 +31,41 @@ if(WERROR)
 endif()
 
 # --- Sanitizers (debug builds, opt-in) ---
-# ASan+UBSan and TSan are mutually exclusive: clang/gcc forbid combining them
-# (e.g. -fsanitize=address,thread is a hard error).
+# ASan+UBSan, strict UBSan, and TSan are separate modes. ASan and TSan are
+# mutually exclusive: clang/gcc forbid combining them (e.g.
+# -fsanitize=address,thread is a hard error). Keep strict UBSan separate so the
+# noisier checks stay opt-in.
 option(SANITIZERS "Enable AddressSanitizer + UndefinedBehaviorSanitizer" OFF)
+option(STRICT_UBSAN "Enable stricter UndefinedBehaviorSanitizer checks" OFF)
 option(THREAD_SANITIZER "Enable ThreadSanitizer (data-race detection)" OFF)
 
-if(SANITIZERS AND THREAD_SANITIZER)
-    message(FATAL_ERROR "SANITIZERS (ASan+UBSan) and THREAD_SANITIZER (TSan) are mutually exclusive. Enable only one.")
+if((SANITIZERS AND STRICT_UBSAN) OR (SANITIZERS AND THREAD_SANITIZER) OR (STRICT_UBSAN AND THREAD_SANITIZER))
+    message(FATAL_ERROR "SANITIZERS, STRICT_UBSAN, and THREAD_SANITIZER are mutually exclusive. Enable only one.")
 endif()
 
 if(SANITIZERS)
     add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
     add_link_options(-fsanitize=address,undefined)
     message(STATUS "Sanitizers: AddressSanitizer + UndefinedBehaviorSanitizer enabled")
+elseif(STRICT_UBSAN)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        set(STRICT_UBSAN_CXX_FLAGS -fsanitize=undefined,local-bounds,vptr,implicit-conversion)
+        set(STRICT_UBSAN_C_FLAGS -fsanitize=undefined,local-bounds,implicit-conversion)
+    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        set(STRICT_UBSAN_CXX_FLAGS -fsanitize=undefined,bounds-strict,vptr)
+        set(STRICT_UBSAN_C_FLAGS -fsanitize=undefined,bounds-strict)
+    else()
+        message(FATAL_ERROR "STRICT_UBSAN is supported only with Clang or GCC")
+    endif()
+    foreach(flag IN LISTS STRICT_UBSAN_CXX_FLAGS)
+        add_compile_options($<$<COMPILE_LANGUAGE:CXX>:${flag}>)
+    endforeach()
+    foreach(flag IN LISTS STRICT_UBSAN_C_FLAGS)
+        add_compile_options($<$<COMPILE_LANGUAGE:C>:${flag}>)
+    endforeach()
+    add_compile_options(-fno-omit-frame-pointer)
+    add_link_options(${STRICT_UBSAN_CXX_FLAGS})
+    message(STATUS "Sanitizer: strict UndefinedBehaviorSanitizer checks enabled (CXX: ${STRICT_UBSAN_CXX_FLAGS}; C: ${STRICT_UBSAN_C_FLAGS})")
 elseif(THREAD_SANITIZER)
     add_compile_options(-fsanitize=thread -fno-omit-frame-pointer)
     add_link_options(-fsanitize=thread)
