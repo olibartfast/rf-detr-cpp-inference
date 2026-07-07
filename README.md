@@ -191,7 +191,11 @@ This is also run automatically on every commit via pre-commit (see [Pre-commit](
 
 ### Sanitizers (Optional)
 
-Build with **AddressSanitizer + UndefinedBehaviorSanitizer** via `-DSANITIZERS=ON`, or with **ThreadSanitizer** (data-race detection) via `-DTHREAD_SANITIZER=ON`. The two are mutually exclusive — enable only one per build directory. Use separate build directories to keep them independent:
+Build with **AddressSanitizer + UndefinedBehaviorSanitizer** via `-DSANITIZERS=ON`, with stricter **UndefinedBehaviorSanitizer** checks via `-DSTRICT_UBSAN=ON`, or with **ThreadSanitizer** (data-race detection) via `-DTHREAD_SANITIZER=ON`. These modes are mutually exclusive — enable only one per build directory. Use separate build directories to keep them independent:
+
+These options use the sanitizer instrumentation and runtime libraries provided
+by the active C++ compiler toolchain (Clang or GCC). The project does not fetch,
+vendor, or depend on the archived `google/sanitizers` repository.
 
 ```bash
 # ASan + UBSan
@@ -199,13 +203,18 @@ cmake -S . -B build-san -DCMAKE_BUILD_TYPE=Debug -DSANITIZERS=ON
 cmake --build build-san --parallel
 ./build-san/unit_tests
 
+# Strict UBSan (extra bounds and vptr checks; Clang also enables implicit-conversion)
+cmake -S . -B build-strict-ubsan -DCMAKE_BUILD_TYPE=Debug -DSTRICT_UBSAN=ON
+cmake --build build-strict-ubsan --parallel
+./build-strict-ubsan/unit_tests
+
 # ThreadSanitizer (data races)
 cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=Debug -DTHREAD_SANITIZER=ON
 cmake --build build-tsan --parallel
 TSAN_OPTIONS="halt_on_error=1" ./build-tsan/unit_tests
 ```
 
-Sanitizers catch memory errors, use-after-free, undefined behaviour, integer overflow (ASan+UBSan), and data races (TSan) at runtime. Both run in CI.
+Sanitizers catch memory errors, use-after-free, undefined behaviour, integer overflow (ASan+UBSan), stricter bounds/vptr issues, plus implicit-conversion issues on Clang (strict UBSan), and data races (TSan) at runtime. ASan+UBSan and TSan run in CI; strict UBSan is opt-in for local diagnosis because it can be noisier.
 
 ### Valgrind / Profiling (Optional)
 
@@ -320,7 +329,8 @@ cmake --build build --parallel
 - `-DUSE_OPENCV=ON/OFF` - Use OpenCV for image/video/display I/O instead of FFmpeg+SDL2+stb (default: OFF)
 - `-DCMAKE_BUILD_TYPE=Release/Debug` - Build configuration
 - `-DSANITIZERS=ON/OFF` - Enable AddressSanitizer + UndefinedBehaviorSanitizer (default: OFF)
-- `-DTHREAD_SANITIZER=ON/OFF` - Enable ThreadSanitizer/data-race detection (default: OFF; mutually exclusive with `SANITIZERS`)
+- `-DSTRICT_UBSAN=ON/OFF` - Enable stricter UndefinedBehaviorSanitizer checks: Clang: `undefined,local-bounds,vptr,implicit-conversion`; GCC: `undefined,bounds-strict,vptr` (default: OFF; mutually exclusive with other sanitizer modes)
+- `-DTHREAD_SANITIZER=ON/OFF` - Enable ThreadSanitizer/data-race detection (default: OFF; mutually exclusive with other sanitizer modes)
 - `-DWERROR=ON/OFF` - Treat compiler warnings as errors (default: OFF)
 - `-DBENCHMARKS=ON/OFF` - Build Google Benchmark targets (default: OFF)
 
@@ -602,6 +612,7 @@ docker run --gpus all -v $(pwd)/data:/data -v $(pwd)/exports:/exports rfdetr-trt
 | `clang-tidy-18` | Static analysis (AST-based) | `find src -name '*.cpp' \| xargs clang-tidy-18 -p build` |
 | `cppcheck` | Static analysis (flow-based) | `cppcheck --enable=all --std=c++20 -I src src/` |
 | AddressSanitizer(ASan) + UndefinedBehaviorSanitizer(UBSan) | Runtime memory/UB detection | `-DSANITIZERS=ON` at configure time |
+| Strict UndefinedBehaviorSanitizer (UBSan) | Extra bounds and vptr checks; Clang also enables implicit-conversion | `-DSTRICT_UBSAN=ON` at configure time |
 | ThreadSanitizer (TSan) | Runtime data-race detection | `-DTHREAD_SANITIZER=ON` at configure time |
 | Valgrind (memcheck) | Memory errors + leak detection | `cmake --build build-valg --target memcheck` |
 | Valgrind (callgrind/massif) | CPU/cache + heap profiling | `cmake --build build-valg --target callgrind` / `massif` |
@@ -615,3 +626,4 @@ docker run --gpus all -v $(pwd)/data:/data -v $(pwd)/exports:/exports rfdetr-trt
 - **Postprocessing implementation** is based on Roboflow's reference implementations:
   - Detection postprocessing: [benchmark_rfdetr.py](https://github.com/roboflow/single_artifact_benchmarking/blob/main/sab/models/benchmark_rfdetr.py)
   - Instance segmentation postprocessing: [benchmark_rfdetr_seg.py](https://github.com/roboflow/single_artifact_benchmarking/blob/main/sab/models/benchmark_rfdetr_seg.py)
+  - Keypoint postprocessing: [postprocess.py](https://github.com/roboflow/rf-detr/blob/develop/src/rfdetr/models/postprocess.py)
