@@ -46,6 +46,17 @@ jobs:
         if: matrix.mode == 'conan'
         run: conan install . -of=build/conan -b=missing
 
+      - name: Locate vcpkg
+        if: matrix.mode == 'vcpkg'
+        run: |
+          if [ -n "${VCPKG_INSTALLATION_ROOT}" ] && [ -f "${VCPKG_INSTALLATION_ROOT}/scripts/buildsystems/vcpkg.cmake" ]; then
+            echo "VCPKG_ROOT=${VCPKG_INSTALLATION_ROOT}" >> "$GITHUB_ENV"
+          else
+            git clone --depth 1 https://github.com/microsoft/vcpkg /opt/vcpkg
+            /opt/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+            echo "VCPKG_ROOT=/opt/vcpkg" >> "$GITHUB_ENV"
+          fi
+
       - name: Configure (apt)
         if: matrix.mode == 'apt'
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DDEPS_DEBUG=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
