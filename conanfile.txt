@@ -1,5 +1,8 @@
 [requires]
 gtest/1.12.1
+sdl/2.24.0
+opencv/4.8.1
+ffmpeg/6.1
 
 [generators]
 CMakeDeps

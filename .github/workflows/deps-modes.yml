@@ -1,17 +1,12 @@
 name: Dependency Modes
 
-# Verifies the unified package-manager facade across all three acquisition
-# policies. The default apt path is also covered by ci.yml; this workflow
-# additionally exercises the Conan and vcpkg strategies (GTest resolves via each
-# manager; media stays on apt; ONNX Runtime via provided-download).
+# Manual workflow to verify the unified package-manager facade across
+# conan and vcpkg strategies. The default apt path is covered by ci.yml
+# on every PR; these modes are opt-in for local/CI binary cache testing.
 #
 # Resolution decisions are logged via -DDEPS_DEBUG=ON.
 
 on:
-  pull_request:
-    branches: [master, develop]
-  push:
-    branches: [master, develop]
   workflow_dispatch:
 
 jobs:

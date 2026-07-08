@@ -8,4 +8,9 @@ deps_declare(OpenCV
     APT_LINK_VARS       "OpenCV_LIBS"
     APT_INCLUDE_VAR     "OpenCV_INCLUDE_DIRS"
     APT_VERSION_VAR     "OpenCV_VERSION"
+    CONAN_RECIPE        opencv
+    CONAN_FIND          opencv
+    CONAN_TARGETS       "opencv::opencv"
+    VCPKG_FIND          OpenCV
+    VCPKG_TARGETS       "opencv_core;opencv_imgcodecs;opencv_imgproc;opencv_videoio;opencv_highgui"
 )
