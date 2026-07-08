@@ -1,0 +1,65 @@
+name: Dependency Modes
+
+# Verifies the unified package-manager facade across all three acquisition
+# policies. The default apt path is also covered by ci.yml; this workflow
+# additionally exercises the Conan and vcpkg strategies (GTest resolves via each
+# manager; media stays on apt; ONNX Runtime via provided-download).
+#
+# Resolution decisions are logged via -DDEPS_DEBUG=ON.
+
+on:
+  pull_request:
+    branches: [master, develop]
+  push:
+    branches: [master, develop]
+  workflow_dispatch:
+
+jobs:
+  deps-mode:
+    name: DEPS_MODE ${{ matrix.mode }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [apt, conan, vcpkg]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-deps
+
+      - name: Set up Python (Conan)
+        if: matrix.mode == 'conan'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Conan
+        if: matrix.mode == 'conan'
+        run: pip install conan
+
+      - name: Create Conan profile (C++20)
+        if: matrix.mode == 'conan'
+        run: |
+          conan profile detect || true
+          sed -i 's/^compiler\.cppstd=.*/compiler.cppstd=gnu20/' ~/.conan2/profiles/default
+
+      - name: Conan install (builds gtest from source)
+        if: matrix.mode == 'conan'
+        run: conan install . -of=build/conan -b=missing
+
+      - name: Configure (apt)
+        if: matrix.mode == 'apt'
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DDEPS_DEBUG=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Configure (conan)
+        if: matrix.mode == 'conan'
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=build/conan/conan_toolchain.cmake -DDEPS_MODE=auto -DDEPS_DEBUG=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Configure (vcpkg)
+        if: matrix.mode == 'vcpkg'
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake -DDEPS_MODE=auto -DDEPS_DEBUG=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Unit tests
+        run: ctest --test-dir build --output-on-failure -R UnitTests
