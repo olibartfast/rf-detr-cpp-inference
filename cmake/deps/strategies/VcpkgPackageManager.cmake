@@ -1,0 +1,40 @@
+# cmake/deps/strategies/VcpkgPackageManager.cmake — Strategy: vcpkg manifest mode.
+# Active when CMAKE_TOOLCHAIN_FILE points at vcpkg.cmake. In manifest mode vcpkg
+# builds/installs every port listed in vcpkg.json at the start of configure, so a
+# plain find_package(<pkg> CONFIG) then resolves the installed targets.
+
+include_guard(GLOBAL)
+
+function(deps_vcpkg_can_resolve NAME OUT_VAR)
+    set(_ok FALSE)
+    deps_decl_get(${NAME} VCPKG_FIND _find)
+    if(NOT _find)
+        set(${OUT_VAR} FALSE PARENT_SCOPE)
+        return()
+    endif()
+    if(NOT CMAKE_TOOLCHAIN_FILE)
+        set(${OUT_VAR} FALSE PARENT_SCOPE)
+        return()
+    endif()
+    get_filename_component(_tc_name "${CMAKE_TOOLCHAIN_FILE}" NAME)
+    if(NOT _tc_name STREQUAL "vcpkg.cmake")
+        set(${OUT_VAR} FALSE PARENT_SCOPE)
+        return()
+    endif()
+    find_package(${_find} CONFIG QUIET)
+    if(${_find}_FOUND)
+        set(_ok TRUE)
+    endif()
+    set(${OUT_VAR} ${_ok} PARENT_SCOPE)
+endfunction()
+
+function(deps_vcpkg_resolve NAME)
+    deps_decl_get(${NAME} VCPKG_FIND _find)
+    find_package(${_find} CONFIG REQUIRED)
+    deps_decl_get(${NAME} VCPKG_TARGETS _targets)
+    deps_decl_get(${NAME} DEFINITIONS _defs)
+    deps_rec_set(${NAME} FOUND TRUE)
+    deps_rec_set(${NAME} RESOLVED_BY "vcpkg")
+    deps_rec_set(${NAME} LIBRARIES "${_targets}")
+    deps_rec_set(${NAME} DEFINITIONS "${_defs}")
+endfunction()
