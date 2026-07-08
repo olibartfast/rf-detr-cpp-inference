@@ -93,6 +93,8 @@ message(STATUS "  TensorRT:     ${USE_TENSORRT}")
 # strategy per -DDEPS_MODE=apt|conan|vcpkg|auto. See docs/package-manager-architecture.md.
 include("${CMAKE_SOURCE_DIR}/cmake/deps/Deps.cmake")
 
+include(FetchContent)
+
 if(USE_ONNX_RUNTIME)
     find_dependency_unified(OnnxRuntime REQUIRED)
 endif()
