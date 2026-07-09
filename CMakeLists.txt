@@ -111,6 +111,8 @@ else()
 endif()
 find_dependency_unified(Threads REQUIRED)
 find_dependency_unified(GTest REQUIRED)
+find_dependency_unified(stb REQUIRED)
+find_dependency_unified(font8x8 REQUIRED)
 
 # --- Source and Include Directories ---
 set(SOURCE_DIR "${CMAKE_SOURCE_DIR}/src")
@@ -151,19 +153,14 @@ target_include_directories(rfdetr_inference_lib
         "${SOURCE_DIR}"
 )
 
-# Third-party vendored headers (stb, font8x8) as SYSTEM to suppress warnings
-target_include_directories(rfdetr_inference_lib SYSTEM
-    PUBLIC
-        "${THIRD_PARTY_DIR}/stb"
-        "${THIRD_PARTY_DIR}/font8x8"
-)
-
 # Link libraries (includes, compile definitions, and link lines for every
 # resolved dependency are carried by the Deps::<Name> targets produced by the
 # unified facade).
 target_link_libraries(rfdetr_inference_lib
     PUBLIC
         Deps::Threads
+        Deps::stb
+        Deps::font8x8
 )
 
 if(USE_OPENCV)
@@ -258,6 +255,9 @@ add_custom_target(run_tests
     COMMENT "Running all tests..."
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
+
+# --- Write dependency lockfile (records which handler + version resolved each dep) ---
+deps_lock_write()
 
 # --- Valgrind: memcheck (correctness) + profilers (callgrind/massif) ---
 # memcheck runs valgrind directly on the unit_tests binary (more predictable

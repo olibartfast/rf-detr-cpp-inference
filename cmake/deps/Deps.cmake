@@ -7,6 +7,7 @@ set(DEPS_MODE         "apt" CACHE STRING "Dependency ecosystem: apt|conan|vcpkg|
 set(DEPS_OFFLINE      OFF CACHE BOOL "Disable network lookups; ROOT provided only")
 set(DEPS_PROVIDED_DIR "${CMAKE_BINARY_DIR}/_deps" CACHE PATH "Where provided downloads extract")
 set(DEPS_DEBUG        OFF CACHE BOOL "Log dependency resolution decisions")
+set(DEPS_CONAN_DIR    "" CACHE PATH "Conan CMakeDeps output dir (CMakeDeps-only mode, no toolchain)")
 
 set_property(CACHE DEPS_MODE PROPERTY STRINGS apt conan vcpkg auto)
 
