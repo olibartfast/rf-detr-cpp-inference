@@ -205,7 +205,7 @@ provided lookups (no network, no apt queries) for air-gapped / hermetic builds.
 | SDL2 | `pkg_check_modules` | apt | APT | conan needs 20+ X11 -dev packages; kept on apt |
 | Threads | `find_package(Threads)` | apt | APT | always available |
 | GoogleTest 1.12.1 | `FetchContent` | apt | PROVIDED `FETCHCONTENT` | routed through facade; conan + vcpkg both verified e2e |
-| Google Benchmark 1.9.1 | `FetchContent` | apt | (unchanged) | top-level `include(FetchContent)` kept for the benchmark path |
+| Google Benchmark 1.9.1 | `FetchContent` | apt | PROVIDED `FETCHCONTENT` | routed through facade; conan + vcpkg coordinates declared |
 | stb, font8x8 | vendored SYSTEM include | all | direct `target_include_directories` | unchanged |
 
 ## 8. Public options
