@@ -299,6 +299,16 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
 cmake --build build --parallel
 ```
 
+**Conan CMakeDeps-only** — consume ConanCenter prebuilt binaries (e.g. gcc11/gnu17)
+with the system compiler (e.g. gcc13), without the conan toolchain overriding it:
+
+```bash
+conan install . -pr gcc11-bin -of=build/conan-deps -g=CMakeDeps
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+      -DDEPS_MODE=auto -DDEPS_CONAN_DIR=build/conan-deps
+cmake --build build --parallel
+```
+
 Full architecture: [docs/package-manager-architecture.md](docs/package-manager-architecture.md).
 
 ### Build with ONNX Runtime (Default)
@@ -385,6 +395,7 @@ cmake --build build --parallel
 - `-DDEPS_OFFLINE=ON/OFF` - Disable network lookups; ROOT provided lookups only (default: OFF)
 - `-DDEPS_DEBUG=ON/OFF` - Log dependency resolution decisions (default: OFF)
 - `-DDEPS_PROVIDED_DIR=<path>` - Where provided-download archives extract (default: `<build>/_deps`)
+- `-DDEPS_CONAN_DIR=<path>` - Conan CMakeDeps output dir (CMakeDeps-only mode — consumes prebuilt binaries without the conan toolchain overriding the system compiler)
 
 ---
 

@@ -206,7 +206,7 @@ provided lookups (no network, no apt queries) for air-gapped / hermetic builds.
 | Threads | `find_package(Threads)` | apt | APT | always available |
 | GoogleTest 1.12.1 | `FetchContent` | apt | PROVIDED `FETCHCONTENT` | routed through facade; conan + vcpkg both verified e2e |
 | Google Benchmark 1.9.1 | `FetchContent` | apt | PROVIDED `FETCHCONTENT` | routed through facade; conan + vcpkg coordinates declared |
-| stb, font8x8 | vendored SYSTEM include | all | direct `target_include_directories` | unchanged |
+| stb, font8x8 | vendored SYSTEM include | all | PROVIDED `VENDORED` | routed through facade as `Deps::stb` / `Deps::font8x8` |
 
 ## 8. Public options
 
@@ -216,6 +216,7 @@ provided lookups (no network, no apt queries) for air-gapped / hermetic builds.
 | `DEPS_OFFLINE` | `OFF` | disable network/apt lookups; only `ROOT` provided lookups |
 | `DEPS_PROVIDED_DIR` | `${CMAKE_BINARY_DIR}/_deps` | where provided downloads extract |
 | `DEPS_DEBUG` | `OFF` | log the chosen handler + version per dependency |
+| `DEPS_CONAN_DIR` | (empty) | Conan CMakeDeps output dir — CMakeDeps-only mode (no toolchain, keeps system compiler) |
 | `<NAME>_ROOT` | (user) | per-dep override bypassing the chain (provided `ROOT`) |
 
 ## 9. Conan / vcpkg integration (implemented)
