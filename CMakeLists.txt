@@ -236,17 +236,12 @@ add_custom_command(TARGET integration_tests PRE_BUILD
 # --- Google Benchmark (opt-in via -DBENCHMARKS=ON) ---
 option(BENCHMARKS "Build benchmark targets" OFF)
 if(BENCHMARKS)
-    FetchContent_Declare(
-        googlebenchmark
-        GIT_REPOSITORY https://github.com/google/benchmark.git
-        GIT_TAG v1.9.1
-    )
     set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
-    FetchContent_MakeAvailable(googlebenchmark)
+    find_dependency_unified(GoogleBenchmark REQUIRED)
 
     add_executable(benchmarks "${TEST_DIR}/benchmark/bench_preprocessing.cpp")
     target_compile_options(benchmarks PRIVATE ${PROJECT_WARNING_FLAGS})
-    target_link_libraries(benchmarks PRIVATE rfdetr_inference_lib benchmark::benchmark)
+    target_link_libraries(benchmarks PRIVATE rfdetr_inference_lib Deps::GoogleBenchmark)
 endif()
 
 # Enable testing
