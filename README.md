@@ -30,7 +30,7 @@ C++ project for performing object detection, instance segmentation, and keypoint
 ### Required (All Backends)
 - **C++20 Compiler**: Clang 15+ or GCC 12+ (e.g., `clang++-15` or `g++-12`)
 - **CMake**: Version 3.12 or higher
-- **Google Test**: Version 1.12.1 (resolved by the unified package-manager facade — see [Dependency Resolution](#dependency-resolution))
+- **Google Test**: 1.12.1 (auto-fetched; see [Dependency Resolution](#dependency-resolution))
 - **Ninja**: Optional but recommended (`sudo apt-get install ninja-build`)
 
 > Annotation text is drawn with an 8x8 bitmap font
@@ -255,61 +255,26 @@ cmake --build build
 
 ### Dependency Resolution
 
-Dependencies are resolved by a unified package-manager facade (`find_dependency_unified`).
-Each dependency is declared once in `cmake/deps/packages/<Name>.cmake`; the build system picks
-the acquisition strategy per `-DDEPS_MODE`:
+All dependencies flow through a unified facade (`find_dependency_unified`) that
+picks the acquisition strategy per `-DDEPS_MODE`:
 
-| `-DDEPS_MODE` | chain | description |
+| mode | chain | use when |
 |---|---|---|
-| `apt` (default) | apt → provided | system packages + pinned downloads — today's behaviour |
-| `conan` | conan → provided | Conan 2 toolchain + CMakeDeps |
-| `vcpkg` | vcpkg → provided | vcpkg manifest mode toolchain |
-| `auto` | apt → conan → vcpkg → provided | fastest available source per dependency |
+| `apt` (default) | apt → provided | no extra tooling; system packages + pinned downloads |
+| `conan` | conan → provided | ConanCenter binaries or local cache |
+| `vcpkg` | vcpkg → provided | vcpkg manifest mode |
+| `auto` | apt → conan → vcpkg → provided | mixed: each dep uses fastest available |
 
-**Default (`apt`) mode** — no extra tooling needed:
-
-| dep | strategy | source |
-|---|---|---|
-| FFmpeg + SDL2 | apt | system `libavcodec-dev` / `libsdl2-dev` |
-| OpenCV | apt | system `libopencv-dev` |
-| ONNX Runtime 1.21.0 | provided | pinned GitHub download |
-| TensorRT 10.13.3.9 | provided | pinned NVIDIA download |
-| GoogleTest | provided (FetchContent) | auto-cloned from GitHub |
-| Threads | apt | system |
-
-**Conan mode** — uses [ConanCenter](https://conan.io/center) prebuilt binaries (where available) or
-builds from source. GTest is the canonical cross-manager test dep; heavy deps (OpenCV, FFmpeg)
-build from source on Linux and are kept on apt for speed.
+Conan/vcpkg activate automatically when their toolchain is detected. Only GTest
+currently routes through them; media/inference deps stay apt/provided on Linux.
 
 ```bash
-conan install . -of=build/conan -b=missing
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_TOOLCHAIN_FILE=build/conan/conan_toolchain.cmake \
-      -DDEPS_MODE=auto
-cmake --build build --parallel
+# Conan: conan install . -of=build/conan -b=missing && cmake ... \
+#   -DCMAKE_TOOLCHAIN_FILE=build/conan/conan_toolchain.cmake -DDEPS_MODE=auto
+# vcpkg: cmake ... -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake -DDEPS_MODE=auto
 ```
 
-**vcpkg mode** — manifest mode (`vcpkg.json`) builds/installs ports during configure.
-GTest is resolved via vcpkg; media deps stay on apt.
-
-```bash
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake \
-      -DDEPS_MODE=auto
-cmake --build build --parallel
-```
-
-**Conan CMakeDeps-only** — consume ConanCenter prebuilt binaries (e.g. gcc11/gnu17)
-with the system compiler (e.g. gcc13), without the conan toolchain overriding it:
-
-```bash
-conan install . -pr gcc11-bin -of=build/conan-deps -g=CMakeDeps
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-      -DDEPS_MODE=auto -DDEPS_CONAN_DIR=build/conan-deps
-cmake --build build --parallel
-```
-
-Full architecture: [docs/package-manager-architecture.md](docs/package-manager-architecture.md).
+Architecture details: [docs/package-manager-architecture.md](docs/package-manager-architecture.md)
 
 ### Build with ONNX Runtime (Default)
 
