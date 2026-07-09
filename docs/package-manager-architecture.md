@@ -196,17 +196,17 @@ provided lookups (no network, no apt queries) for air-gapped / hermetic builds.
 
 ## 7. Dependency mapping (current → new)
 
-| dependency | today | new primary | new fallback | notes |
+| dependency | today | mode | new source | notes |
 |---|---|---|---|---|
-| ONNX Runtime 1.21.0 | manual download (80 lines) | — | PROVIDED `DOWNLOAD` | refactored into catalog |
-| TensorRT 10.13.3.9 + CUDA 13.0 | manual download + `find_package(CUDA)` | — | PROVIDED `DOWNLOAD` + APT(cuda) | RPATH preserved via `RPATH_DIRS` |
-| OpenCV (optional) | `find_package` COMPONENTS | APT | PROVIDED | `USE_OPENCV` gates inclusion |
-| FFmpeg libs | `pkg_check_modules` | APT | PROVIDED | alt media backend |
-| SDL2 | `pkg_check_modules` | APT | PROVIDED | alt media backend |
-| Threads | `find_package(Threads)` | APT | — | always available |
-| GoogleTest 1.12.1 | `FetchContent` | apt: PROVIDED `FETCHCONTENT` | conan: `gtest`; vcpkg: `gtest` | routed through facade; resolved dep varies by `DEPS_MODE` |
-| Google Benchmark 1.9.1 | `FetchContent` | — | (unchanged, provided-ready) | kept as-is this iteration |
-| stb, font8x8 | vendored SYSTEM include | — | PROVIDED `VENDORED` (future) | kept direct this iteration |
+| ONNX Runtime 1.21.0 | manual download (80 lines) | all | PROVIDED `DOWNLOAD` | registries have 1.23+/1.24+ — wrong header API; stays provided |
+| TensorRT 10.13.3.9 + CUDA 13.0 | manual download + `find_package(CUDA)` | all | PROVIDED `DOWNLOAD` | absent from both registries |
+| OpenCV (optional) | `find_package` COMPONENTS | apt | APT | `USE_OPENCV` gates inclusion; vcpkg works but 20-40 min source build |
+| FFmpeg libs | `pkg_check_modules` | apt | APT | alt media backend; vcpkg works but 15-20 min source build |
+| SDL2 | `pkg_check_modules` | apt | APT | conan needs 20+ X11 -dev packages; kept on apt |
+| Threads | `find_package(Threads)` | apt | APT | always available |
+| GoogleTest 1.12.1 | `FetchContent` | apt | PROVIDED `FETCHCONTENT` | routed through facade; conan + vcpkg both verified e2e |
+| Google Benchmark 1.9.1 | `FetchContent` | apt | (unchanged) | top-level `include(FetchContent)` kept for the benchmark path |
+| stb, font8x8 | vendored SYSTEM include | all | direct `target_include_directories` | unchanged |
 
 ## 8. Public options
 
@@ -239,11 +239,21 @@ default `apt`/`auto` builds never accidentally trigger conan or vcpkg.
   REQUIRED and links `VCPKG_TARGETS`.
 
 Packages absent from a registry fall through to the next chain link and finally
-to `PROVIDED` (download / vendored / `FETCHCONTENT`). For the heavy
-media/inference deps (OpenCV, FFmpeg, SDL2, ONNX Runtime) ConanCenter/vcpkg lack
-prebuilt binaries for this toolchain and would build from source (20-40 min
-each); they therefore keep resolving via apt + provided-download, while GTest —
-fast to build in both registries — is the canonical cross-manager test dep.
+to `PROVIDED` (download / vendored / `FETCHCONTENT`). In practice on Linux:
+
+| package | conan | vcpkg | default (apt) |
+|---|---|---|---|
+| GTest | works (binary or source) | works (source) | FetchContent |
+| OpenCV | **version conflict** (opencv/4.8.1 → ffmpeg/4.4 not on conancenter) | works (20-40 min source) | apt |
+| FFmpeg | **version conflict** (same opencv chain) | works (15-20 min source) | apt |
+| SDL2 | needs 20+ X11 `-dev` packages | upstream vcpkg regression | apt |
+| ONNX Runtime | wrong version (1.23+, project pins 1.21) | wrong version | provided-download |
+| TensorRT | absent | absent | provided-download |
+
+ConanCenter serves prebuilt Windows binaries for the heavy frameworks; Linux gets
+source builds. vcpkg does not serve prebuilt binaries. The catalogs carry
+`VCPKG_FIND`/`VCPKG_TARGETS` for OpenCV and FFmpeg (vcpkg handles their
+dependency trees correctly) but the default builds keep them on apt for speed.
 
 ## 10. Backwards compatibility
 
@@ -263,15 +273,20 @@ opt-in and additive.
 
 ## 11. End-to-end verification
 
-Three full project builds, each exercising a different acquisition strategy on
-GTest (the canonical cross-manager dependency) while media + inference deps stay
-on apt + provided-download:
+Three full project builds with GTest as the cross-manager test dependency
+(media + inference deps stay on apt + provided-download):
 
-| build | `DEPS_MODE` | toolchain | GTest source | result |
-|---|---|---|---|---|
-| default (regression) | `apt` | gcc | `PROVIDED` FetchContent | build + all tests pass |
-| conan e2e | `auto` | `conan_toolchain.cmake` | Conan cache `~/.conan2/p/b/gtest*/lib/libgtest.a` | build + all tests pass |
-| vcpkg e2e | `auto` | `vcpkg.cmake` | `build-vcpkg/vcpkg_installed/.../lib/libgtest.a` | build + all tests pass |
+| build | source | GTest resolved by | result |
+|---|---|---|---|
+| default (regression) | local + CI | `PROVIDED` FetchContent | build + all tests pass |
+| conan e2e | local | conan cache `~/.conan2/p/b/gtest*/lib/libgtest.a` | build + all tests pass |
+| vcpkg e2e | CI (PR #1) | `vcpkg_installed/.../lib/libgtest.a` | build + all tests pass |
+
+CI coverage: `ci.yml` (default apt: build, unit tests, benchmarks, ASan/TSan/valgrind)
++ `lint.yml` (format, clang-tidy, cppcheck, -Werror). The `deps-modes.yml`
+workflow (conan/vcpkg matrix) is `workflow_dispatch`-only by design — the default
+path exhaustively tests the facade on every PR; conan/vcpkg are for local or
+opt-in CI runs.
 
 ### Reproducing
 

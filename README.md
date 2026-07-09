@@ -30,7 +30,7 @@ C++ project for performing object detection, instance segmentation, and keypoint
 ### Required (All Backends)
 - **C++20 Compiler**: Clang 15+ or GCC 12+ (e.g., `clang++-15` or `g++-12`)
 - **CMake**: Version 3.12 or higher
-- **Google Test**: Version 1.12.1 (automatically fetched during build)
+- **Google Test**: Version 1.12.1 (resolved by the unified package-manager facade — see [Dependency Resolution](#dependency-resolution))
 - **Ninja**: Optional but recommended (`sudo apt-get install ninja-build`)
 
 > Annotation text is drawn with an 8x8 bitmap font
@@ -253,6 +253,54 @@ cmake -S . -B build -DWERROR=ON
 cmake --build build
 ```
 
+### Dependency Resolution
+
+Dependencies are resolved by a unified package-manager facade (`find_dependency_unified`).
+Each dependency is declared once in `cmake/deps/packages/<Name>.cmake`; the build system picks
+the acquisition strategy per `-DDEPS_MODE`:
+
+| `-DDEPS_MODE` | chain | description |
+|---|---|---|
+| `apt` (default) | apt → provided | system packages + pinned downloads — today's behaviour |
+| `conan` | conan → provided | Conan 2 toolchain + CMakeDeps |
+| `vcpkg` | vcpkg → provided | vcpkg manifest mode toolchain |
+| `auto` | apt → conan → vcpkg → provided | fastest available source per dependency |
+
+**Default (`apt`) mode** — no extra tooling needed:
+
+| dep | strategy | source |
+|---|---|---|
+| FFmpeg + SDL2 | apt | system `libavcodec-dev` / `libsdl2-dev` |
+| OpenCV | apt | system `libopencv-dev` |
+| ONNX Runtime 1.21.0 | provided | pinned GitHub download |
+| TensorRT 10.13.3.9 | provided | pinned NVIDIA download |
+| GoogleTest | provided (FetchContent) | auto-cloned from GitHub |
+| Threads | apt | system |
+
+**Conan mode** — uses [ConanCenter](https://conan.io/center) prebuilt binaries (where available) or
+builds from source. GTest is the canonical cross-manager test dep; heavy deps (OpenCV, FFmpeg)
+build from source on Linux and are kept on apt for speed.
+
+```bash
+conan install . -of=build/conan -b=missing
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_TOOLCHAIN_FILE=build/conan/conan_toolchain.cmake \
+      -DDEPS_MODE=auto
+cmake --build build --parallel
+```
+
+**vcpkg mode** — manifest mode (`vcpkg.json`) builds/installs ports during configure.
+GTest is resolved via vcpkg; media deps stay on apt.
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake \
+      -DDEPS_MODE=auto
+cmake --build build --parallel
+```
+
+Full architecture: [docs/package-manager-architecture.md](docs/package-manager-architecture.md).
+
 ### Build with ONNX Runtime (Default)
 
 ```bash
@@ -333,6 +381,10 @@ cmake --build build --parallel
 - `-DTHREAD_SANITIZER=ON/OFF` - Enable ThreadSanitizer/data-race detection (default: OFF; mutually exclusive with other sanitizer modes)
 - `-DWERROR=ON/OFF` - Treat compiler warnings as errors (default: OFF)
 - `-DBENCHMARKS=ON/OFF` - Build Google Benchmark targets (default: OFF)
+- `-DDEPS_MODE=apt/conan/vcpkg/auto` - Package manager ecosystem for dependency resolution (default: apt)
+- `-DDEPS_OFFLINE=ON/OFF` - Disable network lookups; ROOT provided lookups only (default: OFF)
+- `-DDEPS_DEBUG=ON/OFF` - Log dependency resolution decisions (default: OFF)
+- `-DDEPS_PROVIDED_DIR=<path>` - Where provided-download archives extract (default: `<build>/_deps`)
 
 ---
 
