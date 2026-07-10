@@ -7,4 +7,6 @@ deps_declare(FFmpeg
     APT_IMPORTED_TARGETS "PkgConfig::FFMPEG"
     VCPKG_FIND           FFMPEG
     VCPKG_TARGETS        "FFMPEG::avcodec;FFMPEG::avformat;FFMPEG::avutil;FFMPEG::swscale"
+    CONAN_FIND           FFmpeg
+    CONAN_TARGETS        "FFmpeg::avcodec;FFmpeg::avformat;FFmpeg::avutil;FFmpeg::swscale"
 )

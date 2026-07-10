@@ -16,7 +16,7 @@ find_dependency_unified(OnnxRuntime REQUIRED)
 |---|---|---|
 | **apt** (default) | always | `find_package` / `pkg_check_modules` (system packages) |
 | **conan** | `CMAKE_TOOLCHAIN_FILE=conan_toolchain.cmake` **or** `-DDEPS_CONAN_DIR=<dir>` | Conan 2 CMakeDeps `find_package` |
-| **vcpkg** | `CMAKE_TOOLCHAIN_FILE=vcpkg.cmake` | vcpkg manifest mode `find_package` |
+| **vcpkg** | `CMAKE_TOOLCHAIN_FILE=vcpkg.cmake` | vcpkg manifest mode `find_package` (CONFIG + MODULE) |
 | **provided** | always (fallback) | `DOWNLOAD` (pinned URL), `VENDORED` (third_party/), `FETCHCONTENT` (git clone), `ROOT` (user path) |
 
 `DEPS_MODE=auto` chains all four. Each strategy auto-detects whether it's active
@@ -75,23 +75,24 @@ To add a conan/vcpkg coordinate: add `CONAN_FIND`/`CONAN_TARGETS` or
 |---|---|---|---|
 | ONNX Runtime 1.21.0 | provided-download | provided-download | provided-download |
 | TensorRT 10.13.3.9 | provided-download | provided-download | provided-download |
-| OpenCV | apt | apt | vcpkg (slow) |
-| FFmpeg | apt | apt | vcpkg (slow) |
-| SDL2 | apt | apt | apt |
-| Threads | apt | apt | apt |
+| OpenCV | apt | **conan** | vcpkg (slow) |
+| FFmpeg | apt | **conan** | **vcpkg** |
+| SDL2 | apt | **conan** | **vcpkg** |
+| Threads | apt | apt (fallback) | apt (fallback) |
 | GTest | provided-FetchContent | **conan** | **vcpkg** |
 | Google Benchmark | provided-FetchContent | conan-ready | vcpkg-ready |
 | stb, font8x8 | provided-vendored | provided-vendored | provided-vendored |
 
 ONNX Runtime/TensorRT stay provided-download (registries have wrong versions or
-are absent). OpenCV/FFmpeg/SDL2 stay apt on Linux (conan version conflicts, vcpkg
-source builds 15-40 min). GTest is the canonical cross-manager dep.
+are absent). OpenCV and FFmpeg are mutually exclusive (`USE_OPENCV` option);
+each conan graph resolves independently. In `conan` and `vcpkg` modes, `apt` is
+chained as a fallback for system packages (Threads).
 
 ## Options
 
 | option | default | effect |
 |---|---|---|
-| `DEPS_MODE` | `apt` | `apt`/`conan`/`vcpkg`/`auto` |
+| `DEPS_MODE` | `apt` | `apt` `conan` `vcpkg` `auto` |
 | `DEPS_CONAN_DIR` | (empty) | CMakeDeps-only mode (no toolchain, keeps system compiler) |
 | `DEPS_OFFLINE` | `OFF` | ROOT lookups only (no network) |
 | `DEPS_PROVIDED_DIR` | `<build>/_deps` | download extraction dir |

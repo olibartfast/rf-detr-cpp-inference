@@ -1,5 +1,5 @@
 {
   "name": "rfdetr-inference",
   "version-string": "0.1.0",
-  "dependencies": ["gtest"]
+  "dependencies": ["ffmpeg", "sdl2", "gtest"]
 }

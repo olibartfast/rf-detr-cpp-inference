@@ -10,4 +10,6 @@ deps_declare(OpenCV
     APT_VERSION_VAR     "OpenCV_VERSION"
     VCPKG_FIND          OpenCV
     VCPKG_TARGETS       "opencv_core;opencv_imgcodecs;opencv_imgproc;opencv_videoio;opencv_highgui"
+    CONAN_FIND          OpenCV
+    CONAN_TARGETS       "opencv_core;opencv_imgcodecs;opencv_imgproc;opencv_videoio;opencv_highgui"
 )
