@@ -29,6 +29,7 @@ jobs:
         if: matrix.mode == 'conan'
         run: |
           pip install conan
+          conan profile detect
           mkdir -p ~/.conan2/profiles
           cat > ~/.conan2/profiles/gcc11-bin <<'PROFILE'
           [settings]
@@ -40,7 +41,7 @@ jobs:
           compiler.cppstd=17
           build_type=Release
           PROFILE
-          conan install . -pr gcc11-bin -of=build/conan-deps -g=CMakeDeps
+          conan install . -pr:h gcc11-bin -pr:b default -of=build/conan-deps -g=CMakeDeps
 
       - name: Locate vcpkg
         if: matrix.mode == 'vcpkg'

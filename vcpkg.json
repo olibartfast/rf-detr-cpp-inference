@@ -1,6 +1,5 @@
 {
   "name": "rfdetr-inference",
   "version-string": "0.1.0",
-  "dependencies": ["gtest"],
-  "builtin-baseline": "b8957cf8f2e3186042a7b4ec7b997da8be835338"
+  "dependencies": ["gtest"]
 }
