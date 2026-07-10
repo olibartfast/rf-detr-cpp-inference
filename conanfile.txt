@@ -1,6 +1,12 @@
 [requires]
+ffmpeg/6.1
+sdl/2.28.5
 gtest/1.12.1
 
 [generators]
 CMakeDeps
 CMakeToolchain
+
+# For USE_OPENCV=ON, replace ffmpeg/sdl with opencv/4.8.1.
+# System packages (libva-dev, libegl-dev, libgl-dev) are required for
+# ffmpeg/sdl on Linux. Install with: sudo apt install libva-dev libegl-dev libgl-dev
