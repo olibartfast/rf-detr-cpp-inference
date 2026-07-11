@@ -261,17 +261,22 @@ picks the acquisition strategy per `-DDEPS_MODE`:
 | mode | chain | use when |
 |---|---|---|
 | `apt` (default) | apt → provided | no extra tooling; system packages + pinned downloads |
-| `conan` | conan → provided | ConanCenter binaries or local cache |
-| `vcpkg` | vcpkg → provided | vcpkg manifest mode |
+| `conan` | conan → apt → provided | ConanCenter binaries or local cache |
+| `vcpkg` | vcpkg → apt → provided | vcpkg manifest mode |
 | `auto` | apt → conan → vcpkg → provided | mixed: each dep uses fastest available |
 
-Conan/vcpkg activate automatically when their toolchain is detected. Only GTest
-currently routes through them; media/inference deps stay apt/provided on Linux.
+`apt` is chained as a fallback in conan/vcpkg modes so system packages (Threads)
+resolve correctly. FFmpeg, SDL2, OpenCV, and GTest have conan/vcpkg coordinates
+in `conanfile.txt` / `vcpkg.json`; ONNX Runtime and TensorRT stay provided-download.
 
 ```bash
-# Conan: conan install . -of=build/conan -b=missing && cmake ... \
-#   -DCMAKE_TOOLCHAIN_FILE=build/conan/conan_toolchain.cmake -DDEPS_MODE=auto
-# vcpkg: cmake ... -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake -DDEPS_MODE=auto
+# Conan (CMakeDeps-only mode — keeps system compiler):
+#   sudo apt install libva-dev libegl-dev libgl-dev  # ffmpeg/sdl system deps
+#   conan install . -of=build/conan-deps --build=missing
+#   cmake -S . -B build -DDEPS_MODE=conan -DDEPS_CONAN_DIR=build/conan-deps
+# vcpkg (manifest mode):
+#   cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake \
+#     -DDEPS_MODE=vcpkg
 ```
 
 Architecture details: [docs/package-manager-architecture.md](docs/package-manager-architecture.md)
