@@ -6,6 +6,11 @@
 - TensorRT:
   `cmake -S . -B build -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON -DCMAKE_BUILD_TYPE=Release && cmake --build build --parallel`
 
+## Dependency Resolution
+- Default (`-DDEPS_MODE=apt`): system packages + pinned downloads — no extra tooling
+- Conan/vcpkg: auto-activate via toolchain; see [docs/package-manager-architecture.md](docs/package-manager-architecture.md)
+- `-DDEPS_DEBUG=ON` logs which handler resolved each dependency
+
 ## Code Quality
 - Format check: `find src tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format-18 --dry-run --Werror`
 - Format apply: `find src tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format-18 -i`

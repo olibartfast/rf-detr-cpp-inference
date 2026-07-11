@@ -8,6 +8,7 @@ __pycache__
 .venv
 rfdetr_venv
 build-*
+CMakeUserPresets.json
 output_video.mp4
 hermes_review.md
 Testing/
