@@ -1,0 +1,76 @@
+name: Dependency Modes
+
+# Manual workflow to verify the unified package-manager facade across
+# conan and vcpkg strategies. The default apt path is covered by ci.yml
+# on every PR; these modes are opt-in for local/CI binary cache testing.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deps-mode:
+    name: ${{ matrix.mode }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [apt, conan, vcpkg]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-deps
+
+      - name: Set up Python (Conan)
+        if: matrix.mode == 'conan'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Conan + fetch prebuilt GTest (gcc11/cpp17 binary)
+        if: matrix.mode == 'conan'
+        run: |
+          pip install conan
+          conan profile detect
+          mkdir -p ~/.conan2/profiles
+          cat > ~/.conan2/profiles/gcc11-bin <<'PROFILE'
+          [settings]
+          os=Linux
+          arch=x86_64
+          compiler=gcc
+          compiler.version=11
+          compiler.libcxx=libstdc++11
+          compiler.cppstd=17
+          build_type=Release
+          PROFILE
+          conan install . -pr:h gcc11-bin -pr:b default -of=build/conan-deps -g=CMakeDeps
+
+      - name: Locate vcpkg
+        if: matrix.mode == 'vcpkg'
+        run: |
+          if [ -n "${VCPKG_INSTALLATION_ROOT}" ] && [ -f "${VCPKG_INSTALLATION_ROOT}/scripts/buildsystems/vcpkg.cmake" ]; then
+            echo "VCPKG_ROOT=${VCPKG_INSTALLATION_ROOT}" >> "$GITHUB_ENV"
+          else
+            git clone --depth 1 https://github.com/microsoft/vcpkg /opt/vcpkg
+            /opt/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+            echo "VCPKG_ROOT=/opt/vcpkg" >> "$GITHUB_ENV"
+          fi
+
+      - name: Configure (apt)
+        if: matrix.mode == 'apt'
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DDEPS_DEBUG=ON
+
+      - name: Configure (conan CMakeDeps-only)
+        if: matrix.mode == 'conan'
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DDEPS_MODE=auto -DDEPS_CONAN_DIR=build/conan-deps -DDEPS_DEBUG=ON
+
+      - name: Configure (vcpkg)
+        if: matrix.mode == 'vcpkg'
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake -DDEPS_MODE=auto -DDEPS_DEBUG=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Unit tests
+        run: ctest --test-dir build --output-on-failure -R UnitTests
+
+      - name: Resolution log
+        run: cat build/deps.lock.json

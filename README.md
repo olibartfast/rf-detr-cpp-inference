@@ -30,7 +30,7 @@ C++ project for performing object detection, instance segmentation, and keypoint
 ### Required (All Backends)
 - **C++20 Compiler**: Clang 15+ or GCC 12+ (e.g., `clang++-15` or `g++-12`)
 - **CMake**: Version 3.12 or higher
-- **Google Test**: Version 1.12.1 (automatically fetched during build)
+- **Google Test**: 1.12.1 (auto-fetched; see [Dependency Resolution](#dependency-resolution))
 - **Ninja**: Optional but recommended (`sudo apt-get install ninja-build`)
 
 > Annotation text is drawn with an 8x8 bitmap font
@@ -253,6 +253,34 @@ cmake -S . -B build -DWERROR=ON
 cmake --build build
 ```
 
+### Dependency Resolution
+
+All dependencies flow through a unified facade (`find_dependency_unified`) that
+picks the acquisition strategy per `-DDEPS_MODE`:
+
+| mode | chain | use when |
+|---|---|---|
+| `apt` (default) | apt → provided | no extra tooling; system packages + pinned downloads |
+| `conan` | conan → apt → provided | ConanCenter binaries or local cache |
+| `vcpkg` | vcpkg → apt → provided | vcpkg manifest mode |
+| `auto` | apt → conan → vcpkg → provided | mixed: each dep uses fastest available |
+
+`apt` is chained as a fallback in conan/vcpkg modes so system packages (Threads)
+resolve correctly. FFmpeg, SDL2, OpenCV, and GTest have conan/vcpkg coordinates
+in `conanfile.txt` / `vcpkg.json`; ONNX Runtime and TensorRT stay provided-download.
+
+```bash
+# Conan (CMakeDeps-only mode — keeps system compiler):
+#   sudo apt install libva-dev libegl-dev libgl-dev  # ffmpeg/sdl system deps
+#   conan install . -of=build/conan-deps --build=missing
+#   cmake -S . -B build -DDEPS_MODE=conan -DDEPS_CONAN_DIR=build/conan-deps
+# vcpkg (manifest mode):
+#   cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake \
+#     -DDEPS_MODE=vcpkg
+```
+
+Architecture details: [docs/package-manager-architecture.md](docs/package-manager-architecture.md)
+
 ### Build with ONNX Runtime (Default)
 
 ```bash
@@ -333,6 +361,11 @@ cmake --build build --parallel
 - `-DTHREAD_SANITIZER=ON/OFF` - Enable ThreadSanitizer/data-race detection (default: OFF; mutually exclusive with other sanitizer modes)
 - `-DWERROR=ON/OFF` - Treat compiler warnings as errors (default: OFF)
 - `-DBENCHMARKS=ON/OFF` - Build Google Benchmark targets (default: OFF)
+- `-DDEPS_MODE=apt/conan/vcpkg/auto` - Package manager ecosystem for dependency resolution (default: apt)
+- `-DDEPS_OFFLINE=ON/OFF` - Disable network lookups; ROOT provided lookups only (default: OFF)
+- `-DDEPS_DEBUG=ON/OFF` - Log dependency resolution decisions (default: OFF)
+- `-DDEPS_PROVIDED_DIR=<path>` - Where provided-download archives extract (default: `<build>/_deps`)
+- `-DDEPS_CONAN_DIR=<path>` - Conan CMakeDeps output dir (CMakeDeps-only mode — consumes prebuilt binaries without the conan toolchain overriding the system compiler)
 
 ---
 
