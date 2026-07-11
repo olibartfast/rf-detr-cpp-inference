@@ -6,27 +6,57 @@ Tracks upstream `rfdetr` version changes that affect this C++ inference project.
 
 ## [Unreleased]
 
-Expanded the runtime-verification toolchain: ThreadSanitizer (data-race
-detection) and Valgrind (memcheck correctness + callgrind/massif profiling),
-wired into both CI and local CMake targets.
+Unified package-manager abstraction layer (`cmake/deps/`) wrapping apt, conan,
+vcpkg, and provided-download strategies behind a single `find_dependency_unified()`
+facade. All dependencies — including GTest, Google Benchmark, stb, and font8x8 —
+now route through the facade instead of ad-hoc `FetchContent` or manual
+`target_include_directories` calls.
 
 ### Added
 
 | File | Change |
 |------|--------|
-| `CMakeLists.txt` | `THREAD_SANITIZER` option and opt-in `STRICT_UBSAN` mode (mutually exclusive with `SANITIZERS`); Valgrind detection + `memcheck`, `callgrind`, `massif` custom targets with `VALGRIND_MEMCHECK_OPTS` / `VALGRIND_PROFILE_ARGS` overrides. |
-| `.github/workflows/ci.yml` | New `thread-sanitizer` and `valgrind` jobs running the unit tests under TSan and Valgrind memcheck respectively. |
-| `CMakePresets.json` | `debug-tsan`, `debug-strict-ubsan`, and `debug-valgrind` configure/build presets. |
-| `AGENTS.md` | Strict UBSan and ThreadSanitizer subsections plus a Valgrind/Profiling section (memcheck, callgrind, massif, perf). |
-| `README.md` | Sanitizers section extended (strict UBSan and TSan) and clarified as compiler-provided instrumentation, not a dependency on the archived `google/sanitizers` repository; new Valgrind/Profiling section, build-options list and Code Quality Tools table updated. |
+| `cmake/deps/Deps.cmake` | Facade: public options (`DEPS_MODE`, `DEPS_CONAN_DIR`, `DEPS_OFFLINE`, `DEPS_PROVIDED_DIR`, `DEPS_DEBUG`), module includes, catalog loader, resolver construction. |
+| `cmake/deps/PackageManager.cmake` | Registry (`deps_declare`), chain-of-responsibility driver (`deps_resolve`), non-IMPORTED INTERFACE target builder (`deps_build_target` → `Deps::<Name>`), lockfile writer (`deps_lock_write` → `deps.lock.json`). |
+| `cmake/deps/strategies/AptPackageManager.cmake` | apt strategy: `find_package` / `pkg_check_modules` QUIET probe. |
+| `cmake/deps/strategies/ConanPackageManager.cmake` | Conan 2 strategy: toolchain mode (auto-detected) + CMakeDeps-only mode (`-DDEPS_CONAN_DIR`); `find_package(<CONAN_FIND> CONFIG)`. |
+| `cmake/deps/strategies/VcpkgPackageManager.cmake` | vcpkg strategy: manifest mode (auto-detected via toolchain); CONFIG + MODULE mode fallback; prefers IMPORTED targets, falls back to `<FIND>_LIBRARIES` variables. |
+| `cmake/deps/strategies/ProvidedPackageManager.cmake` | Provided strategy: `DOWNLOAD` (pinned URL), `VENDORED` (third_party/), `FETCHCONTENT` (git clone), `ROOT` (user path); shared `deps_provided_finalize`. |
+| `cmake/deps/packages/*.cmake` | 10 catalog entries: OnnxRuntime, TensorRT, OpenCV, FFmpeg, SDL2, Threads, GTest, GoogleBenchmark, stb, font8x8 — each declares apt/conan/vcpkg/provided coordinates in one place. |
+| `conanfile.txt` | `ffmpeg/6.1`, `sdl/2.28.5`, `gtest/1.12.1`; CMakeDeps + CMakeToolchain generators; OpenCV alternative documented. |
+| `vcpkg.json` | `["ffmpeg", "sdl2", "gtest"]` manifest. |
+| `.github/workflows/deps-modes.yml` | `workflow_dispatch` CI matrix testing apt/conan/vcpkg modes; conan uses gcc11 CMakeDeps-only mode with prebuilt binaries. |
+| `docs/package-manager-architecture.md` | 118-line architecture reference: strategies, catalog format, dependency mapping table, options, lockfile, CMakeDeps-only mode. |
+| `CMakeLists.txt` | `DEPS_MODE` cache option; all dependencies resolved via `find_dependency_unified()`; lockfile written at configure end. |
+
+### Changed
+
+| File | Change |
+|------|--------|
+| `CMakeLists.txt` | GTest, Google Benchmark: raw `FetchContent` → facade (PROVIDED_ACQUIRE=FETCHCONTENT fallback); stb, font8x8: manual `target_include_directories` → facade (PROVIDED_ACQUIRE=VENDORED); `deps_get_rec()` used for RPATH/runtime libs. |
+| `README.md` | New Dependency Resolution section with mode/chain table, conan CMakeDeps-only example, vcpkg manifest example, system-package notes. |
+| `AGENTS.md` | Brief DEPS section: backend selection, dependency resolution, DEPS_DEBUG. |
+
+### Fixed
+
+- **DEPS_OFFLINE honored for FETCHCONTENT**: `can_resolve` returns FALSE when offline, preventing network clone attempts in air-gapped builds (Codex review P2).
+- **vcpkg MODULE mode fallback**: vcpkg's FFmpeg port ships a Find module (not a config file); the strategy now tries CONFIG first, then MODULE, and uses `<FIND>_LIBRARIES` variables when IMPORTED targets don't exist.
+- **Chain order**: `conan;apt;provided` and `vcpkg;apt;provided` — apt fills in system packages (Threads) even in conan/vcpkg modes.
+- **Conan "version conflict" resolved**: OpenCV and FFmpeg are mutually exclusive (`USE_OPENCV` option); each conan graph resolves independently.
 
 ### Why
 
-The multi-threaded video pipeline (zero-copy ring buffer) is the project's main
-concurrency surface; TSan now guards it in CI. Valgrind complements ASan/UBSan
-with leak detection (memcheck) and gives local CPU/heap profiling (callgrind/
-massif) without sanitizer overhead. All three are opt-in via separate build
-directories to stay mutually compatible.
+Decouples dependency acquisition from build logic. Previously, each dependency
+had bespoke `find_package`/`FetchContent`/download code interleaved with build
+targets in `CMakeLists.txt`. The facade centralizes all acquisition strategies
+behind a single declarative interface (`find_dependency_unified(Name REQUIRED)`),
+making it trivial to switch between apt (default, zero tooling), conan (prebuilt
+binaries), and vcpkg (manifest mode) without touching build logic. The lockfile
+records which handler + version resolved each dep for reproducibility.
+
+Also includes expanded runtime-verification toolchain: ThreadSanitizer (data-race
+detection) and Valgrind (memcheck correctness + callgrind/massif profiling),
+wired into both CI and local CMake targets.
 
 ---
 
