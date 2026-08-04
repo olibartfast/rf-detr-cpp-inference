@@ -146,6 +146,13 @@ void VideoPipeline::preprocess_stage() {
     const auto &means = config_.inference_config.means;
     const auto &stds = config_.inference_config.stds;
 
+    // In GPU-preprocessing mode this stage is a passthrough: DALI runs on the
+    // backend's CUDA stream inside the infer stage, because the preprocessed
+    // tensor is written directly into the inference input binding and splitting
+    // that across threads would only add cross-stream synchronisation. The CPU
+    // cost this stage used to carry (the bilinear resample) disappears entirely.
+    const bool gpu_preprocess = config_.inference_config.gpu_preprocess;
+
     while (true) {
         const size_t slot_idx = decode_to_preprocess_.pop();
         if (slot_idx == kPoisonPill || stop_requested_.load(std::memory_order_acquire)) {
@@ -154,7 +161,9 @@ void VideoPipeline::preprocess_stage() {
         }
 
         FrameSlot &slot = slots_[slot_idx];
-        rfdetr::media::preprocess_bgr_image(slot.raw_frame, slot.tensor, res, means, stds);
+        if (!gpu_preprocess) {
+            rfdetr::media::preprocess_bgr_image(slot.raw_frame, slot.tensor, res, means, stds);
+        }
         if (stop_requested_.load(std::memory_order_acquire)) {
             break;
         }
@@ -166,6 +175,14 @@ void VideoPipeline::infer_postprocess_stage() {
     RFDETRInference inference(config_.model_path, config_.label_path, config_.inference_config);
     const auto res = static_cast<float>(inference.get_resolution());
 
+    // Always false in a CPU-only build (and unused there — the GPU branches
+    // below compile away with them).
+    const bool gpu_pre = inference.gpu_preprocess_active();
+    const bool gpu_post =
+        inference.gpu_postprocess_active() && config_.inference_config.model_type == ModelType::SEGMENTATION;
+    (void)gpu_pre;
+    (void)gpu_post;
+
     while (true) {
         const size_t slot_idx = preprocess_to_infer_.pop();
         if (slot_idx == kPoisonPill || stop_requested_.load(std::memory_order_acquire)) {
@@ -176,14 +193,38 @@ void VideoPipeline::infer_postprocess_stage() {
         FrameSlot &slot = slots_[slot_idx];
         slot.clear_results();
 
+#if defined(USE_CUDA_POSTPROCESS) || defined(USE_DALI)
+        if (gpu_pre) {
+            inference.run_gpu_frame(slot.raw_frame);
+        } else {
+            inference.run_inference(slot.tensor);
+        }
+#else
         inference.run_inference(slot.tensor);
+#endif
 
         const float scale_w = static_cast<float>(slot.orig_w) / res;
         const float scale_h = static_cast<float>(slot.orig_h) / res;
 
+#if defined(USE_CUDA_POSTPROCESS) || defined(USE_DALI)
+        // Device-side inference leaves outputs on the GPU; pull them across for
+        // any CPU postprocessor. The GPU postprocessor reads them in place.
+        if (gpu_pre && !gpu_post) {
+            inference.fetch_device_outputs();
+        }
+#endif
+
         if (config_.inference_config.model_type == ModelType::SEGMENTATION) {
-            inference.postprocess_segmentation_outputs(scale_w, scale_h, slot.orig_h, slot.orig_w, slot.scores,
-                                                       slot.class_ids, slot.boxes, slot.masks);
+#if defined(USE_CUDA_POSTPROCESS) || defined(USE_DALI)
+            if (gpu_post) {
+                inference.postprocess_segmentation_outputs_gpu(scale_w, scale_h, slot.orig_h, slot.orig_w, slot.scores,
+                                                               slot.class_ids, slot.boxes, slot.masks);
+            } else
+#endif
+            {
+                inference.postprocess_segmentation_outputs(scale_w, scale_h, slot.orig_h, slot.orig_w, slot.scores,
+                                                           slot.class_ids, slot.boxes, slot.masks);
+            }
         } else if (config_.inference_config.model_type == ModelType::KEYPOINT) {
             inference.postprocess_keypoint_outputs(scale_w, scale_h, slot.orig_h, slot.orig_w, slot.scores,
                                                    slot.class_ids, slot.boxes, slot.keypoints);
