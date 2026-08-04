@@ -4,6 +4,24 @@ Tracks upstream `rfdetr` version changes that affect this C++ inference project.
 
 ---
 
+## [Unreleased]
+
+### Documentation
+
+| File | Change |
+|------|--------|
+| `docs/backend-parity-segmentation-video.md` | Record of a manual cross-backend instance-segmentation video test (ONNX Runtime, TensorRT, ExecuTorch) over a 320-frame 1080p clip. All three run the same `RFDETRSegMedium` at 432×432 and agree on detections; ExecuTorch and ONNX Runtime match exactly, TensorRT is ~0.01 lower on four of seven scores from engine precision. Covers the manual gap left by CI, which tests neither TensorRT nor ExecuTorch. |
+
+### Known Issues
+
+| Area | Issue |
+|------|-------|
+| `deploy/export_executorch.py` | Cannot export segmentation models: `--model_type` offers only the detection classes and the script instantiates `RFDETRNano`…`RFDETR2XLarge`, never `RFDETRSeg*`. Not an upstream or runtime limitation — `rfdetr` 1.9.0 exports `RFDETRSegMedium` to `.pte` without error, `ExecuTorchBackend::validate_output_order()` inspects only outputs 0 and 1 so a third `masks` output passes, and `postprocess_segmentation_outputs()` addresses outputs positionally. Segmentation `.pte` files must currently be exported by hand; see [docs/backend-parity-segmentation-video.md](docs/backend-parity-segmentation-video.md). |
+| `src/main.cpp` | Video output is hard-coded to `output_video.mp4` in the current working directory with no override flag, so comparing backends requires running each from its own directory. |
+| `.gitignore` | `*.pte` is not ignored (unlike `*.onnx` and `*.engine`), and `*.mp4` is ignored only as the exact root-level `output_video.mp4`. Exported ExecuTorch models and result videos appear as untracked files. |
+
+---
+
 ## v0.4.0
 
 Third inference backend and a unified dependency-resolution layer. **ExecuTorch**
