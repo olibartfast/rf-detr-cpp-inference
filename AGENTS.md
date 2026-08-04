@@ -1,10 +1,26 @@
 # AGENTS.md
 
 ## Backend Selection
+Exactly one backend is compiled in; enabling two is a configure-time error.
 - ONNX Runtime (default): 
   `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build --parallel`
 - TensorRT:
   `cmake -S . -B build -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON -DCMAKE_BUILD_TYPE=Release && cmake --build build --parallel`
+- ExecuTorch (`.pte` models, rfdetr 1.9.0+):
+  `cmake -S . -B build -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_EXECUTORCH=ON -DEXECUTORCH_ROOTDIR=<prefix> -DCMAKE_BUILD_TYPE=Release && cmake --build build --parallel`
+  - `-DEXECUTORCH_DELEGATE=xnnpack|portable` (default `xnnpack`) must match the delegate the `.pte` was exported with.
+  - Without `EXECUTORCH_ROOTDIR` the build falls back to compiling ExecuTorch v1.3.1 from source, which is slow and needs a Python interpreter with ExecuTorch's build deps (`import torchgen`, i.e. the `torch` wheel — a bare `python3` fails).
+  - Building the prefix requires patching upstream v1.3.1's `extension/evalue_util/CMakeLists.txt` (`DESTINATION ${CMAKE_BINARY_DIR}/lib` → `${CMAKE_INSTALL_LIBDIR}`), else `find_package(executorch)` fails once the build tree is removed. See README "Building the ExecuTorch install prefix".
+
+## Docker
+`Dockerfile` builds an inference-backend × media-backend matrix:
+`--build-arg INFERENCE_BACKEND=onnx|tensorrt|executorch` and `--build-arg MEDIA_BACKEND=ffmpeg|opencv`.
+The `executorch` variant builds the ExecuTorch runtime from source into `/opt/executorch` (override the tag with `--build-arg EXECUTORCH_VERSION=<tag>`) and applies the upstream install fix automatically.
+
+## Dependency Resolution
+- Default (`-DDEPS_MODE=apt`): system packages + pinned downloads — no extra tooling
+- Conan/vcpkg: auto-activate via toolchain; see [docs/package-manager-architecture.md](docs/package-manager-architecture.md)
+- `-DDEPS_DEBUG=ON` logs which handler resolved each dependency
 
 ## Code Quality
 - Format check: `find src tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format-18 --dry-run --Werror`
@@ -28,10 +44,34 @@
 - Benchmarks (if enabled): `./build/benchmarks`
 
 ## Sanitizers
+ASan+UBSan, strict UBSan, and TSan are mutually exclusive (pick one).
+
+### AddressSanitizer + UndefinedBehaviorSanitizer
 - Configure: `cmake -S . -B build-san -DCMAKE_BUILD_TYPE=Debug -DSANITIZERS=ON`
 - Build: `cmake --build build-san --parallel`
 - Run unit tests: `./build-san/unit_tests`
 - Run integration tests: `./build-san/integration_tests`
+
+### Strict UndefinedBehaviorSanitizer
+- Configure: `cmake -S . -B build-strict-ubsan -DCMAKE_BUILD_TYPE=Debug -DSTRICT_UBSAN=ON`
+- Build: `cmake --build build-strict-ubsan --parallel`
+- Run unit tests: `./build-strict-ubsan/unit_tests`
+- Run integration tests: `./build-strict-ubsan/integration_tests`
+
+### ThreadSanitizer (data races)
+- Configure: `cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=Debug -DTHREAD_SANITIZER=ON`
+- Build: `cmake --build build-tsan --parallel`
+- Run: `TSAN_OPTIONS="halt_on_error=1" ./build-tsan/unit_tests`
+
+## Valgrind / Profiling
+Requires a plain Debug build (no sanitizers — ASan/TSan conflict with Valgrind). The `memcheck`, `callgrind`, and `massif` CMake targets are auto-generated when Valgrind is found.
+- Configure: `cmake -S . -B build-valg -DCMAKE_BUILD_TYPE=Debug`
+- Memcheck (correctness — run by CI): `cmake --build build-valg --target memcheck`
+- CPU/cache profile: `cmake --build build-valg --target callgrind` → read with `callgrind_annotate build-valg/callgrind.out.<pid>`
+- Heap profile: `cmake --build build-valg --target massif` → read with `ms_print build-valg/massif.out.<pid>`
+- Profilers run on `benchmarks` if built (`-DBENCHMARKS=ON`), else `inference_app` (pass args via `-DVALGRIND_PROFILE_ARGS="..."`).
+- Lower-overhead alternative: `perf record ./build/benchmarks && perf report`.
+- Optional suppressions file: `valgrind.supp` at repo root is picked up automatically if present.
 
 ## Pre-commit
 - Install: `pip install pre-commit && pre-commit install`
@@ -45,7 +85,7 @@
 - TensorRT engine: use .engine or .trt model file
 
 ## Notes
-- Only one backend (ONNX Runtime or TensorRT) can be enabled at compile time.
+- Only one backend (ONNX Runtime, TensorRT, or ExecuTorch) can be enabled at compile time.
 - TensorRT requires manually installed CUDA toolkit.
 - Data directory is auto-created by CMake.
-- CI does not test TensorRT backend; test manually.
+- CI does not test the TensorRT or ExecuTorch backends; test those manually.

@@ -45,9 +45,8 @@ int choose_font_scale(int width, int height) {
     return std::max(1, min_dim / 300);
 }
 
-void draw_on_frame(rfdetr::media::Image &image, std::span<const std::vector<float>> boxes,
-                   std::span<const int> class_ids, std::span<const float> scores,
-                   const std::vector<std::string> &labels) {
+void draw_on_frame(rfdetr::media::Image &image, std::span<const BoundingBox> boxes, std::span<const int> class_ids,
+                   std::span<const float> scores, const std::vector<std::string> &labels) {
     const int scale = choose_font_scale(image.width, image.height);
     for (size_t i = 0; i < boxes.size(); ++i) {
         const auto color = rfdetr::media::get_color_for_class(class_ids[i]);
@@ -56,7 +55,7 @@ void draw_on_frame(rfdetr::media::Image &image, std::span<const std::vector<floa
     }
 }
 
-void draw_segmentation_on_frame(rfdetr::media::Image &image, std::span<const std::vector<float>> boxes,
+void draw_segmentation_on_frame(rfdetr::media::Image &image, std::span<const BoundingBox> boxes,
                                 std::span<const int> class_ids, std::span<const float> scores,
                                 std::span<const rfdetr::media::Mask> masks, const std::vector<std::string> &labels) {
     rfdetr::media::draw_segmentation_masks(image, boxes, class_ids, masks);

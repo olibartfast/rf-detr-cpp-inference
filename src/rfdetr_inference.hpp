@@ -61,32 +61,30 @@ class RFDETRInference {
 
     // Post-process the inference outputs for detection
     void postprocess_outputs(float scale_w, float scale_h, std::vector<float> &scores, std::vector<int> &class_ids,
-                             std::vector<std::vector<float>> &boxes);
+                             std::vector<BoundingBox> &boxes);
 
     // Post-process the inference outputs for segmentation
     void postprocess_segmentation_outputs(float scale_w, float scale_h, int orig_h, int orig_w,
                                           std::vector<float> &scores, std::vector<int> &class_ids,
-                                          std::vector<std::vector<float>> &boxes,
-                                          std::vector<rfdetr::media::Mask> &masks);
+                                          std::vector<BoundingBox> &boxes, std::vector<rfdetr::media::Mask> &masks);
 
     // Draw detections on the image
-    void draw_detections(rfdetr::media::Image &image, std::span<const std::vector<float>> boxes,
+    void draw_detections(rfdetr::media::Image &image, std::span<const BoundingBox> boxes,
                          std::span<const int> class_ids, std::span<const float> scores);
 
     // Draw segmentation masks on the image
-    void draw_segmentation_masks(rfdetr::media::Image &image, std::span<const std::vector<float>> boxes,
+    void draw_segmentation_masks(rfdetr::media::Image &image, std::span<const BoundingBox> boxes,
                                  std::span<const int> class_ids, std::span<const float> scores,
                                  std::span<const rfdetr::media::Mask> masks);
 
     // Post-process inference outputs for keypoint detection
     void postprocess_keypoint_outputs(float scale_w, float scale_h, int orig_h, int orig_w, std::vector<float> &scores,
-                                      std::vector<int> &class_ids, std::vector<std::vector<float>> &boxes,
+                                      std::vector<int> &class_ids, std::vector<BoundingBox> &boxes,
                                       std::vector<std::vector<KeypointResult>> &keypoints);
 
     // Draw keypoints on the image
-    void draw_keypoints(rfdetr::media::Image &image, std::span<const std::vector<float>> boxes,
-                        std::span<const int> class_ids, std::span<const float> scores,
-                        std::span<const std::vector<KeypointResult>> keypoints);
+    void draw_keypoints(rfdetr::media::Image &image, std::span<const BoundingBox> boxes, std::span<const int> class_ids,
+                        std::span<const float> scores, std::span<const std::vector<KeypointResult>> keypoints);
 
     // Save the output image
     std::optional<std::filesystem::path> save_output_image(const rfdetr::media::Image &image,
