@@ -7,27 +7,60 @@
 
 namespace {
 
+// Model formats the compiled-in backend can actually load, in preference order. Backend selection
+// is compile-time, so probing for a fixed ".onnx" would make an ExecuTorch build pick up a stray
+// ONNX export and fail with a confusing format error instead of skipping cleanly.
+//
+// TensorRT keeps ".onnx" as a lower-priority candidate on purpose: TensorRTBackend::initialize()
+// accepts an ONNX model and builds (or reuses a cached) engine from it, so dropping it would lose
+// the ONNX-to-engine conversion path from integration coverage. Prebuilt engines come first because
+// they load directly and are much faster.
+#if defined(USE_TENSORRT)
+constexpr std::array kModelExtensions = {".engine", ".trt", ".onnx"};
+constexpr const char *kModelFormatName = "TensorRT engine or ONNX model (.engine/.trt/.onnx)";
+#elif defined(USE_EXECUTORCH)
+constexpr std::array kModelExtensions = {".pte"};
+constexpr const char *kModelFormatName = "ExecuTorch program (.pte)";
+#else
+constexpr std::array kModelExtensions = {".onnx"};
+constexpr const char *kModelFormatName = "ONNX model (.onnx)";
+#endif
+
+// Returns the first <stem><ext> that exists. Extensions are the outer loop so format preference is
+// global: for TensorRT, a prebuilt .engine anywhere beats a .onnx anywhere, because loading an
+// engine is instant while building one from ONNX costs minutes. A stem-first search would let an
+// early .onnx win over a later prebuilt engine, contradicting the documented priority.
+template <std::size_t N> std::filesystem::path first_existing_model(const std::array<std::filesystem::path, N> &stems) {
+    for (const char *extension : kModelExtensions) {
+        for (const auto &stem : stems) {
+            if (stem.empty()) {
+                continue;
+            }
+            std::filesystem::path candidate = stem;
+            candidate += extension;
+            if (std::filesystem::exists(candidate)) {
+                return candidate;
+            }
+        }
+    }
+    return {};
+}
+
 std::filesystem::path resolve_test_model_path() {
     if (const char *env_path = std::getenv("RFDETR_TEST_MODEL")) {
         return env_path;
     }
 
     const std::filesystem::path home = std::getenv("HOME") ? std::getenv("HOME") : "";
-    const std::array candidate_paths = {
-        home / "Downloads" / "rfdetr-medium.onnx",
-        home / "Downloads" / "rfdetr-seg-medium.onnx",
-        home / "Downloads" / "inference_model.onnx",
-        std::filesystem::path("exports") / "rfdetr-medium.onnx",
-        std::filesystem::path("output") / "rfdetr-medium.onnx",
+    const std::array<std::filesystem::path, 5> stems = {
+        home / "Downloads" / "rfdetr-medium",
+        home / "Downloads" / "rfdetr-seg-medium",
+        home / "Downloads" / "inference_model",
+        std::filesystem::path("exports") / "rfdetr-medium",
+        std::filesystem::path("output") / "rfdetr-medium",
     };
 
-    for (const auto &candidate : candidate_paths) {
-        if (!candidate.empty() && std::filesystem::exists(candidate)) {
-            return candidate;
-        }
-    }
-
-    return {};
+    return first_existing_model(stems);
 }
 
 std::filesystem::path resolve_keypoint_model_path() {
@@ -36,22 +69,16 @@ std::filesystem::path resolve_keypoint_model_path() {
     }
 
     const std::filesystem::path home = std::getenv("HOME") ? std::getenv("HOME") : "";
-    const std::array candidate_paths = {
-        home / "Downloads" / "rfdetr-keypoint.onnx",
-        home / "Downloads" / "rfdetr-keypoint-preview.onnx",
-        std::filesystem::path("exports") / "rfdetr-keypoint.onnx",
-        std::filesystem::path("exports") / "rfdetr-keypoint-preview.onnx",
-        std::filesystem::path("output") / "rfdetr-keypoint.onnx",
-        std::filesystem::path("output") / "rfdetr-keypoint-preview.onnx",
+    const std::array<std::filesystem::path, 6> stems = {
+        home / "Downloads" / "rfdetr-keypoint",
+        home / "Downloads" / "rfdetr-keypoint-preview",
+        std::filesystem::path("exports") / "rfdetr-keypoint",
+        std::filesystem::path("exports") / "rfdetr-keypoint-preview",
+        std::filesystem::path("output") / "rfdetr-keypoint",
+        std::filesystem::path("output") / "rfdetr-keypoint-preview",
     };
 
-    for (const auto &candidate : candidate_paths) {
-        if (!candidate.empty() && std::filesystem::exists(candidate)) {
-            return candidate;
-        }
-    }
-
-    return {};
+    return first_existing_model(stems);
 }
 
 void save_white_test_image(const std::filesystem::path &path, int width = 100, int height = 100) {
@@ -68,7 +95,9 @@ void save_white_test_image(const std::filesystem::path &path, int width = 100, i
 #define SKIP_IF_NO_MODEL(fixture)                                                                                      \
     do {                                                                                                               \
         if (!(fixture).model_available_) {                                                                             \
-            GTEST_SKIP() << "No ONNX model found. Export with rfdetr 1.8.3 or set RFDETR_TEST_MODEL.";                 \
+            GTEST_SKIP() << "No " << kModelFormatName                                                                  \
+                         << " found for the compiled-in backend. Export with rfdetr 1.9.0 or set "                     \
+                            "RFDETR_TEST_MODEL.";                                                                      \
         }                                                                                                              \
     } while (0)
 
@@ -129,7 +158,7 @@ TEST_F(RFDETRIntegrationTest, EndToEndPipeline) {
     // Post-process
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     const float scale_w = static_cast<float>(orig_w) / static_cast<float>(inference.get_resolution());
     const float scale_h = static_cast<float>(orig_h) / static_cast<float>(inference.get_resolution());
     inference.postprocess_outputs(scale_w, scale_h, scores, class_ids, boxes);
@@ -222,7 +251,8 @@ class RFDETRKeypointIntegrationTest : public ::testing::Test {
 #define SKIP_IF_NO_KEYPOINT_MODEL(fixture)                                                                             \
     do {                                                                                                               \
         if (!(fixture).model_available_) {                                                                             \
-            GTEST_SKIP() << "No keypoint ONNX model found. Export with deploy/export_keypoint.py or set "              \
+            GTEST_SKIP() << "No keypoint " << kModelFormatName                                                         \
+                         << " found for the compiled-in backend. Export with deploy/export_keypoint.py or set "        \
                             "RFDETR_KEYPOINT_MODEL.";                                                                  \
         }                                                                                                              \
     } while (0)
@@ -246,7 +276,7 @@ TEST_F(RFDETRKeypointIntegrationTest, EndToEndKeypointPipeline) {
 
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     std::vector<std::vector<KeypointResult>> keypoints;
 
     const float scale_w = static_cast<float>(orig_w) / static_cast<float>(inference.get_resolution());

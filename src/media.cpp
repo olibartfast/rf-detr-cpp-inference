@@ -80,11 +80,11 @@ void draw_line(Image &image, int x0, int y0, int x1, int y1, Color color, int th
     }
 }
 
-void draw_rect(Image &image, const std::vector<float> &box, Color color, int thickness) noexcept {
-    const int x0 = static_cast<int>(std::round(box[0]));
-    const int y0 = static_cast<int>(std::round(box[1]));
-    const int x1 = static_cast<int>(std::round(box[2]));
-    const int y1 = static_cast<int>(std::round(box[3]));
+void draw_rect(Image &image, const BoundingBox &box, Color color, int thickness) noexcept {
+    const int x0 = static_cast<int>(std::round(box.x_min));
+    const int y0 = static_cast<int>(std::round(box.y_min));
+    const int x1 = static_cast<int>(std::round(box.x_max));
+    const int y1 = static_cast<int>(std::round(box.y_max));
     for (int t = 0; t < thickness; ++t) {
         draw_line(image, x0, y0 + t, x1, y0 + t, color, 1);
         draw_line(image, x0, y1 - t, x1, y1 - t, color, 1);
@@ -308,13 +308,13 @@ Color get_color_for_class(int class_id) noexcept {
     return {clamp_to_byte(b), clamp_to_byte(g), clamp_to_byte(r)};
 }
 
-void draw_detections(Image &image, std::span<const std::vector<float>> boxes, std::span<const int> class_ids) {
+void draw_detections(Image &image, std::span<const BoundingBox> boxes, std::span<const int> class_ids) {
     for (size_t i = 0; i < boxes.size(); ++i) {
         draw_rect(image, boxes[i], get_color_for_class(class_ids[i]), 2);
     }
 }
 
-void draw_segmentation_masks(Image &image, std::span<const std::vector<float>> boxes, std::span<const int> class_ids,
+void draw_segmentation_masks(Image &image, std::span<const BoundingBox> boxes, std::span<const int> class_ids,
                              std::span<const Mask> masks) {
     for (size_t i = 0; i < boxes.size(); ++i) {
         const Color color = get_color_for_class(class_ids[i]);
@@ -332,7 +332,7 @@ void draw_segmentation_masks(Image &image, std::span<const std::vector<float>> b
     }
 }
 
-void draw_keypoints(Image &image, std::span<const std::vector<float>> boxes, std::span<const int> class_ids,
+void draw_keypoints(Image &image, std::span<const BoundingBox> boxes, std::span<const int> class_ids,
                     std::span<const std::vector<KeypointResult>> keypoints,
                     std::span<const std::pair<int, int>> skeleton, Color keypoint_color) {
     const int min_dim = std::max(1, std::min(image.width, image.height));
@@ -397,8 +397,8 @@ void draw_text(Image &image, std::string_view text, int x, int y, Color color, i
     }
 }
 
-void draw_labeled_box(Image &image, const std::vector<float> &box, Color box_color, std::string_view label,
-                      Color text_color, Color bg_color, int thickness, int font_scale) {
+void draw_labeled_box(Image &image, const BoundingBox &box, Color box_color, std::string_view label, Color text_color,
+                      Color bg_color, int thickness, int font_scale) {
     draw_rect(image, box, box_color, thickness);
     if (label.empty()) {
         return;
@@ -406,8 +406,8 @@ void draw_labeled_box(Image &image, const std::vector<float> &box, Color box_col
     const auto sc = std::max(1, font_scale);
     const int text_w = text_width(label, sc);
     const int text_h = kFontGlyphH * sc;
-    int x0 = static_cast<int>(std::round(box[0]));
-    int y_top = static_cast<int>(std::round(box[1]));
+    int x0 = static_cast<int>(std::round(box.x_min));
+    int y_top = static_cast<int>(std::round(box.y_min));
     // Place label just above the box; if it would clip the top, drop it below.
     int label_y = y_top - text_h - 2;
     if (label_y < 0) {

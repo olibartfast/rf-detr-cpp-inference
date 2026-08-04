@@ -309,7 +309,7 @@ TEST_F(PostprocessTest, ThresholdFiltering) {
 
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     inference->postprocess_outputs(1.0f, 1.0f, scores, class_ids, boxes);
 
     // Only detection 0 should pass the threshold
@@ -336,14 +336,14 @@ TEST_F(PostprocessTest, CoordinateConversion) {
 
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     inference->postprocess_outputs(1.0f, 1.0f, scores, class_ids, boxes);
 
     ASSERT_EQ(boxes.size(), 1u);
-    EXPECT_NEAR(boxes[0][0], 40.0f, 0.01f); // x_min
-    EXPECT_NEAR(boxes[0][1], 45.0f, 0.01f); // y_min
-    EXPECT_NEAR(boxes[0][2], 60.0f, 0.01f); // x_max
-    EXPECT_NEAR(boxes[0][3], 55.0f, 0.01f); // y_max
+    EXPECT_NEAR(boxes[0].x_min, 40.0f, 0.01f); // x_min
+    EXPECT_NEAR(boxes[0].y_min, 45.0f, 0.01f); // y_min
+    EXPECT_NEAR(boxes[0].x_max, 60.0f, 0.01f); // x_max
+    EXPECT_NEAR(boxes[0].y_max, 55.0f, 0.01f); // y_max
 }
 
 TEST_F(PostprocessTest, ClassIdOffset) {
@@ -361,7 +361,7 @@ TEST_F(PostprocessTest, ClassIdOffset) {
 
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     inference->postprocess_outputs(1.0f, 1.0f, scores, class_ids, boxes);
 
     ASSERT_EQ(class_ids.size(), 1u);
@@ -381,7 +381,7 @@ TEST_F(PostprocessTest, EmptyResults) {
 
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     inference->postprocess_outputs(1.0f, 1.0f, scores, class_ids, boxes);
 
     EXPECT_TRUE(scores.empty());
@@ -410,20 +410,20 @@ TEST_F(PostprocessTest, BoxesClampedToImageBounds) {
 
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     inference->postprocess_outputs(1.0f, 1.0f, scores, class_ids, boxes);
 
     ASSERT_EQ(boxes.size(), 2u);
     // det 0: negative x_min/y_min clamped to 0
-    EXPECT_NEAR(boxes[0][0], 0.0f, 0.01f);
-    EXPECT_NEAR(boxes[0][1], 0.0f, 0.01f);
-    EXPECT_NEAR(boxes[0][2], 20.0f, 0.01f);
-    EXPECT_NEAR(boxes[0][3], 20.0f, 0.01f);
+    EXPECT_NEAR(boxes[0].x_min, 0.0f, 0.01f);
+    EXPECT_NEAR(boxes[0].y_min, 0.0f, 0.01f);
+    EXPECT_NEAR(boxes[0].x_max, 20.0f, 0.01f);
+    EXPECT_NEAR(boxes[0].y_max, 20.0f, 0.01f);
     // det 1: overflowing x_max/y_max clamped to 100
-    EXPECT_NEAR(boxes[1][0], 80.0f, 0.01f);
-    EXPECT_NEAR(boxes[1][1], 80.0f, 0.01f);
-    EXPECT_NEAR(boxes[1][2], 100.0f, 0.01f);
-    EXPECT_NEAR(boxes[1][3], 100.0f, 0.01f);
+    EXPECT_NEAR(boxes[1].x_min, 80.0f, 0.01f);
+    EXPECT_NEAR(boxes[1].y_min, 80.0f, 0.01f);
+    EXPECT_NEAR(boxes[1].x_max, 100.0f, 0.01f);
+    EXPECT_NEAR(boxes[1].y_max, 100.0f, 0.01f);
 }
 
 // ============================================================================
@@ -443,6 +443,62 @@ TEST(PreprocessFrame, OutputDimensions) {
 
     for (float v : tensor) {
         EXPECT_TRUE(std::isfinite(v));
+    }
+}
+
+// Upstream rf-detr 1.9.0 (PR #1206) set antialias=False in predict()'s resize to match the
+// antialias-free bilinear (cv2.INTER_LINEAR) resize used during training. preprocess_bgr_image
+// must stay antialias-free or inference drifts from the pretrained checkpoints.
+//
+// Downscaling 4x, each output pixel maps to src = 4*i + 1.5, so bilinear samples exactly the
+// 2x2 block at offsets {1,2} within each 4x4 source cell and ignores the cell's other 12 pixels.
+// The two patterns below make that footprint unrepresentative of the cell as a whole: an
+// averaging (antialiasing) filter would pull both toward the cell mean instead.
+TEST(PreprocessFrame, ResizeIsAntialiasFree) {
+    constexpr int kSrc = 448;
+    constexpr int kRes = 112; // 4x downscale
+    const std::array<float, 3> means = {0.0f, 0.0f, 0.0f};
+    const std::array<float, 3> stds = {1.0f, 1.0f, 1.0f};
+
+    // Fill the sampled 2x2 of every cell, leaving the surrounding 12 pixels black.
+    // Point-sampled: 1.0. Area-averaged over the cell: 4/16 = 0.25.
+    rfdetr::media::Image bright;
+    bright.resize(kSrc, kSrc);
+    std::fill(bright.bgr.begin(), bright.bgr.end(), 0);
+    for (int y = 0; y < kSrc; ++y) {
+        for (int x = 0; x < kSrc; ++x) {
+            const bool sampled = (x % 4 == 1 || x % 4 == 2) && (y % 4 == 1 || y % 4 == 2);
+            if (sampled) {
+                const size_t idx = (static_cast<size_t>(y) * kSrc + static_cast<size_t>(x)) * 3U;
+                bright.bgr[idx] = bright.bgr[idx + 1] = bright.bgr[idx + 2] = 255;
+            }
+        }
+    }
+
+    std::vector<float> tensor(3UL * kRes * kRes);
+    rfdetr::media::preprocess_bgr_image(bright, tensor, kRes, means, stds);
+    for (float v : tensor) {
+        EXPECT_NEAR(v, 1.0f, 1e-4f) << "resize is averaging beyond the bilinear 2x2 footprint";
+    }
+
+    // Inverse pattern: the sampled 2x2 is black, the other 12 pixels of each cell are white.
+    // Point-sampled: 0.0. Area-averaged over the cell: 12/16 = 0.75.
+    rfdetr::media::Image dark;
+    dark.resize(kSrc, kSrc);
+    std::fill(dark.bgr.begin(), dark.bgr.end(), 255);
+    for (int y = 0; y < kSrc; ++y) {
+        for (int x = 0; x < kSrc; ++x) {
+            const bool sampled = (x % 4 == 1 || x % 4 == 2) && (y % 4 == 1 || y % 4 == 2);
+            if (sampled) {
+                const size_t idx = (static_cast<size_t>(y) * kSrc + static_cast<size_t>(x)) * 3U;
+                dark.bgr[idx] = dark.bgr[idx + 1] = dark.bgr[idx + 2] = 0;
+            }
+        }
+    }
+
+    rfdetr::media::preprocess_bgr_image(dark, tensor, kRes, means, stds);
+    for (float v : tensor) {
+        EXPECT_NEAR(v, 0.0f, 1e-4f) << "resize is averaging beyond the bilinear 2x2 footprint";
     }
 }
 
@@ -599,7 +655,7 @@ TEST_F(KeypointPostprocessTest, ThreeOutputsRequired) {
 
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     std::vector<std::vector<KeypointResult>> keypoints;
 
     // With MockBackend, run_inference only caches what was set — so 2 outputs won't throw
@@ -636,7 +692,7 @@ TEST_F(KeypointPostprocessTest, ClassSelectionAndBboxDecode) {
 
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     std::vector<std::vector<KeypointResult>> keypoints;
 
     inference->postprocess_keypoint_outputs(1.0f, 1.0f, 100, 200, scores, class_ids, boxes, keypoints);
@@ -647,10 +703,10 @@ TEST_F(KeypointPostprocessTest, ClassSelectionAndBboxDecode) {
 
     // Bbox: cx=50, cy=50, w=20, h=10 → xyxy=(40, 45, 60, 55), scale=1.0
     ASSERT_EQ(boxes.size(), 1u);
-    EXPECT_NEAR(boxes[0][0], 40.0f, 0.01f);
-    EXPECT_NEAR(boxes[0][1], 45.0f, 0.01f);
-    EXPECT_NEAR(boxes[0][2], 60.0f, 0.01f);
-    EXPECT_NEAR(boxes[0][3], 55.0f, 0.01f);
+    EXPECT_NEAR(boxes[0].x_min, 40.0f, 0.01f);
+    EXPECT_NEAR(boxes[0].y_min, 45.0f, 0.01f);
+    EXPECT_NEAR(boxes[0].x_max, 60.0f, 0.01f);
+    EXPECT_NEAR(boxes[0].y_max, 55.0f, 0.01f);
 
     // Keypoints
     ASSERT_EQ(keypoints.size(), 1u);
@@ -688,7 +744,7 @@ TEST_F(KeypointPostprocessTest, KeypointCoordinateDecode) {
 
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     std::vector<std::vector<KeypointResult>> keypoints;
 
     inference->postprocess_keypoint_outputs(1.0f, 1.0f, 100, 200, scores, class_ids, boxes, keypoints);
@@ -722,7 +778,7 @@ TEST_F(KeypointPostprocessTest, ScaleApplied) {
 
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     std::vector<std::vector<KeypointResult>> keypoints;
 
     // scale_w=2.0, scale_h=3.0, orig image size 200x300
@@ -747,7 +803,7 @@ TEST_F(KeypointPostprocessTest, NoDetectionsBelowThreshold) {
 
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     std::vector<std::vector<KeypointResult>> keypoints;
 
     inference->postprocess_keypoint_outputs(1.0f, 1.0f, 100, 200, scores, class_ids, boxes, keypoints);
@@ -788,7 +844,7 @@ TEST_F(KeypointPostprocessTest, CholeskyToCovariance) {
 
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     std::vector<std::vector<KeypointResult>> keypoints;
 
     // orig_w=200, orig_h=100
@@ -832,7 +888,7 @@ TEST_F(KeypointPostprocessTest, BackgroundColumnIgnored) {
 
     std::vector<float> scores;
     std::vector<int> class_ids;
-    std::vector<std::vector<float>> boxes;
+    std::vector<BoundingBox> boxes;
     std::vector<std::vector<KeypointResult>> keypoints;
 
     inference->postprocess_keypoint_outputs(1.0f, 1.0f, 100, 200, scores, class_ids, boxes, keypoints);

@@ -74,7 +74,7 @@ This glossary explains technical terms used in the RF-DETR Inference project REA
 
 **TensorRT**: NVIDIA's high-performance deep learning inference optimizer and runtime. It optimizes trained neural networks for faster inference on NVIDIA GPUs through techniques like layer fusion, precision calibration (FP16/INT8), and kernel auto-tuning. In this project, TensorRT is an optional backend for GPU acceleration.
 
-**Compile-time Backend Selection**: A design pattern where the inference backend (ONNX Runtime or TensorRT) is chosen during compilation rather than at runtime. This results in smaller binaries, faster startup times, and eliminates runtime overhead. The backend is selected using CMake flags (e.g., `-DUSE_TENSORRT=ON`).
+**Compile-time Backend Selection**: A design pattern where the inference backend (ONNX Runtime, TensorRT, or ExecuTorch) is chosen during compilation rather than at runtime. This results in smaller binaries, faster startup times, and eliminates runtime overhead. The backend is selected using CMake flags (e.g., `-DUSE_TENSORRT=ON`). Exactly one may be enabled; enabling two is a configure-time error.
 
 **RPATH (Run-Path)**: A mechanism in Linux/Unix systems that specifies the runtime library search path directly in the executable binary. When properly configured, RPATH allows executables to find their required shared libraries without setting environment variables like `LD_LIBRARY_PATH`. This project uses RPATH for TensorRT libraries for easier deployment.
 
@@ -83,4 +83,12 @@ This glossary explains technical terms used in the RF-DETR Inference project REA
 **Engine File (.engine / .trt)**: A TensorRT-optimized model file containing the serialized inference engine. Pre-built engine files can be loaded directly by TensorRT, skipping the ONNX-to-TensorRT conversion process and speeding up initialization. Engine files are typically platform and GPU-specific.
 
 **CUDA**: NVIDIA's parallel computing platform and programming model that enables general-purpose computing on GPUs. Required for TensorRT backend but not for ONNX Runtime CPU inference.
+
+**ExecuTorch**: PyTorch's on-device inference runtime, designed for edge and mobile deployment with a small binary footprint. Models are ahead-of-time lowered to a `.pte` program and executed by a lightweight runtime with no Python dependency. In this project, ExecuTorch is an optional CPU backend.
+
+**PTE File (.pte)**: An ExecuTorch program file — a serialized, ahead-of-time-lowered model containing the operator graph, weights, and any delegate-compiled subgraphs. Produced by `model.export(format="executorch", ...)` in `rfdetr` 1.9.0+. The delegate baked in at export time must match the delegate linked into the runtime.
+
+**Delegate (ExecuTorch)**: A backend-specific compiler that claims subgraphs of a model at export time and executes them with optimized kernels at run time (e.g. XNNPACK). Unclaimed operators fall back to portable CPU kernels. The delegate library must be linked so it self-registers; a mismatch between the `.pte`'s delegate and the linked one surfaces at run time as an unregistered-backend error, not at link time.
+
+**XNNPACK**: A highly optimized library of floating-point neural network operators for ARM, x86, and WebAssembly CPUs. It is the default ExecuTorch delegate in this project (`-DEXECUTORCH_DELEGATE=xnnpack`).
 

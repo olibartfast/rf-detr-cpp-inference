@@ -30,211 +30,131 @@ if(WERROR)
     list(APPEND PROJECT_WARNING_FLAGS -Werror)
 endif()
 
-# Enable sanitizers in debug builds (opt-in via -DSANITIZERS=ON)
-option(SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+# --- Sanitizers (debug builds, opt-in) ---
+# ASan+UBSan, strict UBSan, and TSan are separate modes. ASan and TSan are
+# mutually exclusive: clang/gcc forbid combining them (e.g.
+# -fsanitize=address,thread is a hard error). Keep strict UBSan separate so the
+# noisier checks stay opt-in.
+option(SANITIZERS "Enable AddressSanitizer + UndefinedBehaviorSanitizer" OFF)
+option(STRICT_UBSAN "Enable stricter UndefinedBehaviorSanitizer checks" OFF)
+option(THREAD_SANITIZER "Enable ThreadSanitizer (data-race detection)" OFF)
+
+if((SANITIZERS AND STRICT_UBSAN) OR (SANITIZERS AND THREAD_SANITIZER) OR (STRICT_UBSAN AND THREAD_SANITIZER))
+    message(FATAL_ERROR "SANITIZERS, STRICT_UBSAN, and THREAD_SANITIZER are mutually exclusive. Enable only one.")
+endif()
+
 if(SANITIZERS)
     add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
     add_link_options(-fsanitize=address,undefined)
     message(STATUS "Sanitizers: AddressSanitizer + UndefinedBehaviorSanitizer enabled")
+elseif(STRICT_UBSAN)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        set(STRICT_UBSAN_CXX_FLAGS -fsanitize=undefined,local-bounds,vptr,implicit-conversion)
+        set(STRICT_UBSAN_C_FLAGS -fsanitize=undefined,local-bounds,implicit-conversion)
+    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        set(STRICT_UBSAN_CXX_FLAGS -fsanitize=undefined,bounds-strict,vptr)
+        set(STRICT_UBSAN_C_FLAGS -fsanitize=undefined,bounds-strict)
+    else()
+        message(FATAL_ERROR "STRICT_UBSAN is supported only with Clang or GCC")
+    endif()
+    foreach(flag IN LISTS STRICT_UBSAN_CXX_FLAGS)
+        add_compile_options($<$<COMPILE_LANGUAGE:CXX>:${flag}>)
+    endforeach()
+    foreach(flag IN LISTS STRICT_UBSAN_C_FLAGS)
+        add_compile_options($<$<COMPILE_LANGUAGE:C>:${flag}>)
+    endforeach()
+    add_compile_options(-fno-omit-frame-pointer)
+    add_link_options(${STRICT_UBSAN_CXX_FLAGS})
+    message(STATUS "Sanitizer: strict UndefinedBehaviorSanitizer checks enabled (CXX: ${STRICT_UBSAN_CXX_FLAGS}; C: ${STRICT_UBSAN_C_FLAGS})")
+elseif(THREAD_SANITIZER)
+    add_compile_options(-fsanitize=thread -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=thread)
+    message(STATUS "Sanitizer: ThreadSanitizer enabled")
 endif()
 
 # --- Backend Selection Options ---
 option(USE_ONNX_RUNTIME "Build with ONNX Runtime backend support" ON)
 option(USE_TENSORRT "Build with TensorRT backend support" OFF)
+option(USE_EXECUTORCH "Build with ExecuTorch backend support (.pte models)" OFF)
 option(USE_OPENCV "Use OpenCV for image/video/display I/O instead of FFmpeg+SDL2+stb" OFF)
 
-# Validate that at least one backend is enabled
-if(NOT USE_ONNX_RUNTIME AND NOT USE_TENSORRT)
-    message(FATAL_ERROR "At least one backend must be enabled. Set USE_ONNX_RUNTIME=ON or USE_TENSORRT=ON")
+# ExecuTorch delegates are chosen at .pte export time and consumed by the runtime; the C++ side's
+# job is to link the matching backend library so the delegate self-registers. 'xnnpack' is the
+# default and matches rfdetr's export(format="executorch", backend="xnnpack"). 'portable' links
+# only the CPU portable kernels. SDK-backed delegates (coreml, qnn) each pull an external SDK and
+# are intentionally not wired here.
+set(EXECUTORCH_DELEGATE "xnnpack" CACHE STRING "ExecuTorch delegate to link: xnnpack or portable")
+set_property(CACHE EXECUTORCH_DELEGATE PROPERTY STRINGS xnnpack portable)
+
+# Backend selection is compile-time and exclusive: exactly one backend is compiled in, so the
+# count must be exactly 1. Without this check a second enabled backend would be silently dropped
+# by the #ifdef/#elif chain in src/backends/inference_backend.cpp, and the binary would use a
+# backend the user did not ask for.
+set(_ENABLED_BACKENDS "")
+foreach(_be USE_ONNX_RUNTIME USE_TENSORRT USE_EXECUTORCH)
+    if(${_be})
+        list(APPEND _ENABLED_BACKENDS ${_be})
+    endif()
+endforeach()
+list(LENGTH _ENABLED_BACKENDS _NUM_BACKENDS)
+if(_NUM_BACKENDS EQUAL 0)
+    message(FATAL_ERROR
+        "At least one backend must be enabled. Set USE_ONNX_RUNTIME=ON, USE_TENSORRT=ON, or USE_EXECUTORCH=ON")
+elseif(_NUM_BACKENDS GREATER 1)
+    string(REPLACE ";" ", " _BACKEND_LIST "${_ENABLED_BACKENDS}")
+    message(FATAL_ERROR
+        "Only one inference backend can be enabled at a time, but ${_NUM_BACKENDS} are on: ${_BACKEND_LIST}. "
+        "Turn the others OFF, e.g. -DUSE_ONNX_RUNTIME=OFF -DUSE_EXECUTORCH=ON")
+endif()
+
+if(USE_EXECUTORCH AND NOT EXECUTORCH_DELEGATE MATCHES "^(xnnpack|portable)$")
+    message(FATAL_ERROR "Unsupported EXECUTORCH_DELEGATE '${EXECUTORCH_DELEGATE}'. Valid values: xnnpack, portable")
 endif()
 
 message(STATUS "Backend configuration:")
 message(STATUS "  ONNX Runtime: ${USE_ONNX_RUNTIME}")
 message(STATUS "  TensorRT:     ${USE_TENSORRT}")
-
-# --- ONNX Runtime Configuration ---
-if(USE_ONNX_RUNTIME)
-    message(STATUS "Configuring ONNX Runtime backend...")
-    
-    set(ORT_VERSION "1.21.0")
-    set(ORT_ARCHIVE_BASENAME "onnxruntime-linux-x64-${ORT_VERSION}")
-    set(ORT_ARCHIVE_NAME "${ORT_ARCHIVE_BASENAME}.tgz")
-    set(ORT_URL "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/${ORT_ARCHIVE_NAME}")
-
-    set(ORT_DEPS_DIR "${CMAKE_BINARY_DIR}/_deps")
-    set(ORT_DOWNLOAD_PATH "${ORT_DEPS_DIR}/${ORT_ARCHIVE_NAME}")
-    set(ORT_EXTRACT_DIR "${ORT_DEPS_DIR}")
-    set(ORT_INSTALL_DIR "${ORT_EXTRACT_DIR}/${ORT_ARCHIVE_BASENAME}")
-
-    if(NOT EXISTS "${ORT_INSTALL_DIR}/include/onnxruntime_cxx_api.h")
-        message(STATUS "ONNX Runtime not found in build directory. Downloading and extracting...")
-        file(MAKE_DIRECTORY "${ORT_DEPS_DIR}")
-        if(NOT EXISTS "${ORT_DOWNLOAD_PATH}")
-            message(STATUS "Downloading ONNX Runtime from ${ORT_URL}...")
-            file(DOWNLOAD ${ORT_URL} ${ORT_DOWNLOAD_PATH}
-                 SHOW_PROGRESS
-                 TIMEOUT 600
-                 STATUS download_status)
-            list(GET download_status 0 download_code)
-            list(GET download_status 1 download_message)
-            if(NOT download_code EQUAL 0)
-                message(FATAL_ERROR "Download failed: ${download_message}")
-            endif()
-            message(STATUS "Download completed: ${ORT_DOWNLOAD_PATH}")
-        else()
-            message(STATUS "Using existing ONNX Runtime archive: ${ORT_DOWNLOAD_PATH}")
-        endif()
-        message(STATUS "Extracting ${ORT_DOWNLOAD_PATH} to ${ORT_EXTRACT_DIR}...")
-        execute_process(
-            COMMAND ${CMAKE_COMMAND} -E tar xzf "${ORT_DOWNLOAD_PATH}"
-            WORKING_DIRECTORY "${ORT_EXTRACT_DIR}"
-            RESULT_VARIABLE extract_result
-        )
-        if(NOT extract_result EQUAL 0)
-            message(FATAL_ERROR "Extraction failed with result: ${extract_result}")
-        endif()
-        message(STATUS "Extraction completed.")
-        if(NOT EXISTS "${ORT_INSTALL_DIR}/include/onnxruntime_cxx_api.h")
-            message(FATAL_ERROR "Extraction failed: expected directory not found at ${ORT_INSTALL_DIR}")
-        endif()
-    else()
-        message(STATUS "Found existing ONNX Runtime at: ${ORT_INSTALL_DIR}")
-    endif()
-
-    set(ONNXRUNTIME_ROOTDIR "${ORT_INSTALL_DIR}" CACHE PATH "Path to ONNX Runtime root directory")
-    set(ONNXRUNTIME_INCLUDE_DIR "${ONNXRUNTIME_ROOTDIR}/include")
-    set(ONNXRUNTIME_LIBRARY "${ONNXRUNTIME_ROOTDIR}/lib/libonnxruntime.so.${ORT_VERSION}")
-
-    if(NOT EXISTS "${ONNXRUNTIME_INCLUDE_DIR}/onnxruntime_cxx_api.h")
-        message(FATAL_ERROR "ONNX Runtime include directory not found at: ${ONNXRUNTIME_INCLUDE_DIR}")
-    endif()
-    if(NOT EXISTS "${ONNXRUNTIME_LIBRARY}")
-        message(FATAL_ERROR "ONNX Runtime library not found at: ${ONNXRUNTIME_LIBRARY}")
-    endif()
-
-    message(STATUS "ONNX Runtime include directory: ${ONNXRUNTIME_INCLUDE_DIR}")
-    message(STATUS "ONNX Runtime library: ${ONNXRUNTIME_LIBRARY}")
+message(STATUS "  ExecuTorch:   ${USE_EXECUTORCH}")
+if(USE_EXECUTORCH)
+    message(STATUS "  ET delegate:  ${EXECUTORCH_DELEGATE}")
 endif()
 
-# --- TensorRT Configuration ---
-if(USE_TENSORRT)
-    message(STATUS "Configuring TensorRT backend...")
-    
-    # TensorRT version configuration
-    set(TRT_MAJOR "10")
-    set(TRT_MINOR ".13")
-    set(TRT_PATCH ".3")
-    set(TRT_BUILD ".9")
-    set(TRT_VERSION "${TRT_MAJOR}${TRT_MINOR}${TRT_PATCH}${TRT_BUILD}")
-    set(TRT_CUDA_VERSION "13.0")
-    
-    set(TRT_ARCHIVE_BASENAME "TensorRT-${TRT_VERSION}.Linux.x86_64-gnu.cuda-${TRT_CUDA_VERSION}")
-    set(TRT_ARCHIVE_NAME "${TRT_ARCHIVE_BASENAME}.tar.gz")
-    set(TRT_URL "https://developer.nvidia.com/downloads/compute/machine-learning/tensorrt/${TRT_MAJOR}${TRT_MINOR}${TRT_PATCH}/tars/${TRT_ARCHIVE_NAME}")
-    
-    set(TRT_DEPS_DIR "${CMAKE_BINARY_DIR}/_deps")
-    set(TRT_DOWNLOAD_PATH "${TRT_DEPS_DIR}/${TRT_ARCHIVE_NAME}")
-    set(TRT_EXTRACT_DIR "${TRT_DEPS_DIR}")
-    set(TRT_INSTALL_DIR "${TRT_EXTRACT_DIR}/TensorRT-${TRT_VERSION}")
-    
-    if(NOT EXISTS "${TRT_INSTALL_DIR}/include/NvInfer.h")
-        message(STATUS "TensorRT not found in build directory. Downloading and extracting...")
-        file(MAKE_DIRECTORY "${TRT_DEPS_DIR}")
-        if(NOT EXISTS "${TRT_DOWNLOAD_PATH}")
-            message(STATUS "Downloading TensorRT from ${TRT_URL}...")
-            file(DOWNLOAD ${TRT_URL} ${TRT_DOWNLOAD_PATH}
-                 SHOW_PROGRESS
-                 TIMEOUT 600
-                 STATUS download_status)
-            list(GET download_status 0 download_code)
-            list(GET download_status 1 download_message)
-            if(NOT download_code EQUAL 0)
-                message(FATAL_ERROR "Download failed: ${download_message}")
-            endif()
-            message(STATUS "Download completed: ${TRT_DOWNLOAD_PATH}")
-        else()
-            message(STATUS "Using existing TensorRT archive: ${TRT_DOWNLOAD_PATH}")
-        endif()
-        message(STATUS "Extracting ${TRT_DOWNLOAD_PATH} to ${TRT_EXTRACT_DIR}...")
-        execute_process(
-            COMMAND ${CMAKE_COMMAND} -E tar xzf "${TRT_DOWNLOAD_PATH}"
-            WORKING_DIRECTORY "${TRT_EXTRACT_DIR}"
-            RESULT_VARIABLE extract_result
-        )
-        if(NOT extract_result EQUAL 0)
-            message(FATAL_ERROR "Extraction failed with result: ${extract_result}")
-        endif()
-        message(STATUS "Extraction completed.")
-        if(NOT EXISTS "${TRT_INSTALL_DIR}/include/NvInfer.h")
-            message(FATAL_ERROR "Extraction failed: expected directory not found at ${TRT_INSTALL_DIR}")
-        endif()
-    else()
-        message(STATUS "Found existing TensorRT at: ${TRT_INSTALL_DIR}")
-    endif()
-    
-    set(TENSORRT_ROOTDIR "${TRT_INSTALL_DIR}" CACHE PATH "Path to TensorRT root directory")
-    set(TENSORRT_INCLUDE_DIR "${TENSORRT_ROOTDIR}/include")
-    set(TENSORRT_LIBRARY "${TENSORRT_ROOTDIR}/lib/libnvinfer.so")
-    set(TENSORRT_ONNX_PARSER "${TENSORRT_ROOTDIR}/lib/libnvonnxparser.so")
-    
-    # Find CUDA runtime
-    find_package(CUDA QUIET)
-    if(NOT CUDA_FOUND)
-        find_library(CUDA_RUNTIME_LIBRARY cudart
-            HINTS
-                /usr/local/cuda/lib64
-                /usr/lib/x86_64-linux-gnu
-            PATH_SUFFIXES lib lib64
-        )
-    else()
-        set(CUDA_RUNTIME_LIBRARY ${CUDA_LIBRARIES})
-    endif()
-    
-    if(NOT EXISTS "${TENSORRT_INCLUDE_DIR}/NvInfer.h")
-        message(FATAL_ERROR "TensorRT include directory not found at: ${TENSORRT_INCLUDE_DIR}")
-    endif()
-    if(NOT EXISTS "${TENSORRT_LIBRARY}")
-        message(FATAL_ERROR "TensorRT library not found at: ${TENSORRT_LIBRARY}")
-    endif()
-    if(NOT EXISTS "${TENSORRT_ONNX_PARSER}")
-        message(FATAL_ERROR "TensorRT ONNX parser library not found at: ${TENSORRT_ONNX_PARSER}")
-    endif()
-    if(NOT CUDA_RUNTIME_LIBRARY)
-        message(FATAL_ERROR "CUDA runtime library not found. Please install CUDA toolkit.")
-    endif()
-    
-    message(STATUS "TensorRT include directory: ${TENSORRT_INCLUDE_DIR}")
-    message(STATUS "TensorRT library: ${TENSORRT_LIBRARY}")
-    message(STATUS "TensorRT ONNX parser: ${TENSORRT_ONNX_PARSER}")
-    message(STATUS "CUDA runtime library: ${CUDA_RUNTIME_LIBRARY}")
-endif()
+# --- Dependency resolution (unified package-manager facade) ------------------
+# Encapsulates three resolution policies (apt+provided, conan+provided,
+# vcpkg+provided) behind find_dependency_unified(). Each dependency is declared
+# once in cmake/deps/packages/<Name>.cmake; the resolver picks the acquisition
+# strategy per -DDEPS_MODE=apt|conan|vcpkg|auto. See docs/package-manager-architecture.md.
+include("${CMAKE_SOURCE_DIR}/cmake/deps/Deps.cmake")
 
-# --- Find media/display I/O backend (FFmpeg+SDL2 OR OpenCV) ---
-if(USE_OPENCV)
-    find_package(OpenCV REQUIRED COMPONENTS core imgcodecs imgproc videoio highgui)
-    message(STATUS "Media/display backend: OpenCV ${OpenCV_VERSION}")
-else()
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavcodec libavformat libavutil libswscale)
-    pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
-    message(STATUS "Media/display backend: FFmpeg + SDL2 + stb")
-endif()
-find_package(Threads REQUIRED)
-if(NOT USE_OPENCV)
-    message(STATUS "FFmpeg include: ${FFMPEG_INCLUDE_DIRS}")
-    message(STATUS "FFmpeg libs: ${FFMPEG_LIBRARIES}")
-    message(STATUS "SDL2 include: ${SDL2_INCLUDE_DIRS}")
-    message(STATUS "SDL2 libs: ${SDL2_LIBRARIES}")
-endif()
-
-# --- Fetch Google Test ---
 include(FetchContent)
-FetchContent_Declare(
-    googletest
-    GIT_REPOSITORY https://github.com/google/googletest.git
-    GIT_TAG release-1.12.1
-)
-FetchContent_MakeAvailable(googletest)
+
+if(USE_ONNX_RUNTIME)
+    find_dependency_unified(OnnxRuntime REQUIRED)
+endif()
+
+if(USE_TENSORRT)
+    find_dependency_unified(TensorRT REQUIRED)
+endif()
+
+if(USE_EXECUTORCH)
+    # Let the catalog's find_package(executorch CONFIG) probe see a prebuilt install prefix
+    # before the chain falls through to building ExecuTorch from source.
+    if(EXECUTORCH_ROOTDIR)
+        list(APPEND CMAKE_PREFIX_PATH "${EXECUTORCH_ROOTDIR}")
+    endif()
+    find_dependency_unified(ExecuTorch REQUIRED)
+endif()
+
+if(USE_OPENCV)
+    find_dependency_unified(OpenCV REQUIRED)
+else()
+    find_dependency_unified(FFmpeg REQUIRED)
+    find_dependency_unified(SDL2 REQUIRED)
+endif()
+find_dependency_unified(Threads REQUIRED)
+find_dependency_unified(GTest REQUIRED)
+find_dependency_unified(stb REQUIRED)
+find_dependency_unified(font8x8 REQUIRED)
 
 # --- Source and Include Directories ---
 set(SOURCE_DIR "${CMAKE_SOURCE_DIR}/src")
@@ -267,6 +187,10 @@ if(USE_TENSORRT)
     list(APPEND RFDETR_SOURCES "${SOURCE_DIR}/backends/tensorrt_backend.cpp")
 endif()
 
+if(USE_EXECUTORCH)
+    list(APPEND RFDETR_SOURCES "${SOURCE_DIR}/backends/executorch_backend.cpp")
+endif()
+
 add_library(rfdetr_inference_lib STATIC ${RFDETR_SOURCES})
 target_compile_options(rfdetr_inference_lib PRIVATE ${PROJECT_WARNING_FLAGS})
 
@@ -275,65 +199,44 @@ target_include_directories(rfdetr_inference_lib
         "${SOURCE_DIR}"
 )
 
-# Third-party vendored headers (stb, font8x8) as SYSTEM to suppress warnings
-target_include_directories(rfdetr_inference_lib SYSTEM
+# Link libraries (includes, compile definitions, and link lines for every
+# resolved dependency are carried by the Deps::<Name> targets produced by the
+# unified facade).
+target_link_libraries(rfdetr_inference_lib
     PUBLIC
-        "${THIRD_PARTY_DIR}/stb"
-        "${THIRD_PARTY_DIR}/font8x8"
+        Deps::Threads
+        Deps::stb
+        Deps::font8x8
 )
 
-# Add backend-specific includes and compile definitions
-if(USE_ONNX_RUNTIME)
-    target_include_directories(rfdetr_inference_lib SYSTEM PUBLIC "${ONNXRUNTIME_INCLUDE_DIR}")
-    target_compile_definitions(rfdetr_inference_lib PUBLIC USE_ONNX_RUNTIME)
-endif()
-
-if(USE_TENSORRT)
-    target_include_directories(rfdetr_inference_lib SYSTEM PUBLIC "${TENSORRT_INCLUDE_DIR}")
-    target_compile_definitions(rfdetr_inference_lib PUBLIC USE_TENSORRT)
-endif()
-
-# OpenCV media/display backend (replaces FFmpeg+SDL2+stb at compile time)
 if(USE_OPENCV)
-    target_include_directories(rfdetr_inference_lib SYSTEM PUBLIC ${OpenCV_INCLUDE_DIRS})
-    target_compile_definitions(rfdetr_inference_lib PUBLIC USE_OPENCV)
-endif()
-
-# Link libraries
-if(USE_OPENCV)
-    target_link_libraries(rfdetr_inference_lib
-        PUBLIC
-            ${OpenCV_LIBS}
-            Threads::Threads
-    )
+    target_link_libraries(rfdetr_inference_lib PUBLIC Deps::OpenCV)
 else()
-    target_link_libraries(rfdetr_inference_lib
-        PUBLIC
-            PkgConfig::FFMPEG
-            PkgConfig::SDL2
-            Threads::Threads
-    )
+    target_link_libraries(rfdetr_inference_lib PUBLIC Deps::FFmpeg Deps::SDL2)
 endif()
 
 if(USE_ONNX_RUNTIME)
-    target_link_libraries(rfdetr_inference_lib PUBLIC "${ONNXRUNTIME_LIBRARY}")
+    target_link_libraries(rfdetr_inference_lib PUBLIC Deps::OnnxRuntime)
+endif()
+
+if(USE_EXECUTORCH)
+    target_link_libraries(rfdetr_inference_lib PUBLIC Deps::ExecuTorch)
+
+    # The delegate library must be linked for its backend to self-register with the ExecuTorch
+    # runtime; without it a .pte exported for that delegate fails at run time, not link time.
+    if(EXECUTORCH_DELEGATE STREQUAL "xnnpack")
+        target_link_libraries(rfdetr_inference_lib PUBLIC xnnpack_backend)
+    endif()
 endif()
 
 if(USE_TENSORRT)
-    target_link_libraries(rfdetr_inference_lib PUBLIC 
-        "${TENSORRT_LIBRARY}"
-        "${TENSORRT_ONNX_PARSER}"
-        "${CUDA_RUNTIME_LIBRARY}"
-    )
-    
-    # Set RPATH so the executable can find TensorRT libraries without LD_LIBRARY_PATH
-    # Get the directory containing the TensorRT libraries
-    get_filename_component(TENSORRT_LIB_DIR "${TENSORRT_LIBRARY}" DIRECTORY)
-    
-    # Set RPATH for the library
+    target_link_libraries(rfdetr_inference_lib PUBLIC Deps::TensorRT)
+
+    # RPATH so the executable finds TensorRT/CUDA libs without LD_LIBRARY_PATH.
+    deps_get_rec(TensorRT RPATH_DIRS _TRT_RPATH_DIRS)
     set_target_properties(rfdetr_inference_lib PROPERTIES
-        BUILD_RPATH "${TENSORRT_LIB_DIR}"
-        INSTALL_RPATH "${TENSORRT_LIB_DIR}"
+        BUILD_RPATH "${_TRT_RPATH_DIRS}"
+        INSTALL_RPATH "${_TRT_RPATH_DIRS}"
         BUILD_RPATH_USE_ORIGIN TRUE
         INSTALL_RPATH_USE_LINK_PATH TRUE
     )
@@ -346,20 +249,21 @@ target_link_libraries(inference_app PRIVATE rfdetr_inference_lib)
 
 # Set RPATH for the executable
 if(USE_TENSORRT)
-    get_filename_component(TENSORRT_LIB_DIR "${TENSORRT_LIBRARY}" DIRECTORY)
+    deps_get_rec(TensorRT RPATH_DIRS _TRT_RPATH_DIRS)
     set_target_properties(inference_app PROPERTIES
-        BUILD_RPATH "${TENSORRT_LIB_DIR}"
-        INSTALL_RPATH "${TENSORRT_LIB_DIR}"
+        BUILD_RPATH "${_TRT_RPATH_DIRS}"
+        INSTALL_RPATH "${_TRT_RPATH_DIRS}"
         BUILD_RPATH_USE_ORIGIN TRUE
         INSTALL_RPATH_USE_LINK_PATH TRUE
     )
 endif()
 
-# Copy backend shared libraries to the executable directory
+# Copy backend shared libraries next to the executable
 if(USE_ONNX_RUNTIME)
+    deps_get_rec(OnnxRuntime RUNTIME_LIBS _ORT_RUNTIME_LIBS)
     add_custom_command(TARGET inference_app POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${ONNXRUNTIME_LIBRARY}"
+                ${_ORT_RUNTIME_LIBS}
                 $<TARGET_FILE_DIR:inference_app>
         COMMENT "Copying ONNX Runtime library to output directory"
     )
@@ -368,13 +272,13 @@ endif()
 # --- Unit Tests ---
 add_executable(unit_tests "${TEST_DIR}/unit/test_rfdetr_inference.cpp")
 target_compile_options(unit_tests PRIVATE ${PROJECT_WARNING_FLAGS})
-target_link_libraries(unit_tests PRIVATE rfdetr_inference_lib gtest gtest_main gmock)
+target_link_libraries(unit_tests PRIVATE rfdetr_inference_lib Deps::GTest)
 target_include_directories(unit_tests PRIVATE "${TEST_DIR}/unit")
 
 # --- Integration Tests ---
 add_executable(integration_tests "${TEST_DIR}/integration/integration_test_rfdetr_inference.cpp")
 target_compile_options(integration_tests PRIVATE ${PROJECT_WARNING_FLAGS})
-target_link_libraries(integration_tests PRIVATE rfdetr_inference_lib gtest gtest_main)
+target_link_libraries(integration_tests PRIVATE rfdetr_inference_lib Deps::GTest)
 
 # Ensure the data directory exists before running integration tests
 add_custom_command(TARGET integration_tests PRE_BUILD
@@ -385,17 +289,12 @@ add_custom_command(TARGET integration_tests PRE_BUILD
 # --- Google Benchmark (opt-in via -DBENCHMARKS=ON) ---
 option(BENCHMARKS "Build benchmark targets" OFF)
 if(BENCHMARKS)
-    FetchContent_Declare(
-        googlebenchmark
-        GIT_REPOSITORY https://github.com/google/benchmark.git
-        GIT_TAG v1.9.1
-    )
     set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
-    FetchContent_MakeAvailable(googlebenchmark)
+    find_dependency_unified(GoogleBenchmark REQUIRED)
 
     add_executable(benchmarks "${TEST_DIR}/benchmark/bench_preprocessing.cpp")
     target_compile_options(benchmarks PRIVATE ${PROJECT_WARNING_FLAGS})
-    target_link_libraries(benchmarks PRIVATE rfdetr_inference_lib benchmark::benchmark)
+    target_link_libraries(benchmarks PRIVATE rfdetr_inference_lib Deps::GoogleBenchmark)
 endif()
 
 # Enable testing
@@ -412,3 +311,63 @@ add_custom_target(run_tests
     COMMENT "Running all tests..."
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
+
+# --- Write dependency lockfile (records which handler + version resolved each dep) ---
+deps_lock_write()
+
+# --- Valgrind: memcheck (correctness) + profilers (callgrind/massif) ---
+# memcheck runs valgrind directly on the unit_tests binary (more predictable
+# than `ctest -T MemCheck`, which requires full CTest/Dart dashboard config).
+# The profilers run on the `benchmarks` target (preferred) or `inference_app`,
+# producing callgrind.out / massif.out.<pid>. Read with `callgrind_annotate` /
+# `ms_print`; `perf record/report` is a lower-overhead alternative.
+find_program(VALGRIND_EXECUTABLE NAMES valgrind)
+mark_as_advanced(VALGRIND_EXECUTABLE)
+if(VALGRIND_EXECUTABLE)
+    set(VALGRIND_MEMCHECK_OPTS
+        "--error-exitcode=1 --leak-check=full --show-leak-kinds=definite,indirect --errors-for-leak-kinds=definite,indirect"
+        CACHE STRING "Flags passed to valgrind by the 'memcheck' target")
+    if(EXISTS "${CMAKE_SOURCE_DIR}/valgrind.supp")
+        string(APPEND VALGRIND_MEMCHECK_OPTS " --suppressions=${CMAKE_SOURCE_DIR}/valgrind.supp")
+    endif()
+    # Split into a CMake list so COMMAND passes each flag as a separate argument.
+    separate_arguments(_VALGRIND_MEMCHECK_ARGS UNIX_COMMAND "${VALGRIND_MEMCHECK_OPTS}")
+
+    add_custom_target(memcheck
+        COMMAND ${VALGRIND_EXECUTABLE} ${_VALGRIND_MEMCHECK_ARGS} "$<TARGET_FILE:unit_tests>"
+        DEPENDS unit_tests
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        COMMENT "Running unit_tests under Valgrind memcheck"
+        VERBATIM
+    )
+
+    if(TARGET benchmarks)
+        set(_VALGRIND_PROFILE_TARGET benchmarks)
+    else()
+        set(_VALGRIND_PROFILE_TARGET inference_app)
+    endif()
+    set(VALGRIND_PROFILE_ARGS "" CACHE STRING "Extra args passed to the profiled binary by the callgrind/massif targets")
+    separate_arguments(_VALGRIND_PROFILE_ARGS UNIX_COMMAND "${VALGRIND_PROFILE_ARGS}")
+
+    add_custom_target(callgrind
+        COMMAND ${VALGRIND_EXECUTABLE} --tool=callgrind --collect-jumps=yes --cache-sim=yes
+                "$<TARGET_FILE:${_VALGRIND_PROFILE_TARGET}>" ${_VALGRIND_PROFILE_ARGS}
+        DEPENDS ${_VALGRIND_PROFILE_TARGET}
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+        COMMENT "CPU/cache profile of ${_VALGRIND_PROFILE_TARGET} with callgrind -> callgrind.out.<pid>"
+        VERBATIM
+    )
+
+    add_custom_target(massif
+        COMMAND ${VALGRIND_EXECUTABLE} --tool=massif --stacks=yes
+                "$<TARGET_FILE:${_VALGRIND_PROFILE_TARGET}>" ${_VALGRIND_PROFILE_ARGS}
+        DEPENDS ${_VALGRIND_PROFILE_TARGET}
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+        COMMENT "Heap profile of ${_VALGRIND_PROFILE_TARGET} with massif -> massif.out.<pid>"
+        VERBATIM
+    )
+
+    message(STATUS "Valgrind found: targets 'memcheck', 'callgrind', 'massif' available")
+else()
+    message(STATUS "Valgrind not found; memcheck/profiler targets disabled (install valgrind to enable)")
+endif()

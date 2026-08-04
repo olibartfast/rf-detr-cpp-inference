@@ -41,3 +41,40 @@ jobs:
 
       - name: Run unit tests under sanitizers
         run: ctest --test-dir build --output-on-failure -R UnitTests
+
+  thread-sanitizer:
+    name: ThreadSanitizer (data races)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-deps
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DTHREAD_SANITIZER=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Run unit tests under ThreadSanitizer
+        env:
+          TSAN_OPTIONS: "halt_on_error=1 exitcode=66"
+        run: ctest --test-dir build --output-on-failure -R UnitTests
+
+  valgrind:
+    name: Valgrind Memcheck (memory errors/leaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-deps
+
+      - name: Install Valgrind
+        run: sudo apt-get install -y valgrind
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build unit tests
+        run: cmake --build build --parallel --target unit_tests
+
+      - name: Run unit tests under Valgrind memcheck
+        run: cmake --build build --target memcheck

@@ -3,9 +3,9 @@
 [![C++](https://img.shields.io/badge/language-C++20-blue.svg)](https://en.cppreference.com/w/cpp)
 [![CMake](https://img.shields.io/badge/build%20system-CMake-blue.svg)](https://cmake.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.0-blue.svg)](https://github.com/olibartfast/rf-detr-cpp-inference/releases/tag/v0.3.0)
+[![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)](https://github.com/olibartfast/rf-detr-cpp-inference/releases/tag/v0.4.0)
 
-C++ project for performing object detection, instance segmentation, and keypoint inference using the RF-DETR model with **multiple inference backends** (ONNX Runtime and TensorRT) and a swappable **media/display backend** (FFmpeg + SDL2 + stb by default, or OpenCV). Supports both single-image and **multi-threaded video processing** via a zero-copy ring buffer pipeline.
+C++ project for performing object detection, instance segmentation, and keypoint inference using the RF-DETR model with **multiple inference backends** (ONNX Runtime, TensorRT, and ExecuTorch) and a swappable **media/display backend** (FFmpeg + SDL2 + stb by default, or OpenCV). Supports both single-image and **multi-threaded video processing** via a zero-copy ring buffer pipeline.
 
 ---
 
@@ -29,8 +29,8 @@ C++ project for performing object detection, instance segmentation, and keypoint
 
 ### Required (All Backends)
 - **C++20 Compiler**: Clang 15+ or GCC 12+ (e.g., `clang++-15` or `g++-12`)
-- **CMake**: Version 3.12 or higher
-- **Google Test**: Version 1.12.1 (automatically fetched during build)
+- **CMake**: Version 3.12 or higher (**3.17+** if you let ExecuTorch fall back to the FetchContent source build, which fetches submodules recursively — supplying `-DEXECUTORCH_ROOTDIR` avoids that requirement)
+- **Google Test**: 1.12.1 (auto-fetched; see [Dependency Resolution](#dependency-resolution))
 - **Ninja**: Optional but recommended (`sudo apt-get install ninja-build`)
 
 > Annotation text is drawn with an 8x8 bitmap font
@@ -54,16 +54,18 @@ one is compiled in via `-DUSE_OPENCV=ON/OFF`.
 - Replaces FFmpeg, SDL2, **and** stb entirely — none of those are required when OpenCV is enabled
 
 ### Python / Pip Packages (Export Tooling)
-- **RF-DETR export package**: `rfdetr[onnx]==1.8.3` from `deploy/requirements.txt`
+- **RF-DETR export package**: `rfdetr[onnx]==1.9.0` from `deploy/requirements.txt`
+- **ExecuTorch export (optional)**: `rfdetr[executorch]==1.9.0` — only needed to produce `.pte` models for the ExecuTorch backend. Pin it: the extra does not constrain ExecuTorch itself, and 1.9.0 resolves ExecuTorch 1.3.1, matching the C++ runtime this project pins
+- **TensorRT export (optional)**: `rfdetr[tensorrt]==1.9.0` — provides `tensorrt` + `polygraphy` for in-process engine builds (1.9.0+); `pycuda` moved to the separate `rfdetr[tensorrt-bench]` extra
 - **Python**: 3.10+ (Python 3.11 virtual environment recommended)
 - **pre-commit**: Optional for local hooks; install with `pip install pre-commit`
 
 ### Backend-Specific Dependencies
 
 #### ONNX Runtime Backend (Default)
-- **ONNX Runtime**: Version 1.21.0 (automatically downloaded during build)
-- **Platform**: Linux, Windows, macOS
-- **Acceleration**: CPU and GPU (CUDA/DirectML)
+- **ONNX Runtime**: Version 1.21.0 — the default download is the **Linux x64 CPU** archive (`onnxruntime-linux-x64-1.21.0.tgz`)
+- **Platform**: Linux x64 out of the box. For other platforms, supply your own build — point `-DONNXRUNTIME_ROOTDIR=<prefix>` at it, or use the conan/vcpkg coordinates (`onnxruntime/1.21.0` / `onnxruntime`)
+- **Acceleration**: CPU only. `OnnxRuntimeBackend` creates its session without appending an execution provider, so even a CUDA or DirectML build of ONNX Runtime runs on CPU here until the backend is extended to register one
 
 #### TensorRT Backend (Optional)
 - **TensorRT**: Version 10.13.3.9 (automatically downloaded during build if not found)
@@ -71,6 +73,13 @@ one is compiled in via `-DUSE_OPENCV=ON/OFF`.
 - **Platform**: Linux with NVIDIA GPU
 - **Acceleration**: NVIDIA GPU only
 - **Note**: TensorRT libraries are automatically configured with RPATH, no LD_LIBRARY_PATH needed
+
+#### ExecuTorch Backend (Optional)
+- **ExecuTorch**: Version v1.3.1 — resolved from an install prefix via `-DEXECUTORCH_ROOTDIR`, otherwise built from source
+- **Model format**: `.pte`, exported by `rfdetr[executorch]` 1.9.0+
+- **Delegate**: XNNPACK (default) or portable CPU kernels, selected with `-DEXECUTORCH_DELEGATE`
+- **Platform**: Linux; CPU inference through the linked delegate
+- **Note**: The delegate linked here must match the one baked into the `.pte` at export time
 
 ---
 
@@ -84,7 +93,7 @@ This project supports both RF-DETR detection and segmentation models from Robofl
 
 2. **Download the ONNX Model**:
    - Follow instructions in the [export documentation](docs/export.md) to export models in ONNX format.
-   - **Tested with**: `rfdetr[onnx]==1.8.3` (Python 3.10+; 3.11 venv recommended)
+   - **Tested with**: `rfdetr[onnx]==1.9.0` (Python 3.10+; 3.11 venv recommended)
    - **Detection models**: Export with standard configuration (outputs: `dets`, `labels`)
    - **Segmentation models**: Export with segmentation configuration (outputs: `dets`, `labels`, `masks`)
    - **Keypoint models**: Export with keypoint configuration (outputs: `dets`, `labels`, `keypoints`)
@@ -140,12 +149,13 @@ sudo apt-get install -y clang-format-18 clang-tidy-18
 
 This project uses **compile-time backend selection**. Choose your backend when building:
 
-| Backend | Best For | Pros | Cons |
-|---------|----------|------|------|
-| **ONNX Runtime** | Development, CPU inference | Cross-platform, easy setup | Slower than TensorRT on GPU |
-| **TensorRT** | Production on NVIDIA GPUs | Maximum performance | GPU-only, requires CUDA/TensorRT |
+| Backend | Model format | Best For | Pros | Cons |
+|---------|--------------|----------|------|------|
+| **ONNX Runtime** | `.onnx` | Development, CPU inference | Easy setup, no GPU or extra SDK needed | CPU only as shipped — the default download is the Linux x64 CPU archive and no execution provider is registered |
+| **TensorRT** | `.engine` / `.trt` (also accepts `.onnx`, building/caching an engine beside it) | Production on NVIDIA GPUs | Maximum performance | GPU-only, requires CUDA/TensorRT |
+| **ExecuTorch** | `.pte` | On-device / edge deployment | Small runtime, delegate-based (XNNPACK) | Requires an ExecuTorch install; rfdetr 1.9.0+ to export |
 
-**Important**: Only ONE backend can be enabled at a time. The backend is compiled into the binary for optimal performance and smaller binary size.
+**Important**: Only ONE backend can be enabled at a time — enabling two is a configure-time error. The backend is compiled into the binary for optimal performance and smaller binary size.
 
 ### Format Code (Optional)
 
@@ -191,21 +201,48 @@ This is also run automatically on every commit via pre-commit (see [Pre-commit](
 
 ### Sanitizers (Optional)
 
-Build with AddressSanitizer and UndefinedBehaviorSanitizer enabled via `-DSANITIZERS=ON`. Use a separate build directory to keep sanitizer and release builds independent:
+Build with **AddressSanitizer + UndefinedBehaviorSanitizer** via `-DSANITIZERS=ON`, with stricter **UndefinedBehaviorSanitizer** checks via `-DSTRICT_UBSAN=ON`, or with **ThreadSanitizer** (data-race detection) via `-DTHREAD_SANITIZER=ON`. These modes are mutually exclusive — enable only one per build directory. Use separate build directories to keep them independent:
+
+These options use the sanitizer instrumentation and runtime libraries provided
+by the active C++ compiler toolchain (Clang or GCC). The project does not fetch,
+vendor, or depend on the archived `google/sanitizers` repository.
 
 ```bash
-cmake -S . -B build-san \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DSANITIZERS=ON
-
+# ASan + UBSan
+cmake -S . -B build-san -DCMAKE_BUILD_TYPE=Debug -DSANITIZERS=ON
 cmake --build build-san --parallel
-
-# Run tests under sanitizers:
 ./build-san/unit_tests
-./build-san/integration_tests
+
+# Strict UBSan (extra bounds and vptr checks; Clang also enables implicit-conversion)
+cmake -S . -B build-strict-ubsan -DCMAKE_BUILD_TYPE=Debug -DSTRICT_UBSAN=ON
+cmake --build build-strict-ubsan --parallel
+./build-strict-ubsan/unit_tests
+
+# ThreadSanitizer (data races)
+cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=Debug -DTHREAD_SANITIZER=ON
+cmake --build build-tsan --parallel
+TSAN_OPTIONS="halt_on_error=1" ./build-tsan/unit_tests
 ```
 
-Sanitizers catch memory errors, use-after-free, undefined behaviour, and integer overflow at runtime with minimal code changes.
+Sanitizers catch memory errors, use-after-free, undefined behaviour, integer overflow (ASan+UBSan), stricter bounds/vptr issues, plus implicit-conversion issues on Clang (strict UBSan), and data races (TSan) at runtime. ASan+UBSan and TSan run in CI; strict UBSan is opt-in for local diagnosis because it can be noisier.
+
+### Valgrind / Profiling (Optional)
+
+A plain **Debug build without sanitizers** is required (ASan/TSan conflict with Valgrind). When Valgrind is detected, CMake generates `memcheck`, `callgrind`, and `massif` targets:
+
+```bash
+cmake -S . -B build-valg -DCMAKE_BUILD_TYPE=Debug
+
+cmake --build build-valg --target memcheck      # memory errors + leaks (run by CI)
+cmake --build build-valg --target callgrind     # CPU/cache profile -> callgrind.out.<pid>
+cmake --build build-valg --target massif        # heap profile       -> massif.out.<pid>
+
+# Read the profiles:
+callgrind_annotate build-valg/callgrind.out.<pid>
+ms_print build-valg/massif.out.<pid>
+```
+
+The profilers target `benchmarks` (if built with `-DBENCHMARKS=ON`, recommended for self-contained workloads) or `inference_app`; pass extra args with `-DVALGRIND_PROFILE_ARGS="model.onnx image.jpg labels.txt"`. A lower-overhead alternative is `perf record ./build/benchmarks && perf report`. An optional `valgrind.supp` at the repo root is picked up automatically if present.
 
 ### Pre-commit (Optional)
 
@@ -225,6 +262,37 @@ To treat all compiler warnings as errors (as CI does), pass `-DWERROR=ON`:
 cmake -S . -B build -DWERROR=ON
 cmake --build build
 ```
+
+### Dependency Resolution
+
+All dependencies flow through a unified facade (`find_dependency_unified`) that
+picks the acquisition strategy per `-DDEPS_MODE`:
+
+| mode | chain | use when |
+|---|---|---|
+| `apt` (default) | apt → provided | no extra tooling; system packages + pinned downloads |
+| `conan` | conan → apt → provided | ConanCenter binaries or local cache |
+| `vcpkg` | vcpkg → apt → provided | vcpkg manifest mode |
+| `auto` | apt → conan → vcpkg → provided | mixed: each dep uses fastest available |
+
+`apt` is chained as a fallback in conan/vcpkg modes so system packages (Threads)
+resolve correctly. FFmpeg, SDL2, OpenCV, and GTest have conan/vcpkg coordinates
+in `conanfile.txt` / `vcpkg.json`; ONNX Runtime and TensorRT stay provided-download.
+ExecuTorch is in no registry, so it resolves the same way in every mode:
+`find_package(executorch CONFIG)` against `-DEXECUTORCH_ROOTDIR`, else a
+FetchContent source build.
+
+```bash
+# Conan (CMakeDeps-only mode — keeps system compiler):
+#   sudo apt install libva-dev libegl-dev libgl-dev  # ffmpeg/sdl system deps
+#   conan install . -of=build/conan-deps --build=missing
+#   cmake -S . -B build -DDEPS_MODE=conan -DDEPS_CONAN_DIR=build/conan-deps
+# vcpkg (manifest mode):
+#   cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake \
+#     -DDEPS_MODE=vcpkg
+```
+
+Architecture details: [docs/package-manager-architecture.md](docs/package-manager-architecture.md)
 
 ### Build with ONNX Runtime (Default)
 
@@ -275,6 +343,76 @@ cmake --build build --parallel
 - Requires CUDA 13.x installed manually for the bundled TensorRT 10.13.3.9 build
 - Pre-built `.engine` or `.trt` files are loaded directly, skipping ONNX-to-TensorRT conversion
 
+### Build with ExecuTorch Backend
+
+Runs `.pte` programs exported by `rfdetr >= 1.9.0`. Point the build at an ExecuTorch install
+prefix — the directory containing `lib/cmake/ExecuTorch/executorch-config.cmake`:
+
+```bash
+cmake -S . -B build -G Ninja \
+  -DUSE_ONNX_RUNTIME=OFF \
+  -DUSE_EXECUTORCH=ON \
+  -DEXECUTORCH_ROOTDIR=$HOME/dependencies/executorch \
+  -DCMAKE_BUILD_TYPE=Release
+
+cmake --build build --parallel
+```
+
+#### Building the ExecuTorch install prefix
+
+ExecuTorch **v1.3.1** is the pinned version — it matches the ExecuTorch that
+`rfdetr[executorch]==1.9.0` installs for the Python exporter, and `.pte` schema
+compatibility across runtime versions is not guaranteed.
+
+```bash
+git clone --depth 1 -b v1.3.1 https://github.com/pytorch/executorch.git
+cd executorch && git submodule update --init --recursive --depth 1
+
+# ExecuTorch runs operator codegen through PYTHON_EXECUTABLE during its own
+# configure, and that code does `import torchgen` — so a bare system python3 is
+# not enough. Only torchgen is used, so the CPU-only torch wheel suffices.
+python3 -m venv /tmp/et-venv
+/tmp/et-venv/bin/pip install --index-url https://download.pytorch.org/whl/cpu torch
+/tmp/et-venv/bin/pip install pyyaml setuptools
+
+# Required: upstream v1.3.1 installs extension_evalue_util into the *build* tree
+# instead of the install prefix, which makes find_package fail later. See note below.
+sed -i 's|DESTINATION ${CMAKE_BINARY_DIR}/lib|DESTINATION ${CMAKE_INSTALL_LIBDIR}|' \
+    extension/evalue_util/CMakeLists.txt
+
+cmake -S . -B cmake-out -GNinja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=$HOME/dependencies/executorch \
+  -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+  -DEXECUTORCH_BUILD_EXTENSION_MODULE=ON \
+  -DEXECUTORCH_BUILD_EXTENSION_TENSOR=ON \
+  -DEXECUTORCH_BUILD_EXTENSION_DATA_LOADER=ON \
+  -DEXECUTORCH_BUILD_EXTENSION_NAMED_DATA_MAP=ON \
+  -DEXECUTORCH_BUILD_XNNPACK=ON \
+  -DPYTHON_EXECUTABLE=/tmp/et-venv/bin/python
+
+cmake --build cmake-out -j"$(nproc)" && cmake --install cmake-out
+```
+
+Build ExecuTorch with the **same compiler** you build this project with, so both
+link against one C++ runtime.
+
+> **Upstream bug (v1.3.1)** — `extension/evalue_util/CMakeLists.txt:27` uses
+> `DESTINATION ${CMAKE_BINARY_DIR}/lib` where every other extension uses
+> `${CMAKE_INSTALL_LIBDIR}`. Without the `sed` above, `libextension_evalue_util.a` never
+> reaches `<prefix>/lib` and its exported target keeps an absolute build-tree path, so
+> `find_package(executorch CONFIG)` hard-fails once the build tree is deleted — even
+> though this project never links that target. The FetchContent fallback is unaffected,
+> because it uses the targets directly and never runs the faulty `install()` rule.
+
+**What happens**:
+- `EXECUTORCH_ROOTDIR` is added to `CMAKE_PREFIX_PATH` and resolved with `find_package(executorch CONFIG)`
+- If no install prefix is found, the build falls back to compiling ExecuTorch v1.3.1 from source (slow; needs a Python interpreter with ExecuTorch's build-time dependencies, since ExecuTorch runs flatbuffers codegen during its own configure)
+- `-DEXECUTORCH_DELEGATE=xnnpack` (default) or `portable` selects the delegate library to link, which must match the delegate the `.pte` was exported with — a mismatch fails at run time, not at link time
+- At load the backend verifies the program returns `dets` before `labels`, since ExecuTorch outputs are an unnamed tuple and postprocessing addresses them positionally
+
+Export a model with [`deploy/export_executorch.py`](deploy/export_executorch.py); see the [export documentation](docs/export.md#executorch-model-export).
+
 ### Build with OpenCV Media/Display Backend
 
 By default the project uses FFmpeg + SDL2 + stb for image/video I/O and the
@@ -293,17 +431,29 @@ cmake --build build --parallel
 - OpenCV (`core`, `imgcodecs`, `imgproc`, `videoio`, `highgui`) is found via CMake's `find_package`
 - FFmpeg, SDL2, and stb are **not** required and not linked
 - `VideoReader`, `VideoWriter`, `Display`, and image load/save swap to their OpenCV implementations
-- Orthogonal to the inference backend — combine freely, e.g. `-DUSE_TENSORRT=ON -DUSE_OPENCV=ON`
+- Orthogonal to the inference backend — combine freely, e.g. `-DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON -DUSE_OPENCV=ON`
+  (`USE_ONNX_RUNTIME` defaults to `ON`, so it must be turned off explicitly when selecting another
+  inference backend — enabling two is a configure-time error)
 
 ### Build Options
 
 - `-DUSE_ONNX_RUNTIME=ON/OFF` - Enable ONNX Runtime backend (default: ON)
 - `-DUSE_TENSORRT=ON/OFF` - Enable TensorRT backend (default: OFF)
+- `-DUSE_EXECUTORCH=ON/OFF` - Enable ExecuTorch backend for `.pte` models (default: OFF)
+- `-DEXECUTORCH_ROOTDIR=<path>` - ExecuTorch install prefix; without it ExecuTorch is built from source
+- `-DEXECUTORCH_DELEGATE=xnnpack/portable` - ExecuTorch delegate library to link (default: xnnpack)
 - `-DUSE_OPENCV=ON/OFF` - Use OpenCV for image/video/display I/O instead of FFmpeg+SDL2+stb (default: OFF)
 - `-DCMAKE_BUILD_TYPE=Release/Debug` - Build configuration
 - `-DSANITIZERS=ON/OFF` - Enable AddressSanitizer + UndefinedBehaviorSanitizer (default: OFF)
+- `-DSTRICT_UBSAN=ON/OFF` - Enable stricter UndefinedBehaviorSanitizer checks: Clang: `undefined,local-bounds,vptr,implicit-conversion`; GCC: `undefined,bounds-strict,vptr` (default: OFF; mutually exclusive with other sanitizer modes)
+- `-DTHREAD_SANITIZER=ON/OFF` - Enable ThreadSanitizer/data-race detection (default: OFF; mutually exclusive with other sanitizer modes)
 - `-DWERROR=ON/OFF` - Treat compiler warnings as errors (default: OFF)
 - `-DBENCHMARKS=ON/OFF` - Build Google Benchmark targets (default: OFF)
+- `-DDEPS_MODE=apt/conan/vcpkg/auto` - Package manager ecosystem for dependency resolution (default: apt)
+- `-DDEPS_OFFLINE=ON/OFF` - Disable network lookups; ROOT provided lookups only (default: OFF)
+- `-DDEPS_DEBUG=ON/OFF` - Log dependency resolution decisions (default: OFF)
+- `-DDEPS_PROVIDED_DIR=<path>` - Where provided-download archives extract (default: `<build>/_deps`)
+- `-DDEPS_CONAN_DIR=<path>` - Conan CMakeDeps output dir (CMakeDeps-only mode — consumes prebuilt binaries without the conan toolchain overriding the system compiler)
 
 ---
 
@@ -460,6 +610,10 @@ Use `--display` to open a live preview window (press ESC to quit early).
 - **labels**: `float32[batch, num_queries, num_classes+1]` - Class logits (index 0 = background)
 - **keypoints**: `float32[batch, num_queries, C*K_max, 8]` - Keypoints (8 channels per keypoint)
 
+### C++ Result Types
+
+Postprocessing APIs expose decoded boxes as `std::vector<BoundingBox>`, with `x_min`, `y_min`, `x_max`, and `y_max` fields in pixel-space `xyxy` format. Segmentation masks use `std::vector<rfdetr::media::Mask>`, and keypoints use `std::vector<std::vector<KeypointResult>>` for per-detection keypoint metadata.
+
 ### Processing Pipeline
 
 1. **Preprocessing**:
@@ -501,14 +655,27 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure -R UnitTests
 ```
 
-Integration tests need a real ONNX model. They auto-detect `~/Downloads/rfdetr-medium.onnx` (or legacy `inference_model.onnx`), or set `RFDETR_TEST_MODEL`:
+Integration tests need a real model **in the format the compiled-in backend accepts**. They probe
+`~/Downloads/`, `exports/`, and `output/` for `rfdetr-medium` (or legacy `inference_model`) with the
+extensions below, or you can point `RFDETR_TEST_MODEL` at one directly:
+
+| Build | Extensions probed | Example |
+|-------|-------------------|---------|
+| ONNX Runtime (default) | `.onnx` | `export RFDETR_TEST_MODEL=/path/to/rfdetr-medium.onnx` |
+| TensorRT | `.engine`, `.trt`, then `.onnx` | `export RFDETR_TEST_MODEL=/path/to/rfdetr-medium.engine` |
+| ExecuTorch | `.pte` | `export RFDETR_TEST_MODEL=/path/to/rfdetr-medium.pte` |
 
 ```bash
 export RFDETR_TEST_MODEL=/path/to/rfdetr-medium.onnx
 ctest --test-dir build --output-on-failure -R IntegrationTests
 ```
 
-Without a model, integration tests that need inference are skipped.
+TensorRT keeps `.onnx` as a lower-priority candidate so the ONNX-to-engine conversion path stays
+covered; a prebuilt engine is preferred because it loads directly. Keypoint tests use the same
+scheme with `rfdetr-keypoint` / `rfdetr-keypoint-preview` and `RFDETR_KEYPOINT_MODEL`.
+
+Without a matching model, integration tests that need inference are skipped, and the skip message
+names the format the build expects.
 
 ### Benchmarks
 
@@ -541,8 +708,18 @@ A single parametric `Dockerfile` builds the full **inference-backend × media-ba
 | `onnx`              | `opencv`        | ONNX Runtime + OpenCV |
 | `tensorrt`          | `ffmpeg`        | TensorRT + FFmpeg/SDL2/stb |
 | `tensorrt`          | `opencv`        | TensorRT + OpenCV |
+| `executorch`        | `ffmpeg`        | ExecuTorch + FFmpeg/SDL2/stb |
+| `executorch`        | `opencv`        | ExecuTorch + OpenCV |
 
-Build all four variants:
+> **ExecuTorch images build the ExecuTorch C++ runtime from source** (there is no distro
+> or registry package), so the first build is slow — it clones ExecuTorch with recursive
+> submodules and installs a CPU-only `torch` wheel for the operator codegen. Pin a
+> different runtime with `--build-arg EXECUTORCH_VERSION=<tag>`; it defaults to `v1.3.1`
+> to match the exporter that `rfdetr[executorch]==1.9.0` installs. The build applies the
+> upstream `extension_evalue_util` install fix automatically. ExecuTorch links
+> statically, so the runtime image ships no extra shared libraries and needs no GPU.
+
+Build all six variants:
 
 ```bash
 # ONNX Runtime (CPU) — FFmpeg/SDL2/stb media backend (default)
@@ -553,6 +730,10 @@ docker build -t rfdetr-onnx-opencv --build-arg MEDIA_BACKEND=opencv .
 docker build -t rfdetr-trt-ffmpeg --build-arg INFERENCE_BACKEND=tensorrt .
 # TensorRT (GPU) — OpenCV media backend
 docker build -t rfdetr-trt-opencv --build-arg INFERENCE_BACKEND=tensorrt --build-arg MEDIA_BACKEND=opencv .
+# ExecuTorch (CPU) — FFmpeg/SDL2/stb media backend
+docker build -t rfdetr-et-ffmpeg --build-arg INFERENCE_BACKEND=executorch .
+# ExecuTorch (CPU) — OpenCV media backend
+docker build -t rfdetr-et-opencv --build-arg INFERENCE_BACKEND=executorch --build-arg MEDIA_BACKEND=opencv .
 ```
 
 Run (mount your model, image, and labels under `/data`):
@@ -565,6 +746,10 @@ docker run -v $(pwd)/data:/data -v $(pwd)/exports:/exports rfdetr-onnx-ffmpeg \
 # TensorRT — requires --gpus all and a .engine/.trt model
 docker run --gpus all -v $(pwd)/data:/data -v $(pwd)/exports:/exports rfdetr-trt-opencv \
   /exports/model.engine /data/dog.jpg /data/coco-labels-91.txt
+
+# ExecuTorch — CPU only, use a .pte model exported with the xnnpack delegate
+docker run -v $(pwd)/data:/data -v $(pwd)/exports:/exports rfdetr-et-ffmpeg \
+  /exports/model.pte /data/dog.jpg /data/coco-labels-91.txt
 ```
 
 > The ONNX Runtime images are multi-stage and slim (Ubuntu 24.04 runtime). The TensorRT images use the `nvcr.io/nvidia/tensorrt:25.12-py3` base for the bundled CUDA/TensorRT runtime.
@@ -579,6 +764,10 @@ docker run --gpus all -v $(pwd)/data:/data -v $(pwd)/exports:/exports rfdetr-trt
 | `clang-tidy-18` | Static analysis (AST-based) | `find src -name '*.cpp' \| xargs clang-tidy-18 -p build` |
 | `cppcheck` | Static analysis (flow-based) | `cppcheck --enable=all --std=c++20 -I src src/` |
 | AddressSanitizer(ASan) + UndefinedBehaviorSanitizer(UBSan) | Runtime memory/UB detection | `-DSANITIZERS=ON` at configure time |
+| Strict UndefinedBehaviorSanitizer (UBSan) | Extra bounds and vptr checks; Clang also enables implicit-conversion | `-DSTRICT_UBSAN=ON` at configure time |
+| ThreadSanitizer (TSan) | Runtime data-race detection | `-DTHREAD_SANITIZER=ON` at configure time |
+| Valgrind (memcheck) | Memory errors + leak detection | `cmake --build build-valg --target memcheck` |
+| Valgrind (callgrind/massif) | CPU/cache + heap profiling | `cmake --build build-valg --target callgrind` / `massif` |
 | pre-commit | Automates format + cppcheck on commit | `pre-commit install` |
 
 ---
@@ -589,3 +778,4 @@ docker run --gpus all -v $(pwd)/data:/data -v $(pwd)/exports:/exports rfdetr-trt
 - **Postprocessing implementation** is based on Roboflow's reference implementations:
   - Detection postprocessing: [benchmark_rfdetr.py](https://github.com/roboflow/single_artifact_benchmarking/blob/main/sab/models/benchmark_rfdetr.py)
   - Instance segmentation postprocessing: [benchmark_rfdetr_seg.py](https://github.com/roboflow/single_artifact_benchmarking/blob/main/sab/models/benchmark_rfdetr_seg.py)
+  - Keypoint postprocessing: [postprocess.py](https://github.com/roboflow/rf-detr/blob/develop/src/rfdetr/models/postprocess.py)
