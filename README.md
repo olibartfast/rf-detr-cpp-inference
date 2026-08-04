@@ -413,6 +413,12 @@ link against one C++ runtime.
 
 Export a model with [`deploy/export_executorch.py`](deploy/export_executorch.py); see the [export documentation](docs/export.md#executorch-model-export).
 
+> [!NOTE]
+> `deploy/export_executorch.py` covers detection models only — it offers no `RFDETRSeg*` option. The
+> ExecuTorch backend itself runs segmentation `.pte` programs correctly, but the `.pte` must be
+> exported by hand. See
+> [docs/backend-parity-segmentation-video.md](docs/backend-parity-segmentation-video.md).
+
 ### Build with OpenCV Media/Display Backend
 
 By default the project uses FFmpeg + SDL2 + stb for image/video I/O and the
@@ -673,6 +679,12 @@ ctest --test-dir build --output-on-failure -R IntegrationTests
 TensorRT keeps `.onnx` as a lower-priority candidate so the ONNX-to-engine conversion path stays
 covered; a prebuilt engine is preferred because it loads directly. Keypoint tests use the same
 scheme with `rfdetr-keypoint` / `rfdetr-keypoint-preview` and `RFDETR_KEYPOINT_MODEL`.
+
+### Manual Cross-Backend Checks
+
+CI exercises neither TensorRT nor ExecuTorch, so backend agreement is verified by hand.
+[docs/backend-parity-segmentation-video.md](docs/backend-parity-segmentation-video.md) records a
+segmentation video run across all three backends — commands, results, and the parity comparison.
 
 Without a matching model, integration tests that need inference are skipped, and the skip message
 names the format the build expects.
