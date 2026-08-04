@@ -4,6 +4,7 @@ output
 *.pth
 *.onnx
 *.engine
+*.pte
 __pycache__
 .venv
 rfdetr_venv
@@ -12,6 +13,10 @@ CMakeUserPresets.json
 output_video.mp4
 hermes_review.md
 Testing/
+
+# Per-backend video results collected by manual cross-backend runs.
+# See docs/backend-parity-segmentation-video.md.
+output_seg_video/
 
 # Integration-test fixtures written by the RFDETRIntegrationTest / RFDETRKeypointIntegrationTest
 # fixtures and normally removed in TearDown; they survive an interrupted or crashed run.
