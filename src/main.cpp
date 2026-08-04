@@ -15,6 +15,22 @@ bool is_video_file(const std::filesystem::path &path) {
     return video_exts.contains(ext);
 }
 
+// Usage text is specialized to the backend compiled into this binary: only one exists at a time, so
+// showing the model container it actually accepts is more useful than listing all three.
+#if defined(USE_TENSORRT)
+constexpr const char *kExampleModel = "./model.engine";
+constexpr const char *kBackendDescription = "TensorRT — .engine/.trt, or .onnx to build an engine";
+constexpr const char *kBackendBuildFlags = "-DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON";
+#elif defined(USE_EXECUTORCH)
+constexpr const char *kExampleModel = "./model.pte";
+constexpr const char *kBackendDescription = "ExecuTorch — .pte exported by rfdetr 1.9.0+";
+constexpr const char *kBackendBuildFlags = "-DUSE_ONNX_RUNTIME=OFF -DUSE_EXECUTORCH=ON -DEXECUTORCH_ROOTDIR=<prefix>";
+#else
+constexpr const char *kExampleModel = "./model.onnx";
+constexpr const char *kBackendDescription = "ONNX Runtime — .onnx";
+constexpr const char *kBackendBuildFlags = "-DUSE_ONNX_RUNTIME=ON";
+#endif
+
 } // anonymous namespace
 
 int main(int argc, const char *argv[]) {
@@ -25,20 +41,23 @@ int main(int argc, const char *argv[]) {
                      "[--dali-pipeline-dir <dir>]"
                   << std::endl;
         std::cerr << "Examples:" << std::endl;
-        std::cerr << "  Detection:    " << argv[0] << " ./model.onnx ./image.jpg ./coco_labels.txt" << std::endl;
-        std::cerr << "  Segmentation: " << argv[0] << " ./model.onnx ./image.jpg ./coco_labels.txt --segmentation"
+        std::cerr << "  Detection:    " << argv[0] << " " << kExampleModel << " ./image.jpg ./coco_labels.txt"
                   << std::endl;
-        std::cerr << "  Keypoint:     " << argv[0] << " ./model.onnx ./image.jpg ./coco_labels.txt --keypoint"
+        std::cerr << "  Segmentation: " << argv[0] << " " << kExampleModel
+                  << " ./image.jpg ./coco_labels.txt --segmentation" << std::endl;
+        std::cerr << "  Keypoint:     " << argv[0] << " " << kExampleModel
+                  << " ./image.jpg ./coco_labels.txt --keypoint" << std::endl;
+        std::cerr << "  Video:        " << argv[0] << " " << kExampleModel << " ./video.mp4 ./coco_labels.txt"
                   << std::endl;
-        std::cerr << "  Video:        " << argv[0] << " ./model.onnx ./video.mp4 ./coco_labels.txt" << std::endl;
-        std::cerr << "  Video+display:" << argv[0] << " ./model.onnx ./video.mp4 ./coco_labels.txt --display"
+        std::cerr << "  Video+display:" << argv[0] << " " << kExampleModel << " ./video.mp4 ./coco_labels.txt --display"
                   << std::endl;
         std::cerr << "  GPU pipeline: " << argv[0]
                   << " ./model.engine ./image.jpg ./coco_labels.txt --segmentation --gpu-preprocess --gpu-postprocess"
                   << std::endl;
         std::cerr << std::endl;
-        std::cerr << "Note: Backend (ONNX Runtime or TensorRT) is selected at compile time." << std::endl;
-        std::cerr << "      Build with -DUSE_ONNX_RUNTIME=ON or -DUSE_TENSORRT=ON" << std::endl;
+        std::cerr << "Note: exactly one backend is selected at compile time; this binary was built with" << std::endl;
+        std::cerr << "      " << kBackendDescription << std::endl;
+        std::cerr << "      Rebuild with " << kBackendBuildFlags << " to select it explicitly." << std::endl;
         std::cerr << "      --gpu-preprocess needs -DUSE_DALI=ON, --gpu-postprocess needs" << std::endl;
         std::cerr << "      -DUSE_CUDA_POSTPROCESS=ON; both require the TensorRT backend." << std::endl;
         return 1;

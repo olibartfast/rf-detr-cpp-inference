@@ -446,6 +446,62 @@ TEST(PreprocessFrame, OutputDimensions) {
     }
 }
 
+// Upstream rf-detr 1.9.0 (PR #1206) set antialias=False in predict()'s resize to match the
+// antialias-free bilinear (cv2.INTER_LINEAR) resize used during training. preprocess_bgr_image
+// must stay antialias-free or inference drifts from the pretrained checkpoints.
+//
+// Downscaling 4x, each output pixel maps to src = 4*i + 1.5, so bilinear samples exactly the
+// 2x2 block at offsets {1,2} within each 4x4 source cell and ignores the cell's other 12 pixels.
+// The two patterns below make that footprint unrepresentative of the cell as a whole: an
+// averaging (antialiasing) filter would pull both toward the cell mean instead.
+TEST(PreprocessFrame, ResizeIsAntialiasFree) {
+    constexpr int kSrc = 448;
+    constexpr int kRes = 112; // 4x downscale
+    const std::array<float, 3> means = {0.0f, 0.0f, 0.0f};
+    const std::array<float, 3> stds = {1.0f, 1.0f, 1.0f};
+
+    // Fill the sampled 2x2 of every cell, leaving the surrounding 12 pixels black.
+    // Point-sampled: 1.0. Area-averaged over the cell: 4/16 = 0.25.
+    rfdetr::media::Image bright;
+    bright.resize(kSrc, kSrc);
+    std::fill(bright.bgr.begin(), bright.bgr.end(), 0);
+    for (int y = 0; y < kSrc; ++y) {
+        for (int x = 0; x < kSrc; ++x) {
+            const bool sampled = (x % 4 == 1 || x % 4 == 2) && (y % 4 == 1 || y % 4 == 2);
+            if (sampled) {
+                const size_t idx = (static_cast<size_t>(y) * kSrc + static_cast<size_t>(x)) * 3U;
+                bright.bgr[idx] = bright.bgr[idx + 1] = bright.bgr[idx + 2] = 255;
+            }
+        }
+    }
+
+    std::vector<float> tensor(3UL * kRes * kRes);
+    rfdetr::media::preprocess_bgr_image(bright, tensor, kRes, means, stds);
+    for (float v : tensor) {
+        EXPECT_NEAR(v, 1.0f, 1e-4f) << "resize is averaging beyond the bilinear 2x2 footprint";
+    }
+
+    // Inverse pattern: the sampled 2x2 is black, the other 12 pixels of each cell are white.
+    // Point-sampled: 0.0. Area-averaged over the cell: 12/16 = 0.75.
+    rfdetr::media::Image dark;
+    dark.resize(kSrc, kSrc);
+    std::fill(dark.bgr.begin(), dark.bgr.end(), 255);
+    for (int y = 0; y < kSrc; ++y) {
+        for (int x = 0; x < kSrc; ++x) {
+            const bool sampled = (x % 4 == 1 || x % 4 == 2) && (y % 4 == 1 || y % 4 == 2);
+            if (sampled) {
+                const size_t idx = (static_cast<size_t>(y) * kSrc + static_cast<size_t>(x)) * 3U;
+                dark.bgr[idx] = dark.bgr[idx + 1] = dark.bgr[idx + 2] = 0;
+            }
+        }
+    }
+
+    rfdetr::media::preprocess_bgr_image(dark, tensor, kRes, means, stds);
+    for (float v : tensor) {
+        EXPECT_NEAR(v, 0.0f, 1e-4f) << "resize is averaging beyond the bilinear 2x2 footprint";
+    }
+}
+
 // ============================================================================
 // Image preprocess overload tests
 // ============================================================================
