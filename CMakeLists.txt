@@ -75,16 +75,49 @@ endif()
 # --- Backend Selection Options ---
 option(USE_ONNX_RUNTIME "Build with ONNX Runtime backend support" ON)
 option(USE_TENSORRT "Build with TensorRT backend support" OFF)
+option(USE_EXECUTORCH "Build with ExecuTorch backend support (.pte models)" OFF)
 option(USE_OPENCV "Use OpenCV for image/video/display I/O instead of FFmpeg+SDL2+stb" OFF)
 
-# Validate that at least one backend is enabled
-if(NOT USE_ONNX_RUNTIME AND NOT USE_TENSORRT)
-    message(FATAL_ERROR "At least one backend must be enabled. Set USE_ONNX_RUNTIME=ON or USE_TENSORRT=ON")
+# ExecuTorch delegates are chosen at .pte export time and consumed by the runtime; the C++ side's
+# job is to link the matching backend library so the delegate self-registers. 'xnnpack' is the
+# default and matches rfdetr's export(format="executorch", backend="xnnpack"). 'portable' links
+# only the CPU portable kernels. SDK-backed delegates (coreml, qnn) each pull an external SDK and
+# are intentionally not wired here.
+set(EXECUTORCH_DELEGATE "xnnpack" CACHE STRING "ExecuTorch delegate to link: xnnpack or portable")
+set_property(CACHE EXECUTORCH_DELEGATE PROPERTY STRINGS xnnpack portable)
+
+# Backend selection is compile-time and exclusive: exactly one backend is compiled in, so the
+# count must be exactly 1. Without this check a second enabled backend would be silently dropped
+# by the #ifdef/#elif chain in src/backends/inference_backend.cpp, and the binary would use a
+# backend the user did not ask for.
+set(_ENABLED_BACKENDS "")
+foreach(_be USE_ONNX_RUNTIME USE_TENSORRT USE_EXECUTORCH)
+    if(${_be})
+        list(APPEND _ENABLED_BACKENDS ${_be})
+    endif()
+endforeach()
+list(LENGTH _ENABLED_BACKENDS _NUM_BACKENDS)
+if(_NUM_BACKENDS EQUAL 0)
+    message(FATAL_ERROR
+        "At least one backend must be enabled. Set USE_ONNX_RUNTIME=ON, USE_TENSORRT=ON, or USE_EXECUTORCH=ON")
+elseif(_NUM_BACKENDS GREATER 1)
+    string(REPLACE ";" ", " _BACKEND_LIST "${_ENABLED_BACKENDS}")
+    message(FATAL_ERROR
+        "Only one inference backend can be enabled at a time, but ${_NUM_BACKENDS} are on: ${_BACKEND_LIST}. "
+        "Turn the others OFF, e.g. -DUSE_ONNX_RUNTIME=OFF -DUSE_EXECUTORCH=ON")
+endif()
+
+if(USE_EXECUTORCH AND NOT EXECUTORCH_DELEGATE MATCHES "^(xnnpack|portable)$")
+    message(FATAL_ERROR "Unsupported EXECUTORCH_DELEGATE '${EXECUTORCH_DELEGATE}'. Valid values: xnnpack, portable")
 endif()
 
 message(STATUS "Backend configuration:")
 message(STATUS "  ONNX Runtime: ${USE_ONNX_RUNTIME}")
 message(STATUS "  TensorRT:     ${USE_TENSORRT}")
+message(STATUS "  ExecuTorch:   ${USE_EXECUTORCH}")
+if(USE_EXECUTORCH)
+    message(STATUS "  ET delegate:  ${EXECUTORCH_DELEGATE}")
+endif()
 
 # --- Dependency resolution (unified package-manager facade) ------------------
 # Encapsulates three resolution policies (apt+provided, conan+provided,
@@ -101,6 +134,15 @@ endif()
 
 if(USE_TENSORRT)
     find_dependency_unified(TensorRT REQUIRED)
+endif()
+
+if(USE_EXECUTORCH)
+    # Let the catalog's find_package(executorch CONFIG) probe see a prebuilt install prefix
+    # before the chain falls through to building ExecuTorch from source.
+    if(EXECUTORCH_ROOTDIR)
+        list(APPEND CMAKE_PREFIX_PATH "${EXECUTORCH_ROOTDIR}")
+    endif()
+    find_dependency_unified(ExecuTorch REQUIRED)
 endif()
 
 if(USE_OPENCV)
@@ -145,6 +187,10 @@ if(USE_TENSORRT)
     list(APPEND RFDETR_SOURCES "${SOURCE_DIR}/backends/tensorrt_backend.cpp")
 endif()
 
+if(USE_EXECUTORCH)
+    list(APPEND RFDETR_SOURCES "${SOURCE_DIR}/backends/executorch_backend.cpp")
+endif()
+
 add_library(rfdetr_inference_lib STATIC ${RFDETR_SOURCES})
 target_compile_options(rfdetr_inference_lib PRIVATE ${PROJECT_WARNING_FLAGS})
 
@@ -171,6 +217,16 @@ endif()
 
 if(USE_ONNX_RUNTIME)
     target_link_libraries(rfdetr_inference_lib PUBLIC Deps::OnnxRuntime)
+endif()
+
+if(USE_EXECUTORCH)
+    target_link_libraries(rfdetr_inference_lib PUBLIC Deps::ExecuTorch)
+
+    # The delegate library must be linked for its backend to self-register with the ExecuTorch
+    # runtime; without it a .pte exported for that delegate fails at run time, not link time.
+    if(EXECUTORCH_DELEGATE STREQUAL "xnnpack")
+        target_link_libraries(rfdetr_inference_lib PUBLIC xnnpack_backend)
+    endif()
 endif()
 
 if(USE_TENSORRT)

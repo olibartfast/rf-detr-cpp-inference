@@ -1,10 +1,21 @@
 # AGENTS.md
 
 ## Backend Selection
+Exactly one backend is compiled in; enabling two is a configure-time error.
 - ONNX Runtime (default): 
   `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build --parallel`
 - TensorRT:
   `cmake -S . -B build -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON -DCMAKE_BUILD_TYPE=Release && cmake --build build --parallel`
+- ExecuTorch (`.pte` models, rfdetr 1.9.0+):
+  `cmake -S . -B build -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_EXECUTORCH=ON -DEXECUTORCH_ROOTDIR=<prefix> -DCMAKE_BUILD_TYPE=Release && cmake --build build --parallel`
+  - `-DEXECUTORCH_DELEGATE=xnnpack|portable` (default `xnnpack`) must match the delegate the `.pte` was exported with.
+  - Without `EXECUTORCH_ROOTDIR` the build falls back to compiling ExecuTorch v1.3.1 from source, which is slow and needs a Python interpreter with ExecuTorch's build deps (`import torchgen`, i.e. the `torch` wheel — a bare `python3` fails).
+  - Building the prefix requires patching upstream v1.3.1's `extension/evalue_util/CMakeLists.txt` (`DESTINATION ${CMAKE_BINARY_DIR}/lib` → `${CMAKE_INSTALL_LIBDIR}`), else `find_package(executorch)` fails once the build tree is removed. See README "Building the ExecuTorch install prefix".
+
+## Docker
+`Dockerfile` builds an inference-backend × media-backend matrix:
+`--build-arg INFERENCE_BACKEND=onnx|tensorrt|executorch` and `--build-arg MEDIA_BACKEND=ffmpeg|opencv`.
+The `executorch` variant builds the ExecuTorch runtime from source into `/opt/executorch` (override the tag with `--build-arg EXECUTORCH_VERSION=<tag>`) and applies the upstream install fix automatically.
 
 ## Dependency Resolution
 - Default (`-DDEPS_MODE=apt`): system packages + pinned downloads — no extra tooling
@@ -74,7 +85,7 @@ Requires a plain Debug build (no sanitizers — ASan/TSan conflict with Valgrind
 - TensorRT engine: use .engine or .trt model file
 
 ## Notes
-- Only one backend (ONNX Runtime or TensorRT) can be enabled at compile time.
+- Only one backend (ONNX Runtime, TensorRT, or ExecuTorch) can be enabled at compile time.
 - TensorRT requires manually installed CUDA toolkit.
 - Data directory is auto-created by CMake.
-- CI does not test TensorRT backend; test manually.
+- CI does not test the TensorRT or ExecuTorch backends; test those manually.
