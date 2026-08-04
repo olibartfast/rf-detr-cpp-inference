@@ -4,7 +4,89 @@ Tracks upstream `rfdetr` version changes that affect this C++ inference project.
 
 ---
 
-## [Unreleased]
+## [Unreleased] — RF-DETR 1.9.0 alignment + ExecuTorch backend
+
+**Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.9.0
+
+### Added
+
+| File | Change |
+|------|--------|
+| `src/backends/executorch_backend.{hpp,cpp}` | Third inference backend, running `.pte` programs via `executorch::extension::Module`. Input/output shapes come from `method_meta("forward")`, so resolution auto-detection and the output-count check both work before the first inference. Input tensors are non-owning views over the caller's buffer (no per-frame copy); outputs are restricted to float32. |
+| `cmake/deps/packages/ExecuTorch.cmake` | Catalog entry: `find_package(executorch CONFIG)` against an install prefix first, FetchContent source build of `v1.3.1` as fallback. Pinned to `v1.3.1` to match the ExecuTorch version `rfdetr[executorch]==1.9.0` resolves for the Python exporter — `.pte` schema compatibility across runtime versions is not guaranteed. |
+| `cmake/deps/{PackageManager,strategies/ProvidedPackageManager}.cmake` | New `PROVIDED_FC_OPTIONS` / `PROVIDED_FC_SUBMODULES` declaration keys so a FetchContent dependency can have build options seeded into the cache and submodules fetched recursively — both required to build ExecuTorch from source. |
+| `CMakeLists.txt` | `USE_EXECUTORCH` and `EXECUTORCH_DELEGATE` (`xnnpack`/`portable`) options; `EXECUTORCH_ROOTDIR` appended to `CMAKE_PREFIX_PATH`; delegate library linked so it self-registers. |
+| `deploy/export_executorch.py` | Export script for `.pte` models: `--backend xnnpack/coreml/qnn`, `--soc` required for `qnn`. Warns both before and after export that only `xnnpack` yields a `.pte` this project can run — `-DEXECUTORCH_DELEGATE` offers only `xnnpack`/`portable`, so a coreml/qnn program fails at load with `Backend ... is not registered`. |
+| `tests/unit/test_rfdetr_inference.cpp` | `PreprocessFrame.ResizeIsAntialiasFree` — asserts `preprocess_bgr_image` point-samples the bilinear 2x2 footprint rather than averaging over the source area. |
+| `docs/export.md` | ExecuTorch export section; native TensorRT export section. |
+| `Dockerfile` | `INFERENCE_BACKEND=executorch` variant. Builds the ExecuTorch C++ runtime from source into `/opt/executorch` (tag via `EXECUTORCH_VERSION`, default `v1.3.1`), applying the upstream `extension_evalue_util` install fix. Uses a throwaway venv with the CPU `torch` wheel because ExecuTorch's operator codegen does `import torchgen`, and installs `build-essential` because ExecuTorch's bundled `flatcc` is an ExternalProject that configures with the Unix Makefiles generator and does not inherit `CMAKE_C_COMPILER`. Static-linked, so the runtime stage ships no extra shared libraries and needs no GPU. The ExecuTorch step is placed **before** `COPY . .` so editing a `.cpp` reuses the cached layer (36s rebuild) instead of recompiling ExecuTorch (~11 min). |
+
+### Changed
+
+| File | Change |
+|------|--------|
+| `deploy/requirements.txt` | `rfdetr[onnx]` 1.8.3 → 1.9.0. |
+| `docs/export.md` | Version bumps to 1.9.0. Noted the relaxed `onnxsim>=0.7.0` pin, the non-native-resolution export fix, and the in-process (polygraphy) TensorRT export path. Pinned the `rfdetr[executorch]` / `rfdetr[tensorrt]` install commands to `==1.9.0` — the extras do not constrain ExecuTorch itself, and an unpinned install can pull an exporter whose `.pte` the pinned v1.3.1 runtime cannot load. |
+| `README.md` (accuracy) | ONNX Runtime dependency section no longer claims Windows/macOS and CUDA/DirectML support: the default download is the Linux x64 **CPU** archive, and `OnnxRuntimeBackend` registers no execution provider, so even a GPU build would run on CPU. Other platforms need `-DONNXRUNTIME_ROOTDIR` or the conan/vcpkg coordinates. CMake requirement notes the **3.17+** needed by the ExecuTorch FetchContent fallback (`GIT_SUBMODULES_RECURSE`). |
+| `README.md` | Three-backend selection table with model formats; ExecuTorch build section, dependencies, and build options; `rfdetr[executorch]` / `rfdetr[tensorrt]` export extras; version statements to 1.9.0. Fixed the media-backend example `-DUSE_TENSORRT=ON -DUSE_OPENCV=ON`, which the new exactly-one-backend check turned into a configure error (`USE_ONNX_RUNTIME` defaults `ON`). Documented TensorRT's `.onnx` acceptance and per-backend integration-test discovery. |
+| `AGENTS.md` | Backend selection covers ExecuTorch; CI-coverage note extended; new Docker section. |
+| `docs/package-manager-architecture.md` | ExecuTorch in the catalog listing and dependency-mapping table; documented the new `PROVIDED_FC_OPTIONS` / `PROVIDED_FC_SUBMODULES` keys and the "install-prefix first, source build as fallback" pattern they enable. |
+| `docs/glossary.md` | Backend selection is three-way; added ExecuTorch, `.pte`, Delegate, and XNNPACK entries. |
+| `.github/copilot-instructions.md` | Backend list covers ExecuTorch. |
+| `CMakeLists.txt` | **Behavior change**: enabling more than one backend is now a configure-time error. Previously `-DUSE_ONNX_RUNTIME=ON -DUSE_TENSORRT=ON` configured successfully and silently used ONNX Runtime, because `create_backend()` resolves via an `#ifdef`/`#elif` chain. With a third backend that silent fallthrough became too easy to hit unnoticed. |
+| `tests/integration/integration_test_rfdetr_inference.cpp` | Skip message 1.8.3 → 1.9.0. Model discovery now probes the extensions the **compiled-in** backend can load instead of a hardcoded `.onnx`, and the skip message names the expected format. ONNX Runtime probes `.onnx`; ExecuTorch `.pte`; TensorRT `.engine`, `.trt`, then `.onnx` — the last kept deliberately, since `TensorRTBackend::initialize()` builds/caches an engine from ONNX and dropping it would lose that path from coverage. Extension is the outer loop so format preference is global: a prebuilt engine in any search directory beats an ONNX file in an earlier one, since loading an engine is instant while building one costs minutes. Also fixes a pre-existing TensorRT bug: a TRT build previously found a stray `.onnx` before the `.engine` beside it. |
+| `src/main.cpp` | Usage text is backend-aware: the example model extension, the backend description, and the rebuild flags are selected at compile time, instead of claiming only ONNX Runtime and TensorRT exist. |
+| `.gitignore` | Ignore `data/test_*` and `data/empty_labels.txt` — all six fixtures the detection and keypoint integration fixtures generate (`test_image.jpg`, `test_labels.txt`, `test_output.jpg`, `test_kp_image.jpg`, `test_kp_output.jpg`, `empty_labels.txt`), which are normally removed in `TearDown` but survive an interrupted run. |
+
+### Why no postprocessing port or model re-export
+
+Diffing `1.8.3...1.9.0` over the code this project mirrors:
+
+- `export/_onnx/exporter.py` (+201/-97) and `models/lwdetr.py` (+78/-57) are **typing-only** — protocols, `cast`, f-strings. Graph structure, output names, ordering, and opset are unchanged, so existing exported models stay compatible and **no re-export is required**.
+- `models/postprocess.py` (+63/-18) chunks mask upsampling to cut peak GPU memory (identical results — still bilinear to target size, then `> 0.0`) and adds `upsample_masks_to_image_size`, an opt-in validation-only flag. `media.cpp::resize_threshold_mask` already matches the default path.
+- **PR #1206 confirms this project's preprocessing.** Upstream `predict()` had been resizing with antialias enabled, drifting from training; 1.9.0 sets `antialias=False` to match the antialias-free bilinear (`cv2.INTER_LINEAR`) resize used during training. `media.cpp::preprocess_bgr_image` has always been exactly that, so 1.8.3's `predict()` was the side that disagreed, and 1.9.0 closes the gap. Locked in by `PreprocessFrame.ResizeIsAntialiasFree`.
+
+### End-to-end verification
+
+The ExecuTorch backend was run end-to-end against a real `.pte` before this change was committed. `rf-detr-nano.pth` was exported at 384×384 to both `.onnx` and `.pte` (`format="executorch", backend="xnnpack"`) from the same checkpoint with rfdetr 1.9.0, then run through `inference_app` on both backends:
+
+| Check | Result |
+|-------|--------|
+| Detections at threshold 0.5 | 3 vs 3 — same classes, same order |
+| Detections at threshold 0.05 | 34 vs 34 — same classes, same order |
+| Max box delta | 1e-4 px |
+| Max score delta | 1e-6 |
+| Output-order guard | `method_meta` reports `[1,300,4]` boxes at index 0, `[1,300,91]` logits at index 1 |
+| Delegate mismatch (`portable` build vs xnnpack `.pte`) | Fails with `Backend XnnpackBackend is not registered`, exit 1 |
+| Integration tests with `RFDETR_TEST_MODEL=<.pte>` | 4 passed, 1 skipped (no keypoint `.pte`) |
+
+Regression status: ONNX Runtime 39/39, TensorRT 39/39, ExecuTorch 39/39; `clang-format` clean; `-DWERROR=ON` clean on the ExecuTorch configuration.
+
+### Upstream ExecuTorch packaging bug (affects install-prefix builds)
+
+ExecuTorch v1.3.1 `extension/evalue_util/CMakeLists.txt:27` installs its target with
+`DESTINATION ${CMAKE_BINARY_DIR}/lib` instead of `${CMAKE_INSTALL_LIBDIR}` — every other
+extension uses the latter. Consequences for a `cmake --install`ed prefix:
+
+- `libextension_evalue_util.a` is never copied into `<prefix>/lib`.
+- `ExecuTorchTargets-release.cmake` records an absolute **build-tree** path for that one
+  target (18 of 19 targets are `${_IMPORT_PREFIX}`-relative; this one is not).
+- `find_package(executorch CONFIG)` then hard-fails via its import-check loop as soon as
+  the build tree is removed — even though this project never links that target.
+
+Workaround when building ExecuTorch from source, applied before `cmake --install`:
+
+```bash
+sed -i 's|DESTINATION ${CMAKE_BINARY_DIR}/lib|DESTINATION ${CMAKE_INSTALL_LIBDIR}|' \
+    extension/evalue_util/CMakeLists.txt
+```
+
+The FetchContent fallback path is unaffected: `FetchContent_MakeAvailable` consumes the
+targets directly from the build tree and never runs the faulty `install()` rule.
+
+---
+
+## [Unreleased] — package-manager abstraction
 
 Unified package-manager abstraction layer (`cmake/deps/`) wrapping apt, conan,
 vcpkg, and provided-download strategies behind a single `find_dependency_unified()`

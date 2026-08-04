@@ -34,9 +34,9 @@ cmake/deps/
 │   ├── VcpkgPackageManager.cmake     manifest mode find_package
 │   └── ProvidedPackageManager.cmake  download / vendored / fetchcontent / root
 └── packages/                    one file per dependency (the catalog)
-    ├── OnnxRuntime.cmake  TensorRT.cmake  OpenCV.cmake  FFmpeg.cmake
-    ├── SDL2.cmake  Threads.cmake  GTest.cmake  GoogleBenchmark.cmake
-    └── stb.cmake  font8x8.cmake
+    ├── OnnxRuntime.cmake  TensorRT.cmake  ExecuTorch.cmake  OpenCV.cmake
+    ├── FFmpeg.cmake  SDL2.cmake  Threads.cmake  GTest.cmake
+    └── GoogleBenchmark.cmake  stb.cmake  font8x8.cmake
 ```
 
 Patterns: Facade (`find_dependency_unified`), Strategy (per-ecosystem), Chain of
@@ -69,12 +69,48 @@ To add a conan/vcpkg coordinate: add `CONAN_FIND`/`CONAN_TARGETS` or
 `VCPKG_FIND`/`VCPKG_TARGETS` to the catalog entry, and add the package to
 `conanfile.txt` or `vcpkg.json`.
 
+### Install-prefix first, source build as fallback
+
+A dependency can prefer an existing install prefix and fall back to building from
+source without any new precedence logic, by mapping onto the standard `apt;provided`
+chain — the `apt` link runs `find_package(<name> CONFIG)`, and `provided` only runs
+if that misses. ExecuTorch uses this:
+
+```cmake
+deps_declare(ExecuTorch
+    DEFINITIONS              USE_EXECUTORCH
+    APT                      ON
+    APT_METHOD               FIND_PACKAGE      # 1st: find_package(executorch CONFIG)
+    APT_FIND_NAME            executorch
+    APT_IMPORTED_TARGETS     "executorch;extension_module_static;..."
+    PROVIDED_ACQUIRE         FETCHCONTENT      # 2nd: clone + build from source
+    PROVIDED_FC_REPO         "https://github.com/pytorch/executorch.git"
+    PROVIDED_FC_TAG          "v1.3.1"
+    PROVIDED_FC_SUBMODULES   RECURSE
+    PROVIDED_FC_OPTIONS      "EXECUTORCH_BUILD_XNNPACK=ON;..."
+)
+```
+
+`CMakeLists.txt` puts `EXECUTORCH_ROOTDIR` on `CMAKE_PREFIX_PATH` so the `find_package`
+link can see a user-supplied prefix.
+
+### FetchContent build configuration
+
+Two keys let a `FETCHCONTENT` dependency configure its own build — both are additive and
+unused by the existing `GTest` / `GoogleBenchmark` entries:
+
+| key | effect |
+|---|---|
+| `PROVIDED_FC_OPTIONS` | `NAME=VALUE` list seeded into the CMake cache before `FetchContent_MakeAvailable`. Set **without** `FORCE`, so an explicit `-DNAME=...` on the command line still wins. A malformed entry is a `FATAL_ERROR`, not a silent skip. |
+| `PROVIDED_FC_SUBMODULES` | `RECURSE` passes `GIT_SUBMODULES_RECURSE TRUE` to `FetchContent_Declare` (requires CMake 3.17+). |
+
 ## Dependency mapping
 
 | dependency | apt mode | conan mode | vcpkg mode |
 |---|---|---|---|
 | ONNX Runtime 1.21.0 | provided-download | provided-download | provided-download |
 | TensorRT 10.13.3.9 | provided-download | provided-download | provided-download |
+| ExecuTorch v1.3.1 | apt-find_package, else provided-FetchContent | same | same |
 | OpenCV | apt | **conan** | vcpkg (slow) |
 | FFmpeg | apt | **conan** | **vcpkg** |
 | SDL2 | apt | **conan** | **vcpkg** |
@@ -84,7 +120,9 @@ To add a conan/vcpkg coordinate: add `CONAN_FIND`/`CONAN_TARGETS` or
 | stb, font8x8 | provided-vendored | provided-vendored | provided-vendored |
 
 ONNX Runtime/TensorRT stay provided-download (registries have wrong versions or
-are absent). OpenCV and FFmpeg are mutually exclusive (`USE_OPENCV` option);
+are absent). ExecuTorch is not in conan or vcpkg either, so both modes fall through
+to the same `find_package`-then-FetchContent path as `apt` mode. OpenCV and FFmpeg
+are mutually exclusive (`USE_OPENCV` option);
 each conan graph resolves independently. In `conan` and `vcpkg` modes, `apt` is
 chained as a fallback for system packages (Threads).
 
