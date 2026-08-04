@@ -4,11 +4,23 @@ Tracks upstream `rfdetr` version changes that affect this C++ inference project.
 
 ---
 
-## [Unreleased] — RF-DETR 1.9.0 alignment + ExecuTorch backend
+## v0.4.0
+
+Third inference backend and a unified dependency-resolution layer. **ExecuTorch**
+joins ONNX Runtime and TensorRT, running `.pte` programs exported by `rfdetr`
+1.9.0+, and the export pin moves to `rfdetr[onnx]==1.9.0`. Dependency resolution
+moves behind a single `find_dependency_unified()` facade covering apt, conan,
+vcpkg, and provided-download strategies.
+
+**Breaking**: enabling more than one inference backend is now a configure-time
+error. Previously two backends configured successfully and silently used ONNX
+Runtime.
+
+### RF-DETR 1.9.0 alignment + ExecuTorch backend
 
 **Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.9.0
 
-### Added
+#### Added
 
 | File | Change |
 |------|--------|
@@ -21,7 +33,7 @@ Tracks upstream `rfdetr` version changes that affect this C++ inference project.
 | `docs/export.md` | ExecuTorch export section; native TensorRT export section. |
 | `Dockerfile` | `INFERENCE_BACKEND=executorch` variant. Builds the ExecuTorch C++ runtime from source into `/opt/executorch` (tag via `EXECUTORCH_VERSION`, default `v1.3.1`), applying the upstream `extension_evalue_util` install fix. Uses a throwaway venv with the CPU `torch` wheel because ExecuTorch's operator codegen does `import torchgen`, and installs `build-essential` because ExecuTorch's bundled `flatcc` is an ExternalProject that configures with the Unix Makefiles generator and does not inherit `CMAKE_C_COMPILER`. Static-linked, so the runtime stage ships no extra shared libraries and needs no GPU. The ExecuTorch step is placed **before** `COPY . .` so editing a `.cpp` reuses the cached layer (36s rebuild) instead of recompiling ExecuTorch (~11 min). |
 
-### Changed
+#### Changed
 
 | File | Change |
 |------|--------|
@@ -38,7 +50,7 @@ Tracks upstream `rfdetr` version changes that affect this C++ inference project.
 | `src/main.cpp` | Usage text is backend-aware: the example model extension, the backend description, and the rebuild flags are selected at compile time, instead of claiming only ONNX Runtime and TensorRT exist. |
 | `.gitignore` | Ignore `data/test_*` and `data/empty_labels.txt` — all six fixtures the detection and keypoint integration fixtures generate (`test_image.jpg`, `test_labels.txt`, `test_output.jpg`, `test_kp_image.jpg`, `test_kp_output.jpg`, `empty_labels.txt`), which are normally removed in `TearDown` but survive an interrupted run. |
 
-### Why no postprocessing port or model re-export
+#### Why no postprocessing port or model re-export
 
 Diffing `1.8.3...1.9.0` over the code this project mirrors:
 
@@ -46,7 +58,7 @@ Diffing `1.8.3...1.9.0` over the code this project mirrors:
 - `models/postprocess.py` (+63/-18) chunks mask upsampling to cut peak GPU memory (identical results — still bilinear to target size, then `> 0.0`) and adds `upsample_masks_to_image_size`, an opt-in validation-only flag. `media.cpp::resize_threshold_mask` already matches the default path.
 - **PR #1206 confirms this project's preprocessing.** Upstream `predict()` had been resizing with antialias enabled, drifting from training; 1.9.0 sets `antialias=False` to match the antialias-free bilinear (`cv2.INTER_LINEAR`) resize used during training. `media.cpp::preprocess_bgr_image` has always been exactly that, so 1.8.3's `predict()` was the side that disagreed, and 1.9.0 closes the gap. Locked in by `PreprocessFrame.ResizeIsAntialiasFree`.
 
-### End-to-end verification
+#### End-to-end verification
 
 The ExecuTorch backend was run end-to-end against a real `.pte` before this change was committed. `rf-detr-nano.pth` was exported at 384×384 to both `.onnx` and `.pte` (`format="executorch", backend="xnnpack"`) from the same checkpoint with rfdetr 1.9.0, then run through `inference_app` on both backends:
 
@@ -62,7 +74,7 @@ The ExecuTorch backend was run end-to-end against a real `.pte` before this chan
 
 Regression status: ONNX Runtime 39/39, TensorRT 39/39, ExecuTorch 39/39; `clang-format` clean; `-DWERROR=ON` clean on the ExecuTorch configuration.
 
-### Upstream ExecuTorch packaging bug (affects install-prefix builds)
+#### Upstream ExecuTorch packaging bug (affects install-prefix builds)
 
 ExecuTorch v1.3.1 `extension/evalue_util/CMakeLists.txt:27` installs its target with
 `DESTINATION ${CMAKE_BINARY_DIR}/lib` instead of `${CMAKE_INSTALL_LIBDIR}` — every other
@@ -84,9 +96,8 @@ sed -i 's|DESTINATION ${CMAKE_BINARY_DIR}/lib|DESTINATION ${CMAKE_INSTALL_LIBDIR
 The FetchContent fallback path is unaffected: `FetchContent_MakeAvailable` consumes the
 targets directly from the build tree and never runs the faulty `install()` rule.
 
----
 
-## [Unreleased] — package-manager abstraction
+### package-manager abstraction
 
 Unified package-manager abstraction layer (`cmake/deps/`) wrapping apt, conan,
 vcpkg, and provided-download strategies behind a single `find_dependency_unified()`
@@ -94,7 +105,7 @@ facade. All dependencies — including GTest, Google Benchmark, stb, and font8x8
 now route through the facade instead of ad-hoc `FetchContent` or manual
 `target_include_directories` calls.
 
-### Added
+#### Added
 
 | File | Change |
 |------|--------|
@@ -111,7 +122,7 @@ now route through the facade instead of ad-hoc `FetchContent` or manual
 | `docs/package-manager-architecture.md` | 118-line architecture reference: strategies, catalog format, dependency mapping table, options, lockfile, CMakeDeps-only mode. |
 | `CMakeLists.txt` | `DEPS_MODE` cache option; all dependencies resolved via `find_dependency_unified()`; lockfile written at configure end. |
 
-### Changed
+#### Changed
 
 | File | Change |
 |------|--------|
@@ -119,14 +130,14 @@ now route through the facade instead of ad-hoc `FetchContent` or manual
 | `README.md` | New Dependency Resolution section with mode/chain table, conan CMakeDeps-only example, vcpkg manifest example, system-package notes. |
 | `AGENTS.md` | Brief DEPS section: backend selection, dependency resolution, DEPS_DEBUG. |
 
-### Fixed
+#### Fixed
 
 - **DEPS_OFFLINE honored for FETCHCONTENT**: `can_resolve` returns FALSE when offline, preventing network clone attempts in air-gapped builds (Codex review P2).
 - **vcpkg MODULE mode fallback**: vcpkg's FFmpeg port ships a Find module (not a config file); the strategy now tries CONFIG first, then MODULE, and uses `<FIND>_LIBRARIES` variables when IMPORTED targets don't exist.
 - **Chain order**: `conan;apt;provided` and `vcpkg;apt;provided` — apt fills in system packages (Threads) even in conan/vcpkg modes.
 - **Conan "version conflict" resolved**: OpenCV and FFmpeg are mutually exclusive (`USE_OPENCV` option); each conan graph resolves independently.
 
-### Why
+#### Why
 
 Decouples dependency acquisition from build logic. Previously, each dependency
 had bespoke `find_package`/`FetchContent`/download code interleaved with build
