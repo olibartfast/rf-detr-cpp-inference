@@ -502,3 +502,249 @@ std::optional<std::filesystem::path> RFDETRInference::save_output_image(const rf
     }
     return std::nullopt;
 }
+
+// --- GPU pipeline -----------------------------------------------------------
+
+bool RFDETRInference::gpu_preprocess_active() const noexcept {
+#ifdef USE_DALI
+    return config_.gpu_preprocess && backend_->supports_device_io() && rfdetr::gpu::device_available();
+#else
+    return false;
+#endif
+}
+
+bool RFDETRInference::gpu_postprocess_active() const noexcept {
+#ifdef USE_CUDA_POSTPROCESS
+    return config_.gpu_postprocess && backend_->supports_device_io() && rfdetr::gpu::device_available();
+#else
+    return false;
+#endif
+}
+
+#if defined(USE_CUDA_POSTPROCESS) || defined(USE_DALI)
+
+void RFDETRInference::ensure_gpu_ready() {
+    if (gpu_ready_) {
+        return;
+    }
+    if (!backend_->supports_device_io()) {
+        throw std::runtime_error("The GPU pipeline requires a backend with device I/O (build with -DUSE_TENSORRT=ON)");
+    }
+    if (!rfdetr::gpu::device_available()) {
+        throw std::runtime_error("The GPU pipeline was requested but no CUDA device is available");
+    }
+
+#ifdef USE_DALI
+    if (config_.gpu_preprocess) {
+        const auto pipeline =
+            config_.dali_pipeline_dir / ("preprocess_encoded_" + std::to_string(config_.resolution) + ".dali");
+        if (!std::filesystem::exists(pipeline)) {
+            throw std::runtime_error("Serialized DALI pipeline not found: " + pipeline.string() +
+                                     "\nGenerate it with: ./scripts/generate_dali_pipelines.sh " +
+                                     std::to_string(config_.resolution));
+        }
+        dali_encoded_ = std::make_unique<rfdetr::gpu::DaliPreprocessor>(
+            pipeline, rfdetr::gpu::DaliPreprocessor::Source::EncodedImage, config_.gpu_device_id);
+        std::cout << "GPU preprocessing: DALI (" << pipeline.filename().string() << ")" << std::endl;
+    }
+#endif
+
+    gpu_ready_ = true;
+}
+
+void RFDETRInference::run_gpu_image(const std::filesystem::path &image_path, int &orig_h, int &orig_w) {
+#ifdef USE_DALI
+    ensure_gpu_ready();
+    if (!dali_encoded_) {
+        throw std::runtime_error("run_gpu_image called without GPU preprocessing enabled");
+    }
+
+    // The original size still comes from the host: DALI could report it as a
+    // second output, but the caller needs it before the box decode anyway and
+    // reading the header is cheaper than a device round trip.
+    const auto probe = rfdetr::media::load_image(image_path);
+    if (probe.empty()) {
+        throw std::runtime_error("Failed to read image: " + image_path.string());
+    }
+    orig_h = probe.height;
+    orig_w = probe.width;
+
+    std::ifstream file(image_path, std::ios::binary | std::ios::ate);
+    if (!file) {
+        throw std::runtime_error("Failed to open image: " + image_path.string());
+    }
+    const auto size = static_cast<size_t>(file.tellg());
+    file.seekg(0, std::ios::beg);
+    encoded_bytes_.resize(size);
+    if (!file.read(reinterpret_cast<char *>(encoded_bytes_.data()), static_cast<std::streamsize>(size))) {
+        throw std::runtime_error("Failed to read image bytes: " + image_path.string());
+    }
+
+    const auto res = static_cast<size_t>(config_.resolution);
+    const size_t tensor_bytes = 3 * res * res * sizeof(float);
+    void *const input_binding = backend_->get_input_device_ptr();
+    auto *const stream = backend_->device_stream();
+
+    // DALI writes straight into the TensorRT input binding, so nothing but the
+    // compressed bytes crosses the bus.
+    dali_encoded_->process_encoded(encoded_bytes_, input_binding, tensor_bytes, stream);
+    backend_->run_inference_device(input_binding, input_shape_);
+#else
+    (void)image_path;
+    (void)orig_h;
+    (void)orig_w;
+    throw std::runtime_error("Built without DALI support (-DUSE_DALI=ON)");
+#endif
+}
+
+void RFDETRInference::run_gpu_frame(const rfdetr::media::Image &bgr_frame) {
+#ifdef USE_DALI
+    ensure_gpu_ready();
+    if (bgr_frame.empty()) {
+        throw std::runtime_error("run_gpu_frame received an empty frame");
+    }
+
+    // The `frame` pipeline variant is only needed by the video path, so it is
+    // created on first use rather than in ensure_gpu_ready().
+    if (!dali_frame_) {
+        const auto pipeline =
+            config_.dali_pipeline_dir / ("preprocess_frame_" + std::to_string(config_.resolution) + ".dali");
+        if (!std::filesystem::exists(pipeline)) {
+            throw std::runtime_error("Serialized DALI pipeline not found: " + pipeline.string() +
+                                     "\nGenerate it with: ./scripts/generate_dali_pipelines.sh " +
+                                     std::to_string(config_.resolution));
+        }
+        dali_frame_ = std::make_unique<rfdetr::gpu::DaliPreprocessor>(
+            pipeline, rfdetr::gpu::DaliPreprocessor::Source::BgrFrame, config_.gpu_device_id);
+    }
+
+    auto *const stream = backend_->device_stream();
+
+    // One H2D of the interleaved BGR bytes; everything after that stays on the
+    // device. The buffer is grow-only, so steady-state frames never allocate.
+    frame_device_.reserve(bgr_frame.bytes());
+    rfdetr::gpu::copy_h2d(frame_device_.get(), bgr_frame.data(), bgr_frame.bytes(), stream);
+
+    const auto res = static_cast<size_t>(config_.resolution);
+    const size_t tensor_bytes = 3 * res * res * sizeof(float);
+    void *const input_binding = backend_->get_input_device_ptr();
+
+    dali_frame_->process_frame(frame_device_.get(), bgr_frame.height, bgr_frame.width, input_binding, tensor_bytes,
+                               stream);
+    backend_->run_inference_device(input_binding, input_shape_);
+#else
+    (void)bgr_frame;
+    throw std::runtime_error("Built without DALI support (-DUSE_DALI=ON)");
+#endif
+}
+
+void RFDETRInference::fetch_device_outputs() {
+    // Device inference leaves the outputs on the GPU; the CPU postprocessors read
+    // output_data_cache_, so copy them across and mirror run_inference()'s cache
+    // layout exactly.
+    //
+    // The copies must come from the device pointers, NOT from get_output_data():
+    // that reads the backend's host output buffers, which only the host-side
+    // run_inference() ever fills. Reading them after a device-side inference
+    // yields zeros — which look like a model that detected nothing rather than
+    // like a bug.
+    const size_t num_outputs = backend_->get_output_count();
+    auto *const stream = backend_->device_stream();
+
+    output_data_cache_.clear();
+    output_shapes_cache_.clear();
+
+    for (size_t i = 0; i < num_outputs; ++i) {
+        auto shape = backend_->get_output_shape(i);
+        const size_t size = std::accumulate(shape.begin(), shape.end(), size_t{1},
+                                            [](size_t acc, int64_t dim) { return acc * static_cast<size_t>(dim); });
+
+        std::vector<float> data(size);
+        rfdetr::gpu::copy_d2h(data.data(), backend_->get_output_device_ptr(i), size * sizeof(float), stream);
+        output_data_cache_.push_back(std::move(data));
+        output_shapes_cache_.push_back(std::move(shape));
+    }
+
+    // One synchronisation for all of the copies above.
+    backend_->synchronize_device();
+}
+
+void RFDETRInference::postprocess_segmentation_outputs_gpu(float scale_w, float scale_h, int orig_h, int orig_w,
+                                                           std::vector<float> &scores, std::vector<int> &class_ids,
+                                                           std::vector<BoundingBox> &boxes,
+                                                           std::vector<rfdetr::media::Mask> &masks) {
+#ifdef USE_CUDA_POSTPROCESS
+    ensure_gpu_ready();
+
+    if (backend_->get_output_count() < 3) {
+        throw std::runtime_error("Expected 3 output tensors for segmentation, got " +
+                                 std::to_string(backend_->get_output_count()));
+    }
+
+    const auto dets_shape = backend_->get_output_shape(0);
+    const auto labels_shape = backend_->get_output_shape(1);
+    const auto masks_shape = backend_->get_output_shape(2);
+    if (dets_shape.size() < 3 || labels_shape.size() < 3 || masks_shape.size() < 4) {
+        throw std::runtime_error("Segmentation output tensors have unexpected ranks");
+    }
+
+    if (!seg_postprocessor_) {
+        rfdetr::gpu::SegPostprocessParams params;
+        // Shapes come from the engine, never from constants, so one build serves
+        // every resolution / query count / mask size.
+        params.num_queries = static_cast<int>(dets_shape[1]);
+        params.num_classes = static_cast<int>(labels_shape[2]);
+        params.dets_stride = static_cast<int>(dets_shape[2]);
+        params.mask_h = static_cast<int>(masks_shape[2]);
+        params.mask_w = static_cast<int>(masks_shape[3]);
+        params.resolution = config_.resolution;
+        params.threshold = config_.threshold;
+        params.mask_threshold = config_.mask_threshold;
+        params.max_detections = config_.max_detections;
+        params.num_labels = static_cast<int>(coco_labels_.size());
+        params.orig_w = orig_w;
+        params.orig_h = orig_h;
+        params.scale_w = scale_w;
+        params.scale_h = scale_h;
+        seg_postprocessor_ = std::make_unique<rfdetr::gpu::SegPostprocessor>(params, backend_->device_stream());
+    }
+    seg_postprocessor_->set_frame_geometry(orig_w, orig_h, scale_w, scale_h);
+
+    seg_postprocessor_->run(backend_->get_output_device_ptr(0), backend_->get_output_device_ptr(1),
+                            backend_->get_output_device_ptr(2), seg_result_);
+
+    const auto count = static_cast<size_t>(seg_result_.count);
+    scores.reserve(scores.size() + count);
+    class_ids.reserve(class_ids.size() + count);
+    boxes.reserve(boxes.size() + count);
+    masks.reserve(masks.size() + count);
+
+    for (size_t i = 0; i < count; ++i) {
+        scores.push_back(seg_result_.scores[i]);
+        class_ids.push_back(static_cast<int>(seg_result_.class_ids[i]));
+        boxes.push_back(seg_result_.boxes[i]);
+
+        // Unpack one full-frame mask out of the packed byte range.
+        const int64_t begin = seg_result_.mask_offsets[i];
+        const int64_t end = seg_result_.mask_offsets[i + 1];
+        rfdetr::media::Mask mask;
+        mask.width = orig_w;
+        mask.height = orig_h;
+        mask.data.assign(seg_result_.mask_data.begin() + static_cast<ptrdiff_t>(begin),
+                         seg_result_.mask_data.begin() + static_cast<ptrdiff_t>(end));
+        masks.push_back(std::move(mask));
+    }
+#else
+    (void)scale_w;
+    (void)scale_h;
+    (void)orig_h;
+    (void)orig_w;
+    (void)scores;
+    (void)class_ids;
+    (void)boxes;
+    (void)masks;
+    throw std::runtime_error("Built without CUDA postprocessing (-DUSE_CUDA_POSTPROCESS=ON)");
+#endif
+}
+
+#endif // USE_CUDA_POSTPROCESS || USE_DALI

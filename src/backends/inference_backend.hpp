@@ -69,6 +69,53 @@ class InferenceBackend {
      * @return String identifying the backend type
      */
     [[nodiscard]] virtual std::string get_backend_name() const = 0;
+
+    // --- Device-side I/O (optional) -----------------------------------------
+    //
+    // Lets a GPU preprocessor write straight into the backend's input binding
+    // and a GPU postprocessor read straight from its output bindings, with no
+    // host round trip. Streams are passed as `void *` so this header stays
+    // free of CUDA types and keeps compiling in the ONNX Runtime build.
+    //
+    // Backends without device memory inherit the defaults: `supports_device_io()`
+    // returns false and every other entry point throws. Callers must check
+    // `supports_device_io()` first.
+
+    /**
+     * @brief Whether this backend exposes device pointers and a CUDA stream
+     */
+    [[nodiscard]] virtual bool supports_device_io() const noexcept { return false; }
+
+    /**
+     * @brief Run inference reading the input from device memory
+     * @param input_device Device pointer to a contiguous NCHW float tensor
+     * @param input_shape Shape of the input tensor
+     *
+     * Enqueues on the backend stream and returns without synchronising: outputs
+     * are not valid until synchronize_device(), or until a consumer enqueued on
+     * the same stream runs. Host output buffers are NOT refreshed.
+     */
+    virtual void run_inference_device(const void *input_device, const std::vector<int64_t> &input_shape);
+
+    /**
+     * @brief Device pointer to the input binding, for a producer to write into
+     */
+    [[nodiscard]] virtual void *get_input_device_ptr() const;
+
+    /**
+     * @brief Device pointer to output tensor `output_index`
+     */
+    [[nodiscard]] virtual const void *get_output_device_ptr(size_t output_index) const;
+
+    /**
+     * @brief The backend's CUDA stream as an opaque handle (nullptr if none)
+     */
+    [[nodiscard]] virtual void *device_stream() const noexcept { return nullptr; }
+
+    /**
+     * @brief Block until all work enqueued on the backend stream has completed
+     */
+    virtual void synchronize_device() {}
 };
 
 /**

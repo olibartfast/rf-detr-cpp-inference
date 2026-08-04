@@ -61,7 +61,22 @@ class TensorRTBackend : public InferenceBackend {
 
     [[nodiscard]] std::string get_backend_name() const override { return "TensorRT"; }
 
+    [[nodiscard]] bool supports_device_io() const noexcept override { return true; }
+
+    void run_inference_device(const void *input_device, const std::vector<int64_t> &input_shape) override;
+
+    [[nodiscard]] void *get_input_device_ptr() const override;
+
+    [[nodiscard]] const void *get_output_device_ptr(size_t output_index) const override;
+
+    [[nodiscard]] void *device_stream() const noexcept override { return stream_; }
+
+    void synchronize_device() override;
+
   private:
+    // Binds every IO tensor address and enqueues on stream_. Does not synchronise.
+    void enqueue();
+
     // TensorRT logger
     class Logger : public nvinfer1::ILogger {
       public:
@@ -85,6 +100,11 @@ class TensorRTBackend : public InferenceBackend {
     // CUDA buffers
     std::vector<void *> device_buffers_;
     std::vector<std::vector<float>> host_output_buffers_;
+
+    // Dedicated non-blocking stream. Everything — the host path's copies, the
+    // enqueue, and any GPU pre/postprocessing stage — runs here rather than on
+    // the legacy default stream, which serialises against the whole process.
+    cudaStream_t stream_{nullptr};
 
     // Tensor metadata
     std::vector<std::vector<int64_t>> output_shapes_;
