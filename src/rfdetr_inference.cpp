@@ -591,8 +591,8 @@ void RFDETRInference::run_gpu_image(const std::filesystem::path &image_path, int
     backend_->run_inference_device(input_binding, input_shape_);
 #else
     (void)image_path;
-    (void)orig_h;
-    (void)orig_w;
+    orig_h = 0;
+    orig_w = 0;
     throw std::runtime_error("Built without DALI support (-DUSE_DALI=ON)");
 #endif
 }
@@ -739,10 +739,10 @@ void RFDETRInference::postprocess_segmentation_outputs_gpu(float scale_w, float 
     (void)scale_h;
     (void)orig_h;
     (void)orig_w;
-    (void)scores;
-    (void)class_ids;
-    (void)boxes;
-    (void)masks;
+    scores.clear();
+    class_ids.clear();
+    boxes.clear();
+    masks.clear();
     throw std::runtime_error("Built without CUDA postprocessing (-DUSE_CUDA_POSTPROCESS=ON)");
 #endif
 }

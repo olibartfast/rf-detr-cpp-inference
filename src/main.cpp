@@ -94,6 +94,11 @@ int main(int argc, const char *argv[]) {
         }
     }
 
+    if (gpu_postprocess && !use_segmentation) {
+        std::cerr << "Error: --gpu-postprocess applies to segmentation only; add --segmentation" << std::endl;
+        return 1;
+    }
+
 #if !defined(USE_DALI)
     if (gpu_preprocess) {
         std::cerr << "Error: --gpu-preprocess requires a build with -DUSE_DALI=ON" << std::endl;
@@ -106,11 +111,6 @@ int main(int argc, const char *argv[]) {
         return 1;
     }
 #endif
-    if (gpu_postprocess && !use_segmentation) {
-        std::cerr << "Error: --gpu-postprocess applies to segmentation only; add --segmentation" << std::endl;
-        return 1;
-    }
-
     try {
         Config config;
         config.resolution = 0; // 0 = auto-detect from model

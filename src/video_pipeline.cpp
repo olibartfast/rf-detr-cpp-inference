@@ -160,8 +160,8 @@ void VideoPipeline::preprocess_stage() {
             break;
         }
 
-        FrameSlot &slot = slots_[slot_idx];
         if (!gpu_preprocess) {
+            FrameSlot &slot = slots_[slot_idx];
             rfdetr::media::preprocess_bgr_image(slot.raw_frame, slot.tensor, res, means, stds);
         }
         if (stop_requested_.load(std::memory_order_acquire)) {
