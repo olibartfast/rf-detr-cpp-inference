@@ -37,11 +37,11 @@ std::string device_name(int device_id) {
 
 GpuContext::GpuContext(int device_id) : device_id_(device_id) {
     CUDA_CHECK(cudaSetDevice(device_id_));
-    cudaStream_t stream = nullptr;
+    cudaStream_t cuda_stream = nullptr;
     // Non-blocking so this stream never implicitly synchronises with the legacy
     // default stream, which other libraries in the process may still use.
-    CUDA_CHECK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
-    stream_ = stream;
+    CUDA_CHECK(cudaStreamCreateWithFlags(&cuda_stream, cudaStreamNonBlocking));
+    stream_ = cuda_stream;
 }
 
 GpuContext::~GpuContext() {
