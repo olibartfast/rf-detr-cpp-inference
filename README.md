@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)](https://github.com/olibartfast/rf-detr-cpp-inference/releases/tag/v0.4.0)
 
-C++ project for performing object detection, instance segmentation, and keypoint inference using the RF-DETR model with **multiple inference backends** (ONNX Runtime, TensorRT, and ExecuTorch) and a swappable **media/display backend** (FFmpeg + SDL2 + stb by default, or OpenCV). Supports both single-image and **multi-threaded video processing** via a zero-copy ring buffer pipeline.
+C++ project for performing object detection, instance segmentation, and keypoint inference using the RF-DETR model with **multiple inference backends** (ONNX Runtime, TensorRT, and ExecuTorch) and a swappable **media/display backend** (FFmpeg + SDL2 + stb by default, or OpenCV). Supports both single-image and **multi-threaded video processing** via a zero-copy ring buffer pipeline, plus an opt-in **GPU pipeline** (DALI preprocessing + CUDA segmentation postprocessing) on the TensorRT backend.
 
 ---
 
@@ -15,6 +15,7 @@ C++ project for performing object detection, instance segmentation, and keypoint
 - [Installation](#installation)
 - [Building](#building)
 - [Usage](#usage)
+- [GPU Pipeline](#gpu-pipeline)
 - [Configuration](#configuration)
 - [Video Processing](#video-processing)
 - [Technical Details](#technical-details)
@@ -74,6 +75,10 @@ one is compiled in via `-DUSE_OPENCV=ON/OFF`.
 - **Acceleration**: NVIDIA GPU only
 - **Note**: TensorRT libraries are automatically configured with RPATH, no LD_LIBRARY_PATH needed
 
+#### GPU Pipeline (Optional, TensorRT only)
+- **CUDA Toolkit** (with `nvcc` for `-DUSE_CUDA_POSTPROCESS=ON`): resolved via CMake's `FindCUDAToolkit`; CUB (header-only, bundled with the toolkit) is used by the postprocessing kernels
+- **NVIDIA DALI** (for `-DUSE_DALI=ON`): C API libraries + headers staged from a pinned Triton container (`nvcr.io/nvidia/tritonserver:25.12-py3`) via `./scripts/fetch_dali.sh` — NVIDIA ships no standalone C++ DALI distribution. Point the build at the staged directory with `-DDALI_ROOT=<dir>`.
+- See [GPU Pipeline](#gpu-pipeline) for build and usage details
 #### ExecuTorch Backend (Optional)
 - **ExecuTorch**: Version v1.3.1 — resolved from an install prefix via `-DEXECUTORCH_ROOTDIR`, otherwise built from source
 - **Model format**: `.pte`, exported by `rfdetr[executorch]` 1.9.0+
@@ -278,6 +283,11 @@ picks the acquisition strategy per `-DDEPS_MODE`:
 `apt` is chained as a fallback in conan/vcpkg modes so system packages (Threads)
 resolve correctly. FFmpeg, SDL2, OpenCV, and GTest have conan/vcpkg coordinates
 in `conanfile.txt` / `vcpkg.json`; ONNX Runtime and TensorRT stay provided-download.
+The GPU-pipeline dependencies also route through the facade: CUDA Toolkit
+resolves via CMake's `FindCUDAToolkit` (apt handler), and DALI is ROOT-only —
+staged locally by `./scripts/fetch_dali.sh` and pointed to with `-DDALI_ROOT`
+(no download fallback exists, since NVIDIA ships no standalone C++ DALI
+distribution).
 ExecuTorch is in no registry, so it resolves the same way in every mode:
 `find_package(executorch CONFIG)` against `-DEXECUTORCH_ROOTDIR`, else a
 FetchContent source build.
@@ -419,6 +429,35 @@ Export a model with [`deploy/export_executorch.py`](deploy/export_executorch.py)
 > exported by hand. See
 > [docs/backend-parity-segmentation-video.md](docs/backend-parity-segmentation-video.md).
 
+### Build with the GPU Pipeline (TensorRT + DALI + CUDA)
+
+The GPU pipeline requires the TensorRT backend — DALI writes into, and the CUDA
+kernels read from, the inference engine's device buffers, and only the TensorRT
+backend exposes device pointers and a CUDA stream. Configuring it with the ONNX
+Runtime backend fails with an explicit error.
+
+```bash
+# 1. Stage the DALI C++ libraries (one-time; extracts from a pinned Triton container):
+./scripts/fetch_dali.sh                      # -> ~/dependencies/dali
+
+# 2. Configure with both GPU halves enabled:
+cmake -S . -B build -G Ninja \
+  -DUSE_ONNX_RUNTIME=OFF \
+  -DUSE_TENSORRT=ON \
+  -DUSE_GPU_PIPELINE=ON \
+  -DDALI_ROOT=$HOME/dependencies/dali \
+  -DCMAKE_BUILD_TYPE=Release
+
+cmake --build build --parallel
+```
+
+The two halves are independent: `-DUSE_CUDA_POSTPROCESS=ON` alone builds the
+CUDA segmentation postprocessing (needs `nvcc`, no DALI), and `-DUSE_DALI=ON`
+alone builds the DALI preprocessing (plain C++ against the DALI C API, no
+`nvcc`). `-DUSE_GPU_PIPELINE=ON` turns on both. See [GPU Pipeline](#gpu-pipeline)
+for the runtime flags and the DALI pipeline files.
+
+
 ### Build with OpenCV Media/Display Backend
 
 By default the project uses FFmpeg + SDL2 + stb for image/video I/O and the
@@ -449,6 +488,11 @@ cmake --build build --parallel
 - `-DEXECUTORCH_ROOTDIR=<path>` - ExecuTorch install prefix; without it ExecuTorch is built from source
 - `-DEXECUTORCH_DELEGATE=xnnpack/portable` - ExecuTorch delegate library to link (default: xnnpack)
 - `-DUSE_OPENCV=ON/OFF` - Use OpenCV for image/video/display I/O instead of FFmpeg+SDL2+stb (default: OFF)
+- `-DUSE_DALI=ON/OFF` - DALI GPU preprocessing; requires TensorRT backend and `-DDALI_ROOT` (default: OFF)
+- `-DUSE_CUDA_POSTPROCESS=ON/OFF` - CUDA segmentation postprocessing; requires TensorRT backend and `nvcc` (default: OFF)
+- `-DUSE_GPU_PIPELINE=ON/OFF` - Convenience switch that enables both `USE_DALI` and `USE_CUDA_POSTPROCESS` (default: OFF)
+- `-DDALI_ROOT=<path>` - Directory with the staged DALI libraries/headers (from `./scripts/fetch_dali.sh`)
+- `-DCMAKE_CUDA_ARCHITECTURES=<list>` - CUDA architectures for the postprocessing kernels (default: `86`, RTX 30-series)
 - `-DCMAKE_BUILD_TYPE=Release/Debug` - Build configuration
 - `-DSANITIZERS=ON/OFF` - Enable AddressSanitizer + UndefinedBehaviorSanitizer (default: OFF)
 - `-DSTRICT_UBSAN=ON/OFF` - Enable stricter UndefinedBehaviorSanitizer checks: Clang: `undefined,local-bounds,vptr,implicit-conversion`; GCC: `undefined,bounds-strict,vptr` (default: OFF; mutually exclusive with other sanitizer modes)
@@ -531,6 +575,20 @@ If you have a pre-built TensorRT engine file (`.engine` or `.trt`), use it direc
 ./build/inference_app /path/to/model.engine /path/to/image.jpg /path/to/coco-labels-91.txt --segmentation
 ```
 
+#### GPU Pipeline Flags (TensorRT builds with the GPU pipeline compiled in)
+
+```bash
+# DALI GPU preprocessing + CUDA GPU segmentation postprocessing:
+./build/inference_app /path/to/model.engine /path/to/image.jpg /path/to/coco-labels-91.txt \
+  --segmentation --gpu-preprocess --gpu-postprocess
+```
+
+- `--gpu-preprocess` — decode/resize/normalize on the GPU with DALI (build with `-DUSE_DALI=ON`)
+- `--gpu-postprocess` — segmentation mask decode/resize/threshold with CUDA kernels (build with `-DUSE_CUDA_POSTPROCESS=ON`); segmentation only, requires `--segmentation`
+- `--dali-pipeline-dir <dir>` — where the serialized `.dali` pipeline files live (default: `data/dali`)
+
+Both flags default off — the CPU paths remain the default even in a GPU-pipeline build. See [GPU Pipeline](#gpu-pipeline).
+
 **Features:**
 - The output image is saved as `output_image.jpg`; video output is saved as `output_video.mp4`
 - Detection/segmentation results (bounding boxes, labels, scores, and mask pixels) are printed to the console
@@ -538,6 +596,79 @@ If you have a pre-built TensorRT engine file (`.engine` or `.trt`), use it direc
 - Segmentation mode draws colored masks with transparency overlays
 - Uses top-k selection (default: 300 detections) for efficient processing
 - Video files are automatically detected by extension and processed with the multi-threaded pipeline
+
+---
+
+## GPU Pipeline
+
+An opt-in pipeline that moves preprocessing and segmentation postprocessing onto
+the GPU, on the same CUDA stream as the TensorRT execution context — no Triton
+server involved. Design notes and phased plan: [docs/GPU_PIPELINE_ROADMAP.md](docs/GPU_PIPELINE_ROADMAP.md).
+
+```
+image bytes ──> DALI "encoded" pipeline ──┐
+                (nvJPEG decode, resize,   │
+                 normalize — on GPU)      ├──> device float[1,3,res,res]
+video frame ──> DALI "frame" pipeline ────┘         │
+                (BGR→RGB, resize, normalize)        v
+                                          TensorRT enqueue (same stream)
+                                                    │
+                          ┌─────────────────────────┴───────────────┐
+                          v                                         v
+                detection / keypoint                          segmentation
+                D2H outputs, existing                   CUDA postprocess on stream:
+                CPU postprocess                         sigmoid → top-k → box decode
+                                                        → mask resize+threshold,
+                                                        one packed D2H at the end
+```
+
+### What each half does
+
+- **DALI preprocessing** (`-DUSE_DALI=ON`, `--gpu-preprocess`): image decode
+  (nvJPEG), resize, and ImageNet normalization run on the GPU and write straight
+  into the TensorRT input binding. For still images only the compressed bytes
+  cross to the GPU; for video the preprocess pipeline stage becomes a passthrough
+  and DALI runs on the backend's stream inside the inference stage. Works with
+  detection, segmentation, and keypoint models.
+- **CUDA segmentation postprocessing** (`-DUSE_CUDA_POSTPROCESS=ON`,
+  `--gpu-postprocess`): score sigmoid, global top-k, box decode, and the
+  per-instance mask resize + threshold (the CPU path's dominant cost) run as CUDA
+  kernels reading the TensorRT output bindings in place, with a single packed
+  device-to-host transfer of the final results. Segmentation only.
+
+Both halves are compile-time optional and runtime opt-in: a GPU-pipeline build
+still defaults to the CPU paths, and the ONNX Runtime build is unaffected. The
+backend interface gained optional device-side I/O entry points
+(`supports_device_io()`, `run_inference_device()`, device pointers, stream) that
+only the TensorRT backend implements.
+
+### DALI pipeline files
+
+`--gpu-preprocess` loads serialized DALI pipelines named
+`preprocess_encoded_<resolution>.dali` (still images) and
+`preprocess_frame_<resolution>.dali` (video frames) from `--dali-pipeline-dir`
+(default `data/dali`), where `<resolution>` is the model input resolution
+auto-detected from the engine. Pre-generated pipelines for resolutions **432**
+and **576** are checked in under [data/dali](data/dali).
+
+For other resolutions, regenerate them (runs inside the pinned Triton container,
+needs `--gpus all`; no local DALI pip install required):
+
+```bash
+./scripts/generate_dali_pipelines.sh 560           # -> data/dali/
+```
+
+The generator itself is [deploy/dali/generate_preprocess_pipeline.py](deploy/dali/generate_preprocess_pipeline.py)
+(uses the `nvidia-dali` Python package inside the container). The C++ side
+validates the produced tensor size against the TensorRT input binding, so a
+stale pipeline file fails loudly rather than silently degrading results.
+
+### Version pinning
+
+DALI libraries and pipeline serialization both come from the same pinned
+container, `nvcr.io/nvidia/tritonserver:25.12-py3` (override with
+`TRITON_IMAGE=...` on both scripts), keeping the DALI/CUDA/TensorRT triple
+consistent with the TensorRT 10.13.3.9 / CUDA 13.x pin above.
 
 ---
 
@@ -551,6 +682,7 @@ The inference engine supports various configuration options that can be modified
 - **Max Detections**: Default `300` for top-k selection (adjustable in `Config::max_detections`)
 - **Mask Threshold**: Default `0.0` for binary mask generation (adjustable in `Config::mask_threshold`)
 - **Normalization**: ImageNet mean `[0.485, 0.456, 0.406]` and std `[0.229, 0.224, 0.225]`
+- **GPU Pipeline**: `Config::gpu_preprocess` / `Config::gpu_postprocess` (set via the `--gpu-preprocess` / `--gpu-postprocess` CLI flags, default `false`), `Config::dali_pipeline_dir` (default `data/dali`, via `--dali-pipeline-dir`), and `Config::gpu_device_id` (default `0`)
 
 ### Example Custom Configuration
 
@@ -593,6 +725,7 @@ preview, and stb for image I/O. `-DUSE_OPENCV=ON` swaps those pieces for OpenCV
 - The inference stage owns its own `RFDETRInference` instance — no locks on the hot path
 - Graceful shutdown via poison pill (`SIZE_MAX`) propagated through all queues
 - Frame ordering is preserved (all stages are single-threaded FIFO)
+- With `--gpu-preprocess`, the preprocess stage becomes a passthrough: DALI's `frame` pipeline runs on the backend's CUDA stream inside the inference stage, and the CPU cost of the bilinear resample disappears from the pipeline entirely
 
 Use `--display` to open a live preview window (press ESC to quit early).
 
@@ -688,6 +821,13 @@ segmentation video run across all three backends — commands, results, and the 
 
 Without a matching model, integration tests that need inference are skipped, and the skip message
 names the format the build expects.
+
+In a `-DUSE_CUDA_POSTPROCESS=ON` build, the unit tests additionally include a
+CPU-versus-GPU parity gate for the segmentation postprocessor
+(`tests/unit/test_gpu_postprocess.cpp`). It needs no model and no DALI —
+synthetic tensors are served from both host and device memory through a mock
+backend — and every case skips (rather than fails) when no CUDA device is
+present, so CI can compile the GPU targets on runners without a GPU.
 
 ### Benchmarks
 

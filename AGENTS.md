@@ -17,6 +17,17 @@ Exactly one backend is compiled in; enabling two is a configure-time error.
 `--build-arg INFERENCE_BACKEND=onnx|tensorrt|executorch` and `--build-arg MEDIA_BACKEND=ffmpeg|opencv`.
 The `executorch` variant builds the ExecuTorch runtime from source into `/opt/executorch` (override the tag with `--build-arg EXECUTORCH_VERSION=<tag>`) and applies the upstream install fix automatically.
 
+## GPU Pipeline (TensorRT only)
+- Stage DALI first (one-time, extracts from pinned Triton container): `./scripts/fetch_dali.sh` → `~/dependencies/dali`
+- Build both halves:
+  `cmake -S . -B build -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON -DUSE_GPU_PIPELINE=ON -DDALI_ROOT=$HOME/dependencies/dali -DCMAKE_BUILD_TYPE=Release && cmake --build build --parallel`
+- Halves are independent: `-DUSE_DALI=ON` (DALI preprocessing, no nvcc) / `-DUSE_CUDA_POSTPROCESS=ON` (CUDA seg postprocessing, needs nvcc; `CMAKE_CUDA_ARCHITECTURES` default `86`)
+- Either option with the ONNX Runtime backend is a configure-time `FATAL_ERROR`
+- Runtime flags (default off): `--gpu-preprocess`, `--gpu-postprocess` (segmentation only), `--dali-pipeline-dir <dir>` (default `data/dali`)
+- Regenerate `.dali` pipelines for a new resolution: `./scripts/generate_dali_pipelines.sh <res>` (needs `--gpus all` Docker); 432 and 576 are checked in
+- GPU unit tests (`test_gpu_postprocess.cpp`) `GTEST_SKIP()` without a CUDA device; like TensorRT, CI compiles but does not execute GPU paths — test manually
+- Design/phase plan: [docs/GPU_PIPELINE_ROADMAP.md](docs/GPU_PIPELINE_ROADMAP.md)
+
 ## Dependency Resolution
 - Default (`-DDEPS_MODE=apt`): system packages + pinned downloads — no extra tooling
 - Conan/vcpkg: auto-activate via toolchain; see [docs/package-manager-architecture.md](docs/package-manager-architecture.md)
