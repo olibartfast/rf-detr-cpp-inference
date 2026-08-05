@@ -45,7 +45,9 @@ class MockBackend : public rfdetr::backend::InferenceBackend {
 
     [[nodiscard]] std::string get_backend_name() const override { return "MockBackend"; }
 
-  private:
+  protected:
+    // Protected rather than private so a device-backed mock can stage the same
+    // tensors into GPU memory (see test_gpu_postprocess.cpp).
     std::vector<std::vector<float>> output_data_;
     std::vector<std::vector<int64_t>> output_shapes_;
 };

@@ -37,7 +37,8 @@ int main(int argc, const char *argv[]) {
     if (argc < 4) {
         std::cerr << "Usage: " << argv[0]
                   << " <path_to_model> <path_to_image_or_video> <path_to_coco_labels> [--segmentation|--keypoint] "
-                     "[--threshold <val>] [--display]"
+                     "[--threshold <val>] [--display] [--gpu-preprocess] [--gpu-postprocess] "
+                     "[--dali-pipeline-dir <dir>]"
                   << std::endl;
         std::cerr << "Examples:" << std::endl;
         std::cerr << "  Detection:    " << argv[0] << " " << kExampleModel << " ./image.jpg ./coco_labels.txt"
@@ -50,10 +51,15 @@ int main(int argc, const char *argv[]) {
                   << std::endl;
         std::cerr << "  Video+display:" << argv[0] << " " << kExampleModel << " ./video.mp4 ./coco_labels.txt --display"
                   << std::endl;
+        std::cerr << "  GPU pipeline: " << argv[0]
+                  << " ./model.engine ./image.jpg ./coco_labels.txt --segmentation --gpu-preprocess --gpu-postprocess"
+                  << std::endl;
         std::cerr << std::endl;
         std::cerr << "Note: exactly one backend is selected at compile time; this binary was built with" << std::endl;
         std::cerr << "      " << kBackendDescription << std::endl;
         std::cerr << "      Rebuild with " << kBackendBuildFlags << " to select it explicitly." << std::endl;
+        std::cerr << "      --gpu-preprocess needs -DUSE_DALI=ON, --gpu-postprocess needs" << std::endl;
+        std::cerr << "      -DUSE_CUDA_POSTPROCESS=ON; both require the TensorRT backend." << std::endl;
         return 1;
     }
 
@@ -65,6 +71,9 @@ int main(int argc, const char *argv[]) {
     bool use_segmentation = false;
     bool use_keypoint = false;
     bool display = false;
+    bool gpu_preprocess = false;
+    bool gpu_postprocess = false;
+    std::filesystem::path dali_pipeline_dir = "data/dali";
     float threshold = -1.0f; // -1 = use Config default
 
     for (int i = 4; i < argc; ++i) {
@@ -74,9 +83,32 @@ int main(int argc, const char *argv[]) {
             use_keypoint = true;
         } else if (std::strcmp(argv[i], "--display") == 0) {
             display = true;
+        } else if (std::strcmp(argv[i], "--gpu-preprocess") == 0) {
+            gpu_preprocess = true;
+        } else if (std::strcmp(argv[i], "--gpu-postprocess") == 0) {
+            gpu_postprocess = true;
+        } else if (std::strcmp(argv[i], "--dali-pipeline-dir") == 0 && i + 1 < argc) {
+            dali_pipeline_dir = argv[++i];
         } else if (std::strcmp(argv[i], "--threshold") == 0 && i + 1 < argc) {
             threshold = std::stof(argv[++i]);
         }
+    }
+
+#if !defined(USE_DALI)
+    if (gpu_preprocess) {
+        std::cerr << "Error: --gpu-preprocess requires a build with -DUSE_DALI=ON" << std::endl;
+        return 1;
+    }
+#endif
+#if !defined(USE_CUDA_POSTPROCESS)
+    if (gpu_postprocess) {
+        std::cerr << "Error: --gpu-postprocess requires a build with -DUSE_CUDA_POSTPROCESS=ON" << std::endl;
+        return 1;
+    }
+#endif
+    if (gpu_postprocess && !use_segmentation) {
+        std::cerr << "Error: --gpu-postprocess applies to segmentation only; add --segmentation" << std::endl;
+        return 1;
     }
 
     try {
@@ -89,6 +121,9 @@ int main(int argc, const char *argv[]) {
         }
         config.max_detections = 300;
         config.mask_threshold = 0.0F;
+        config.gpu_preprocess = gpu_preprocess;
+        config.gpu_postprocess = gpu_postprocess;
+        config.dali_pipeline_dir = dali_pipeline_dir;
         if (threshold >= 0.0f) {
             config.threshold = threshold;
         }
@@ -117,9 +152,23 @@ int main(int argc, const char *argv[]) {
 
             int orig_h = 0;
             int orig_w = 0;
-            std::vector<float> input_data = inference.preprocess_image(input_path, orig_h, orig_w);
 
-            inference.run_inference(input_data);
+            // Both are always false in a CPU-only build: gpu_*_active() reports
+            // whether the path is compiled in, enabled, and backed by a device.
+            const bool gpu_pre = inference.gpu_preprocess_active();
+            const bool gpu_post = inference.gpu_postprocess_active();
+
+#if defined(USE_CUDA_POSTPROCESS) || defined(USE_DALI)
+            if (gpu_pre) {
+                // Preprocess and infer entirely on the device; nothing but the
+                // compressed image bytes is copied to the GPU.
+                inference.run_gpu_image(input_path, orig_h, orig_w);
+            } else
+#endif
+            {
+                std::vector<float> input_data = inference.preprocess_image(input_path, orig_h, orig_w);
+                inference.run_inference(input_data);
+            }
 
             std::vector<float> scores;
             std::vector<int> class_ids;
@@ -129,7 +178,19 @@ int main(int argc, const char *argv[]) {
             const float scale_w = static_cast<float>(orig_w) / static_cast<float>(inference.get_resolution());
             const float scale_h = static_cast<float>(orig_h) / static_cast<float>(inference.get_resolution());
 
-            if (use_keypoint) {
+#if defined(USE_CUDA_POSTPROCESS) || defined(USE_DALI)
+            // A device-side inference leaves the outputs on the GPU. The CUDA
+            // postprocessor reads them there; every CPU postprocessor needs them
+            // pulled into the host cache first.
+            if (gpu_pre && !gpu_post) {
+                inference.fetch_device_outputs();
+            }
+            if (gpu_post) {
+                inference.postprocess_segmentation_outputs_gpu(scale_w, scale_h, orig_h, orig_w, scores, class_ids,
+                                                               boxes, masks);
+            } else
+#endif
+                if (use_keypoint) {
                 inference.postprocess_keypoint_outputs(scale_w, scale_h, orig_h, orig_w, scores, class_ids, boxes,
                                                        keypoints);
             } else if (use_segmentation) {
@@ -138,6 +199,9 @@ int main(int argc, const char *argv[]) {
             } else {
                 inference.postprocess_outputs(scale_w, scale_h, scores, class_ids, boxes);
             }
+            // Both are unused in a CPU-only build, where they are always false.
+            (void)gpu_pre;
+            (void)gpu_post;
 
             rfdetr::media::Image image = rfdetr::media::load_image(input_path);
             if (image.empty()) {

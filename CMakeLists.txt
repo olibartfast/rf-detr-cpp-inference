@@ -111,9 +111,32 @@ if(USE_EXECUTORCH AND NOT EXECUTORCH_DELEGATE MATCHES "^(xnnpack|portable)$")
     message(FATAL_ERROR "Unsupported EXECUTORCH_DELEGATE '${EXECUTORCH_DELEGATE}'. Valid values: xnnpack, portable")
 endif()
 
+# --- GPU Pipeline Options ----------------------------------------------------
+# Two independent halves: DALI GPU preprocessing and CUDA segmentation
+# postprocessing. USE_GPU_PIPELINE is a convenience that turns on both. Both are
+# OFF by default so the standard ONNX Runtime build needs neither nvcc nor DALI.
+option(USE_DALI "Build with DALI GPU preprocessing" OFF)
+option(USE_CUDA_POSTPROCESS "Build with CUDA segmentation postprocessing" OFF)
+option(USE_GPU_PIPELINE "Enable both USE_DALI and USE_CUDA_POSTPROCESS" OFF)
+
+if(USE_GPU_PIPELINE)
+    set(USE_DALI ON)
+    set(USE_CUDA_POSTPROCESS ON)
+endif()
+
+if((USE_DALI OR USE_CUDA_POSTPROCESS) AND NOT USE_TENSORRT)
+    message(FATAL_ERROR
+        "The GPU pipeline requires the TensorRT backend (-DUSE_TENSORRT=ON -DUSE_ONNX_RUNTIME=OFF).\n"
+        "Reason: DALI must write into, and the CUDA kernels must read from, the inference engine's\n"
+        "device buffers. Only the TensorRT backend exposes device pointers and a CUDA stream; the\n"
+        "ONNX Runtime backend is host-memory only.")
+endif()
+
 message(STATUS "Backend configuration:")
 message(STATUS "  ONNX Runtime: ${USE_ONNX_RUNTIME}")
 message(STATUS "  TensorRT:     ${USE_TENSORRT}")
+message(STATUS "  DALI preprocessing:      ${USE_DALI}")
+message(STATUS "  CUDA postprocessing:     ${USE_CUDA_POSTPROCESS}")
 message(STATUS "  ExecuTorch:   ${USE_EXECUTORCH}")
 if(USE_EXECUTORCH)
     message(STATUS "  ET delegate:  ${EXECUTORCH_DELEGATE}")
@@ -136,6 +159,34 @@ if(USE_TENSORRT)
     find_dependency_unified(TensorRT REQUIRED)
 endif()
 
+if(USE_DALI OR USE_CUDA_POSTPROCESS)
+    find_dependency_unified(CUDAToolkit REQUIRED)
+endif()
+
+if(USE_CUDA_POSTPROCESS)
+    # nvcc is only required for the postprocessing kernels; the DALI half is
+    # plain C++ against the DALI C API.
+    enable_language(CUDA)
+    set(CMAKE_CUDA_STANDARD 20)
+    set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+    if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+        # 86 = RTX 30-series. Override with -DCMAKE_CUDA_ARCHITECTURES="86;89".
+        set(CMAKE_CUDA_ARCHITECTURES "86" CACHE STRING "CUDA architectures to build kernels for" FORCE)
+    endif()
+    message(STATUS "  CUDA architectures:      ${CMAKE_CUDA_ARCHITECTURES}")
+endif()
+
+if(USE_DALI)
+    if(NOT DEFINED DALI_ROOT AND NOT DEFINED DALI_ROOTDIR)
+        message(FATAL_ERROR
+            "USE_DALI=ON requires -DDALI_ROOT=<dir>.\n"
+            "NVIDIA ships no standalone C++ DALI distribution; stage it from a pinned Triton\n"
+            "container with:\n"
+            "    ./scripts/fetch_dali.sh\n"
+            "then reconfigure with -DDALI_ROOT=$ENV{HOME}/dependencies/dali")
+    endif()
+    find_dependency_unified(DALI REQUIRED)
+endif()
 if(USE_EXECUTORCH)
     # Let the catalog's find_package(executorch CONFIG) probe see a prebuilt install prefix
     # before the chain falls through to building ExecuTorch from source.
@@ -187,12 +238,32 @@ if(USE_TENSORRT)
     list(APPEND RFDETR_SOURCES "${SOURCE_DIR}/backends/tensorrt_backend.cpp")
 endif()
 
+# GPU pipeline sources
+if(USE_DALI OR USE_CUDA_POSTPROCESS)
+    list(APPEND RFDETR_SOURCES "${SOURCE_DIR}/gpu/gpu_context.cpp")
+endif()
+if(USE_DALI)
+    list(APPEND RFDETR_SOURCES "${SOURCE_DIR}/gpu/dali_preprocessor.cpp")
+endif()
+if(USE_CUDA_POSTPROCESS)
+    list(APPEND RFDETR_SOURCES "${SOURCE_DIR}/gpu/rfdetr_postprocess.cu")
+endif()
 if(USE_EXECUTORCH)
     list(APPEND RFDETR_SOURCES "${SOURCE_DIR}/backends/executorch_backend.cpp")
 endif()
 
 add_library(rfdetr_inference_lib STATIC ${RFDETR_SOURCES})
-target_compile_options(rfdetr_inference_lib PRIVATE ${PROJECT_WARNING_FLAGS})
+
+# The project warning set is C++-only: -Wold-style-cast, -Wconversion and
+# -Wdouble-promotion do not survive contact with the CUDA and CUB headers. Scope
+# them to CXX rather than weakening them for everything.
+target_compile_options(rfdetr_inference_lib PRIVATE
+    "$<$<COMPILE_LANGUAGE:CXX>:${PROJECT_WARNING_FLAGS}>")
+if(USE_CUDA_POSTPROCESS)
+    target_compile_options(rfdetr_inference_lib PRIVATE
+        "$<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-Wall,-Wextra>")
+    set_target_properties(rfdetr_inference_lib PROPERTIES CUDA_SEPARABLE_COMPILATION OFF)
+endif()
 
 target_include_directories(rfdetr_inference_lib
     PUBLIC
@@ -234,12 +305,36 @@ if(USE_TENSORRT)
 
     # RPATH so the executable finds TensorRT/CUDA libs without LD_LIBRARY_PATH.
     deps_get_rec(TensorRT RPATH_DIRS _TRT_RPATH_DIRS)
+    set(_GPU_RPATH_DIRS "${_TRT_RPATH_DIRS}")
+    if(USE_DALI)
+        deps_get_rec(DALI RPATH_DIRS _DALI_RPATH_DIRS)
+        list(APPEND _GPU_RPATH_DIRS ${_DALI_RPATH_DIRS})
+    endif()
+    list(REMOVE_DUPLICATES _GPU_RPATH_DIRS)
     set_target_properties(rfdetr_inference_lib PROPERTIES
-        BUILD_RPATH "${_TRT_RPATH_DIRS}"
-        INSTALL_RPATH "${_TRT_RPATH_DIRS}"
+        BUILD_RPATH "${_GPU_RPATH_DIRS}"
+        INSTALL_RPATH "${_GPU_RPATH_DIRS}"
         BUILD_RPATH_USE_ORIGIN TRUE
         INSTALL_RPATH_USE_LINK_PATH TRUE
     )
+endif()
+
+if(USE_DALI OR USE_CUDA_POSTPROCESS)
+    target_link_libraries(rfdetr_inference_lib PUBLIC Deps::CUDAToolkit)
+endif()
+if(USE_DALI)
+    target_link_libraries(rfdetr_inference_lib PUBLIC Deps::DALI)
+endif()
+
+# PUBLIC: main.cpp and the tests branch on these too. Set explicitly rather than
+# relying on Deps::DALI to carry USE_DALI, and because USE_CUDA_POSTPROCESS has no
+# dependency of its own to hang off — without this the .cu file compiles to an
+# empty translation unit and every GPU entry point throws "built without CUDA".
+if(USE_CUDA_POSTPROCESS)
+    target_compile_definitions(rfdetr_inference_lib PUBLIC USE_CUDA_POSTPROCESS)
+endif()
+if(USE_DALI)
+    target_compile_definitions(rfdetr_inference_lib PUBLIC USE_DALI)
 endif()
 
 # --- Main Application ---
@@ -249,10 +344,9 @@ target_link_libraries(inference_app PRIVATE rfdetr_inference_lib)
 
 # Set RPATH for the executable
 if(USE_TENSORRT)
-    deps_get_rec(TensorRT RPATH_DIRS _TRT_RPATH_DIRS)
     set_target_properties(inference_app PROPERTIES
-        BUILD_RPATH "${_TRT_RPATH_DIRS}"
-        INSTALL_RPATH "${_TRT_RPATH_DIRS}"
+        BUILD_RPATH "${_GPU_RPATH_DIRS}"
+        INSTALL_RPATH "${_GPU_RPATH_DIRS}"
         BUILD_RPATH_USE_ORIGIN TRUE
         INSTALL_RPATH_USE_LINK_PATH TRUE
     )
@@ -270,7 +364,15 @@ if(USE_ONNX_RUNTIME)
 endif()
 
 # --- Unit Tests ---
-add_executable(unit_tests "${TEST_DIR}/unit/test_rfdetr_inference.cpp")
+set(UNIT_TEST_SOURCES "${TEST_DIR}/unit/test_rfdetr_inference.cpp")
+if(USE_CUDA_POSTPROCESS)
+    # The GPU parity gate needs no model and no DALI: it feeds synthetic tensors
+    # to a mock backend that serves them from both host and device memory. Every
+    # case skips at runtime when no device is present.
+    list(APPEND UNIT_TEST_SOURCES "${TEST_DIR}/unit/test_gpu_postprocess.cpp")
+endif()
+
+add_executable(unit_tests ${UNIT_TEST_SOURCES})
 target_compile_options(unit_tests PRIVATE ${PROJECT_WARNING_FLAGS})
 target_link_libraries(unit_tests PRIVATE rfdetr_inference_lib Deps::GTest)
 target_include_directories(unit_tests PRIVATE "${TEST_DIR}/unit")
@@ -285,6 +387,14 @@ add_custom_command(TARGET integration_tests PRE_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${DATA_DIR}"
     COMMENT "Creating data directory for integration tests"
 )
+
+# Tests load libdali.so and the TensorRT/CUDA libraries at runtime.
+if(USE_TENSORRT)
+    set_target_properties(unit_tests integration_tests PROPERTIES
+        BUILD_RPATH "${_GPU_RPATH_DIRS}"
+        BUILD_RPATH_USE_ORIGIN TRUE
+    )
+endif()
 
 # --- Google Benchmark (opt-in via -DBENCHMARKS=ON) ---
 option(BENCHMARKS "Build benchmark targets" OFF)

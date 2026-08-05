@@ -6,6 +6,48 @@ Tracks upstream `rfdetr` version changes that affect this C++ inference project.
 
 ## [Unreleased]
 
+### GPU pipeline: DALI preprocessing + CUDA segmentation postprocessing
+
+Opt-in GPU pipeline on the TensorRT backend, hosting DALI in-process through the
+DALI C API and launching custom CUDA kernels on the same stream as the TensorRT
+execution context — no Triton server. Both halves are compile-time optional
+(`-DUSE_DALI`, `-DUSE_CUDA_POSTPROCESS`, or `-DUSE_GPU_PIPELINE` for both) and
+runtime opt-in (`--gpu-preprocess`, `--gpu-postprocess`,
+`--dali-pipeline-dir <dir>`); the CPU paths stay the default, and the ONNX
+Runtime build is untouched. Design and phase plan:
+`docs/GPU_PIPELINE_ROADMAP.md`.
+
+#### Added
+
+| File | Change |
+|------|--------|
+| `src/gpu/gpu_context.{hpp,cpp}` | RAII device/stream owner + `CUDA_CHECK`; opaque stream handle keeps CUDA types out of non-CUDA translation units. |
+| `src/gpu/dali_preprocessor.{hpp,cpp}` | RAII wrapper over the DALI C API: deserializes the `.dali` pipelines, feeds encoded bytes (still images) or device BGR frames (video), hands the output device pointer to the backend. |
+| `src/gpu/rfdetr_postprocess.{hpp,cu}` | CUDA segmentation postprocess: sigmoid score decode, CUB top-k, box decode, per-instance mask resize + threshold, single packed D2H (count/boxes/scores/classes/mask_offsets/mask_data). |
+| `src/backends/inference_backend.{hpp,cpp}` | Optional device-side I/O virtuals: `supports_device_io()`, `run_inference_device()`, `get_input_device_ptr()`, `get_output_device_ptr()`, `device_stream()`, `synchronize_device()` — default-false/throwing so ONNX Runtime is unaffected. |
+| `src/backends/tensorrt_backend.{hpp,cpp}` | Implements device-side I/O; inference moves off the default CUDA stream onto a dedicated context stream. |
+| `src/rfdetr_inference.{hpp,cpp}` | `run_gpu_image()`, `run_gpu_frame()`, `postprocess_segmentation_outputs_gpu()`, `fetch_device_outputs()`, `gpu_pre/postprocess_active()`; new `Config` fields `gpu_preprocess`, `gpu_postprocess`, `dali_pipeline_dir`, `gpu_device_id`. |
+| `src/video_pipeline.cpp` | GPU-preprocess mode: preprocess stage becomes a passthrough; DALI runs on the backend stream in the inference stage. |
+| `deploy/dali/generate_preprocess_pipeline.py` | Serializes the `encoded` (nvJPEG decode) and `frame` (BGR→RGB) DALI pipelines; documents the deliberate divergences from letterboxed YOLO pipelines (no `fn.paste`, `antialias=False`, ImageNet mean/std folded ×255). |
+| `data/dali/preprocess_{encoded,frame}_{432,576}.dali` | Pre-generated pipelines for the 432 and 576 model resolutions. |
+| `scripts/fetch_dali.sh` | Stages DALI C++ libraries/headers from the pinned `nvcr.io/nvidia/tritonserver:25.12-py3` container into `-DDALI_ROOT`. |
+| `scripts/generate_dali_pipelines.sh` | Regenerates the `.dali` files for a given resolution inside the same pinned container (no local DALI pip install). |
+| `cmake/deps/packages/CUDAToolkit.cmake` | Facade entry: apt handler via `FindCUDAToolkit` (`CUDA::cudart` + header-only CUB). |
+| `cmake/deps/packages/DALI.cmake` | Facade entry: ROOT-only acquisition (`-DDALI_ROOT`), links `libdali.so` + `libdali_operators.so`. |
+| `tests/unit/test_gpu_postprocess.cpp` | CPU-versus-GPU parity gate for the segmentation postprocessor; synthetic tensors via mock backend, `GTEST_SKIP()` when no CUDA device is present. |
+| `CMakeLists.txt` | `USE_DALI` / `USE_CUDA_POSTPROCESS` / `USE_GPU_PIPELINE` options (TensorRT-only, `FATAL_ERROR` otherwise); `enable_language(CUDA)` and `CMAKE_CUDA_ARCHITECTURES` (default `86`) only when needed; C++-only warning flags scoped with `$<COMPILE_LANGUAGE:CXX>`; DALI RPATH alongside TensorRT. |
+
+#### Why
+
+The segmentation mask resize was the dominant CPU cost: single-threaded bilinear
+resampling of one full-resolution mask per detection, after a ~14 MB D2H of mask
+data that is mostly discarded. The GPU path keeps TensorRT outputs on the device,
+postprocesses in place, and transfers only the packed final results. DALI
+preprocessing removes the float tensor H2D (still images upload only the
+compressed bytes) and frees the video pipeline's preprocess thread.
+
+---
+
 ### Documentation
 
 | File | Change |

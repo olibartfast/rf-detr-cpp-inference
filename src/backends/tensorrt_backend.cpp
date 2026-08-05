@@ -22,9 +22,19 @@ TensorRTBackend::TensorRTBackend() {
     if (!runtime_) {
         throw std::runtime_error("Failed to create TensorRT runtime");
     }
+
+    if (cudaStreamCreateWithFlags(&stream_, cudaStreamNonBlocking) != cudaSuccess) {
+        throw std::runtime_error("Failed to create CUDA stream for TensorRT backend");
+    }
 }
 
 TensorRTBackend::~TensorRTBackend() {
+    if (stream_ != nullptr) {
+        // Outstanding async work references device_buffers_; drain before freeing.
+        cudaStreamSynchronize(stream_);
+        cudaStreamDestroy(stream_);
+    }
+
     // Free CUDA device buffers
     for (void *buffer : device_buffers_) {
         if (buffer) {
@@ -278,38 +288,52 @@ bool TensorRTBackend::deserialize_engine(const std::filesystem::path &engine_pat
     return true;
 }
 
-std::vector<void *> TensorRTBackend::run_inference(std::span<const float> input_data,
-                                                   const std::vector<int64_t> &input_shape) {
-    // Copy input data to device
-    size_t input_size = input_data.size() * sizeof(float);
-    cudaMemcpy(device_buffers_[input_binding_index_], input_data.data(), input_size, cudaMemcpyHostToDevice);
-
-// Execute inference
+void TensorRTBackend::enqueue() {
 // Note: executeV2() was deprecated in TensorRT 8.5 and removed in 10.0
 #if NV_TENSORRT_MAJOR >= 10
     // TensorRT 10+ uses enqueueV3 with tensor addresses set via setTensorAddress
-    // For simple synchronous execution, we still use the bindings array approach
-    // but need to set tensor addresses explicitly in newer versions
     for (int i = 0; i < static_cast<int>(device_buffers_.size()); ++i) {
         const char *name = engine_->getIOTensorName(i);
-        context_->setTensorAddress(name, device_buffers_[i]);
+        context_->setTensorAddress(name, device_buffers_[static_cast<size_t>(i)]);
     }
-    if (!context_->enqueueV3(0)) { // 0 = CUDA stream (nullptr equivalent)
+    if (!context_->enqueueV3(stream_)) {
         throw std::runtime_error("TensorRT inference execution failed");
     }
-    cudaStreamSynchronize(0); // Synchronize since we're not using async
 #else
     // TensorRT 8.x API
-    if (!context_->executeV2(device_buffers_.data())) {
+    if (!context_->enqueueV2(device_buffers_.data(), stream_, nullptr)) {
         throw std::runtime_error("TensorRT inference execution failed");
     }
 #endif
+}
 
-    // Copy output data from device to host
+std::vector<void *> TensorRTBackend::run_inference(std::span<const float> input_data,
+                                                   const std::vector<int64_t> &input_shape) {
+    (void)input_shape;
+
+    // Host path: async copies and enqueue on stream_, then one synchronisation.
+    // Semantics are unchanged from the previous blocking implementation — the
+    // host output buffers are fully populated when this returns — but nothing is
+    // pushed onto the legacy default stream any more.
+    const size_t input_size = input_data.size() * sizeof(float);
+    if (cudaMemcpyAsync(device_buffers_[static_cast<size_t>(input_binding_index_)], input_data.data(), input_size,
+                        cudaMemcpyHostToDevice, stream_) != cudaSuccess) {
+        throw std::runtime_error("Failed to copy input tensor to device");
+    }
+
+    enqueue();
+
     for (size_t i = 0; i < output_binding_indices_.size(); ++i) {
-        int binding_idx = output_binding_indices_[i];
-        size_t output_size = host_output_buffers_[i].size() * sizeof(float);
-        cudaMemcpy(host_output_buffers_[i].data(), device_buffers_[binding_idx], output_size, cudaMemcpyDeviceToHost);
+        const int binding_idx = output_binding_indices_[i];
+        const size_t output_size = host_output_buffers_[i].size() * sizeof(float);
+        if (cudaMemcpyAsync(host_output_buffers_[i].data(), device_buffers_[static_cast<size_t>(binding_idx)],
+                            output_size, cudaMemcpyDeviceToHost, stream_) != cudaSuccess) {
+            throw std::runtime_error("Failed to copy output tensor from device");
+        }
+    }
+
+    if (cudaStreamSynchronize(stream_) != cudaSuccess) {
+        throw std::runtime_error("TensorRT stream synchronization failed");
     }
 
     // Return pointers to host buffers
@@ -319,6 +343,50 @@ std::vector<void *> TensorRTBackend::run_inference(std::span<const float> input_
     }
 
     return output_ptrs;
+}
+
+void TensorRTBackend::run_inference_device(const void *input_device, const std::vector<int64_t> &input_shape) {
+    (void)input_shape;
+    if (input_device == nullptr) {
+        throw std::runtime_error("run_inference_device called with a null input pointer");
+    }
+
+    // A producer that wrote straight into the input binding passes that same
+    // pointer back; skip the self-copy in that case.
+    void *const binding = device_buffers_[static_cast<size_t>(input_binding_index_)];
+    if (input_device != binding) {
+        size_t input_bytes = sizeof(float);
+        for (const auto dim : input_shape) {
+            input_bytes *= static_cast<size_t>(dim);
+        }
+        if (cudaMemcpyAsync(binding, input_device, input_bytes, cudaMemcpyDeviceToDevice, stream_) != cudaSuccess) {
+            throw std::runtime_error("Failed to copy device input into the TensorRT input binding");
+        }
+    }
+
+    enqueue();
+    // Deliberately no synchronisation and no device-to-host copies: the caller
+    // consumes the outputs from device memory on this same stream.
+}
+
+void *TensorRTBackend::get_input_device_ptr() const {
+    if (input_binding_index_ < 0) {
+        throw std::runtime_error("TensorRT backend has no input binding");
+    }
+    return device_buffers_[static_cast<size_t>(input_binding_index_)];
+}
+
+const void *TensorRTBackend::get_output_device_ptr(size_t output_index) const {
+    if (output_index >= output_binding_indices_.size()) {
+        throw std::out_of_range("Output index out of range");
+    }
+    return device_buffers_[static_cast<size_t>(output_binding_indices_[output_index])];
+}
+
+void TensorRTBackend::synchronize_device() {
+    if (cudaStreamSynchronize(stream_) != cudaSuccess) {
+        throw std::runtime_error("TensorRT stream synchronization failed");
+    }
 }
 
 size_t TensorRTBackend::get_output_count() const { return output_binding_indices_.size(); }
