@@ -9,8 +9,9 @@ Exactly one backend is compiled in; enabling two is a configure-time error.
 - ExecuTorch (`.pte` models, rfdetr 1.9.0+):
   `cmake -S . -B build -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_EXECUTORCH=ON -DEXECUTORCH_ROOTDIR=<prefix> -DCMAKE_BUILD_TYPE=Release && cmake --build build --parallel`
   - `-DEXECUTORCH_DELEGATE=xnnpack|portable` (default `xnnpack`) must match the delegate the `.pte` was exported with.
-  - Without `EXECUTORCH_ROOTDIR` the build falls back to compiling ExecuTorch v1.3.1 from source, which is slow and needs a Python interpreter with ExecuTorch's build deps (`import torchgen`, i.e. the `torch` wheel — a bare `python3` fails).
-  - Building the prefix requires patching upstream v1.3.1's `extension/evalue_util/CMakeLists.txt` (`DESTINATION ${CMAKE_BINARY_DIR}/lib` → `${CMAKE_INSTALL_LIBDIR}`), else `find_package(executorch)` fails once the build tree is removed. See README "Building the ExecuTorch install prefix".
+  - Without `EXECUTORCH_ROOTDIR` the build falls back to compiling ExecuTorch v1.4.0 from source, which is slow and needs a Python interpreter with ExecuTorch's build deps (`import torchgen`, i.e. the `torch` wheel — a bare `python3` fails).
+  - The prefix must be built with `-DEXECUTORCH_BUILD_KERNELS_OPTIMIZED=ON` (defaults to `OFF`): `.pte` files from rfdetr 1.9.1+ call `aten::linear.out`, which only `optimized_native_cpu_ops_lib` registers. The build links that lib when present and warns + falls back to `portable_ops_lib` when not — exactly one op library, since duplicate kernel registration aborts at startup. See README "Building the ExecuTorch install prefix".
+  - The `extension/evalue_util` install-path patch is only needed on v1.3.1 and older; v1.4.0 fixed it upstream.
 
 ## Docker
 `Dockerfile` builds an inference-backend × media-backend matrix:

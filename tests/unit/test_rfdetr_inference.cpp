@@ -503,6 +503,90 @@ TEST(PreprocessFrame, ResizeIsAntialiasFree) {
 }
 
 // ============================================================================
+// Half-pixel bilinear resize convention
+//
+// rfdetr 1.9.1 made the convention explicit in rfdetr/export/_resize.py: bilinear,
+// half-pixel centers (src = (dst + 0.5) * scale - 0.5), source coordinate clamped
+// into the source extent, no antialias filter — the same as
+// F.interpolate(mode="bilinear", align_corners=False), which is what predict()
+// resizes with. preprocess_bgr_image and resize_threshold_mask must both match it.
+// ============================================================================
+
+TEST(MaskResize, HalfPixelCenterBilinear) {
+    // 4x4 logits, constant down each column: 0, 4, 4, 0. Upscaled 3x with a threshold
+    // of 2.0, only the columns whose interpolated value exceeds 2.0 survive, which
+    // pins the sample positions: 0.0, 0.0, 1.333, 2.667, 4, 4, 4, 4, 2.667, 1.333, 0.0, 0.0.
+    constexpr int kSrc = 4;
+    constexpr int kOut = 12;
+    std::array<float, kSrc * kSrc> mask{};
+    for (int y = 0; y < kSrc; ++y) {
+        for (int x = 0; x < kSrc; ++x) {
+            mask[static_cast<size_t>(y) * kSrc + static_cast<size_t>(x)] = (x == 1 || x == 2) ? 4.0f : 0.0f;
+        }
+    }
+
+    const auto out = rfdetr::media::resize_threshold_mask(mask, kSrc, kSrc, kOut, kOut, 2.0f);
+    ASSERT_EQ(out.data.size(), static_cast<size_t>(kOut * kOut));
+
+    for (int y = 0; y < kOut; ++y) {
+        for (int x = 0; x < kOut; ++x) {
+            const uint8_t expected = (x >= 3 && x <= 8) ? 255 : 0;
+            EXPECT_EQ(out.data[static_cast<size_t>(y) * kOut + static_cast<size_t>(x)], expected)
+                << "half-pixel sample position wrong at (" << x << ", " << y << ")";
+        }
+    }
+}
+
+TEST(MaskResize, LeadingEdgeClampsInsteadOfExtrapolating) {
+    // Every source value is above the threshold, so every output pixel must be too.
+    // The leading output pixel maps to source coordinate -0.333: clamping the sample
+    // index instead of the coordinate leaves a negative weight there, extrapolating
+    // 1.333 * 1.0 - 0.333 * 5.0 = -0.333 and dropping the pixel below the threshold.
+    constexpr int kSrc = 4;
+    constexpr int kOut = 12;
+    std::array<float, kSrc * kSrc> mask{};
+    for (int y = 0; y < kSrc; ++y) {
+        for (int x = 0; x < kSrc; ++x) {
+            mask[static_cast<size_t>(y) * kSrc + static_cast<size_t>(x)] = (x == 1 || x == 2) ? 5.0f : 1.0f;
+        }
+    }
+
+    const auto out = rfdetr::media::resize_threshold_mask(mask, kSrc, kSrc, kOut, kOut, 0.0f);
+    for (size_t i = 0; i < out.data.size(); ++i) {
+        EXPECT_EQ(out.data[i], 255) << "border extrapolated past the source edge at index " << i;
+    }
+}
+
+TEST(PreprocessFrame, UpscaleDoesNotExtrapolatePastEdge) {
+    // Source smaller than the model resolution, so the resize upscales and the leading
+    // row/column land on negative source coordinates. Bilinear resampling of a
+    // non-negative image cannot produce a negative sample; extrapolation can.
+    constexpr int kSrc = 4;
+    constexpr int kRes = 12;
+    const std::array<float, 3> means = {0.0f, 0.0f, 0.0f};
+    const std::array<float, 3> stds = {1.0f, 1.0f, 1.0f};
+
+    rfdetr::media::Image img;
+    img.resize(kSrc, kSrc);
+    for (int y = 0; y < kSrc; ++y) {
+        for (int x = 0; x < kSrc; ++x) {
+            const uint8_t value = (x == 1 || x == 2 || y == 1 || y == 2) ? 255 : 51;
+            const size_t idx = (static_cast<size_t>(y) * kSrc + static_cast<size_t>(x)) * 3U;
+            img.bgr[idx] = img.bgr[idx + 1] = img.bgr[idx + 2] = value;
+        }
+    }
+
+    std::vector<float> tensor(3UL * kRes * kRes);
+    rfdetr::media::preprocess_bgr_image(img, tensor, kRes, means, stds);
+
+    for (float v : tensor) {
+        EXPECT_GE(v, 0.0f) << "resize extrapolated past the source edge";
+    }
+    // Corner pixel: both coordinates clamp to 0, so it is the source corner exactly (51/255).
+    EXPECT_NEAR(tensor[0], 51.0f / 255.0f, 1e-4f);
+}
+
+// ============================================================================
 // Image preprocess overload tests
 // ============================================================================
 

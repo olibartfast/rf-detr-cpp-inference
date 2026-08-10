@@ -80,9 +80,9 @@ option(USE_OPENCV "Use OpenCV for image/video/display I/O instead of FFmpeg+SDL2
 
 # ExecuTorch delegates are chosen at .pte export time and consumed by the runtime; the C++ side's
 # job is to link the matching backend library so the delegate self-registers. 'xnnpack' is the
-# default and matches rfdetr's export(format="executorch", backend="xnnpack"). 'portable' links
-# only the CPU portable kernels. SDK-backed delegates (coreml, qnn) each pull an external SDK and
-# are intentionally not wired here.
+# default and matches rfdetr's export(format="executorch", backend="xnnpack"). 'portable' links no
+# delegate at all, leaving every operator to the CPU kernel library selected below. SDK-backed
+# delegates (coreml, qnn) each pull an external SDK and are intentionally not wired here.
 set(EXECUTORCH_DELEGATE "xnnpack" CACHE STRING "ExecuTorch delegate to link: xnnpack or portable")
 set_property(CACHE EXECUTORCH_DELEGATE PROPERTY STRINGS xnnpack portable)
 
@@ -292,6 +292,25 @@ endif()
 
 if(USE_EXECUTORCH)
     target_link_libraries(rfdetr_inference_lib PUBLIC Deps::ExecuTorch)
+
+    # Exactly one op library may be linked: each registers its kernels from a static initializer,
+    # and a second registration of the same op aborts the runtime at startup.
+    #
+    # optimized_native_cpu_ops_lib registers the optimized kernels plus portable fallbacks for
+    # everything they do not cover, so it is a superset of portable_ops_lib. It is required for
+    # .pte files exported by rfdetr >= 1.9.1: that release recombines the addmm ops XNNPACK leaves
+    # un-delegated back into aten.linear, and aten::linear.out exists only in the optimized set
+    # (portable registers addmm.out/mm.out but no linear.out). Without it such a program fails at
+    # load with a missing-operator error.
+    if(TARGET optimized_native_cpu_ops_lib)
+        target_link_libraries(rfdetr_inference_lib PUBLIC optimized_native_cpu_ops_lib)
+    else()
+        target_link_libraries(rfdetr_inference_lib PUBLIC portable_ops_lib)
+        message(WARNING
+            "ExecuTorch prefix has no optimized_native_cpu_ops_lib; falling back to portable_ops_lib. "
+            "A .pte exported by rfdetr >= 1.9.1 will fail to load (aten::linear.out is unregistered). "
+            "Rebuild the ExecuTorch prefix with -DEXECUTORCH_BUILD_KERNELS_OPTIMIZED=ON.")
+    endif()
 
     # The delegate library must be linked for its backend to self-register with the ExecuTorch
     # runtime; without it a .pte exported for that delegate fails at run time, not link time.
