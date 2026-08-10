@@ -14,7 +14,7 @@
 # Build args:
 #   INFERENCE_BACKEND   onnx (default) | tensorrt | executorch
 #   MEDIA_BACKEND       ffmpeg (default) | opencv
-#   EXECUTORCH_VERSION  git tag of the ExecuTorch C++ runtime (default v1.3.1)
+#   EXECUTORCH_VERSION  git tag of the ExecuTorch C++ runtime (default v1.4.0)
 #
 # Examples:
 #   docker build -t rfdetr-onnx-ffmpeg .
@@ -33,7 +33,7 @@
 
 ARG INFERENCE_BACKEND=onnx
 ARG MEDIA_BACKEND=ffmpeg
-ARG EXECUTORCH_VERSION=v1.3.1
+ARG EXECUTORCH_VERSION=v1.4.0
 
 # --- Base image selected by inference backend (all Ubuntu 24.04) ---
 FROM ubuntu:24.04 AS base-onnx
@@ -82,12 +82,16 @@ RUN if [ "$MEDIA_BACKEND" = "opencv" ]; then \
 #     tools/cmake/Codegen.cmake does `import torchgen` — so the interpreter needs
 #     torch installed. A bare python3 fails. Only torchgen is used, so the CPU
 #     wheel is enough, and the whole venv is discarded in the runtime stage.
-#  2. Upstream v1.3.1 installs extension_evalue_util with
+#  2. Up to v1.3.1, upstream installed extension_evalue_util with
 #     DESTINATION ${CMAKE_BINARY_DIR}/lib instead of ${CMAKE_INSTALL_LIBDIR}, so
-#     the library never reaches the prefix and its exported target keeps an
-#     absolute build-tree path. find_package then hard-fails once the build tree
-#     is gone — even though this project never links that target. Patch it first.
+#     the library never reached the prefix and its exported target kept an
+#     absolute build-tree path. find_package then hard-failed once the build tree
+#     was gone — even though this project never links that target. Fixed upstream
+#     in the default v1.4.0; the sed stays for older EXECUTORCH_VERSION overrides.
 #     (The sed body is single-quoted so the shell does not expand ${...}.)
+#  4. EXECUTORCH_BUILD_KERNELS_OPTIMIZED is required, not a tuning knob: .pte files
+#     from rfdetr >= 1.9.1 call aten::linear.out, which only the optimized kernel
+#     set registers. Without it the program fails at load.
 #  3. build-essential is required even though the project itself builds with
 #     clang+ninja: ExecuTorch pulls in third-party/flatcc as an ExternalProject
 #     that configures with the "Unix Makefiles" generator and does not inherit
@@ -120,6 +124,7 @@ RUN if [ "$INFERENCE_BACKEND" = "executorch" ]; then \
             -DEXECUTORCH_BUILD_EXTENSION_TENSOR=ON \
             -DEXECUTORCH_BUILD_EXTENSION_DATA_LOADER=ON \
             -DEXECUTORCH_BUILD_EXTENSION_NAMED_DATA_MAP=ON \
+            -DEXECUTORCH_BUILD_KERNELS_OPTIMIZED=ON \
             -DEXECUTORCH_BUILD_XNNPACK=ON \
             -DEXECUTORCH_ENABLE_LOGGING=ON \
             -DEXECUTORCH_BUILD_TESTS=OFF \

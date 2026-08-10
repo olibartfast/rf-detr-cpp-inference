@@ -155,13 +155,19 @@ __global__ void resize_threshold_masks(const float *__restrict__ masks, const in
     const float scale_x = static_cast<float>(p.mask_w) / static_cast<float>(p.orig_w);
     const float scale_y = static_cast<float>(p.mask_h) / static_cast<float>(p.orig_h);
 
-    const float src_y = (static_cast<float>(y) + 0.5F) * scale_y - 0.5F;
-    const int y0 = min(max(static_cast<int>(floorf(src_y)), 0), p.mask_h - 1);
+    // Clamp the source coordinate, not the sample index: on upscale the leading output pixels map
+    // to a negative coordinate, and clamping only the index leaves a negative weight that
+    // extrapolates past the edge. Matches media.cpp::clamp_source_coord (and torch's
+    // align_corners=False bilinear); the CPU/GPU parity test compares the two.
+    const float src_y =
+        fminf(fmaxf((static_cast<float>(y) + 0.5F) * scale_y - 0.5F, 0.0F), static_cast<float>(p.mask_h - 1));
+    const int y0 = min(static_cast<int>(src_y), p.mask_h - 1);
     const int y1 = min(y0 + 1, p.mask_h - 1);
     const float wy = src_y - static_cast<float>(y0);
 
-    const float src_x = (static_cast<float>(x) + 0.5F) * scale_x - 0.5F;
-    const int x0 = min(max(static_cast<int>(floorf(src_x)), 0), p.mask_w - 1);
+    const float src_x =
+        fminf(fmaxf((static_cast<float>(x) + 0.5F) * scale_x - 0.5F, 0.0F), static_cast<float>(p.mask_w - 1));
+    const int x0 = min(static_cast<int>(src_x), p.mask_w - 1);
     const int x1 = min(x0 + 1, p.mask_w - 1);
     const float wx = src_x - static_cast<float>(x0);
 

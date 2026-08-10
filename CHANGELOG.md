@@ -1,10 +1,87 @@
 # CHANGELOG
 
-Tracks upstream `rfdetr` version changes that affect this C++ inference project.
+All notable changes to this C++ inference project: its own features and fixes, and the
+upstream `rfdetr` releases it is kept in step with.
 
 ---
 
 ## [Unreleased]
+
+### RF-DETR 1.9.1 alignment
+
+**Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.9.1
+
+A quiet upstream release, but two things here needed fixing:
+
+1. **Mask borders were slightly wrong.** Our image and mask resize extrapolated past
+   the top and left edges instead of holding them. 1.9.1 wrote down the resize
+   convention upstream uses, which made the mismatch obvious.
+2. **ExecuTorch `.pte` files from 1.9.1 would not run.** The new export needs an
+   operator our runtime did not have. Fixed by building ExecuTorch with its
+   optimized kernels and moving the pinned runtime to v1.4.0.
+
+#### Fixed
+
+| File | Change |
+|------|--------|
+| `src/media.cpp` | Bilinear resize now clamps the source *coordinate* to the edge instead of clamping the sample *index* (new `clamp_source_coord` helper, used by `preprocess_bgr_image` and `resize_threshold_mask`). Clamping the index left a negative blend weight on output pixels that fall before the first source pixel, so those pixels were extrapolated instead of copied from the edge: upscaling `[0, 4, 4, 0]` to 12 wide gave `-1.333` at the first pixel where torch gives `0.0`. Masks are always upscaled, so this affected the first few rows and columns of every mask (about 5 of them for a 96px mask head on a 1080p frame) and could flip those pixels to the wrong side of the mask threshold. Preprocessing only hit it when the image was smaller than the model resolution. |
+| `src/gpu/rfdetr_postprocess.cu` | The same fix in the CUDA mask kernel, which must stay bit-identical to the CPU version — `tests/unit/test_gpu_postprocess.cpp` compares them. |
+
+#### Added
+
+| File | Change |
+|------|--------|
+| `tests/unit/test_rfdetr_inference.cpp` | Three tests that pin the resize behaviour: `MaskResize.HalfPixelCenterBilinear` (sample positions), `MaskResize.LeadingEdgeClampsInsteadOfExtrapolating` and `PreprocessFrame.UpscaleDoesNotExtrapolatePastEdge` (the border fix — both fail without it). |
+| `CMakeLists.txt` | Links ExecuTorch's `optimized_native_cpu_ops_lib` when the install prefix has it, otherwise `portable_ops_lib` plus a warning explaining that 1.9.1 models will not load. Only one of the two may be linked — both register kernels at startup, and registering an operator twice aborts the process. |
+
+#### Changed
+
+| File | Change |
+|------|--------|
+| `cmake/deps/packages/ExecuTorch.cmake` | ExecuTorch runtime `v1.3.1` → **`v1.4.0`**, the version a `.pte` must be exported with to run on this build, and the source-build fallback now enables `EXECUTORCH_BUILD_KERNELS_OPTIMIZED`. The operator library is chosen in `CMakeLists.txt` instead of being listed here, because which one exists depends on how the prefix was built. |
+| `Dockerfile` | `EXECUTORCH_VERSION` default `v1.3.1` → `v1.4.0`; the source build enables the optimized kernels. The `extension_evalue_util` install patch is fixed upstream in v1.4.0, so the `sed` is now a no-op kept only for older tags. |
+| `deploy/requirements.txt` | `rfdetr[onnx]` 1.9.0 → 1.9.1. |
+| `deploy/export_executorch.py` | The closing note points at `rfdetr[executorch]==1.9.1` and its faster export, and replaces the claim that the extra installs a matching ExecuTorch with instructions to check `pip show executorch` against the v1.4.0 runtime. |
+| `README.md`, `docs/export.md`, `AGENTS.md` | Versions updated to rfdetr 1.9.1 / ExecuTorch v1.4.0. New "Preprocessing parity" section in `docs/export.md` describing the resize convention and the tests that hold it. Documented that `EXECUTORCH_BUILD_KERNELS_OPTIMIZED=ON` is required (it defaults to off), that pinning `rfdetr` does **not** pin ExecuTorch — the extra allows `>=1.3,<2.0`, so the installed version must be checked with `pip show executorch` and matched to the runtime — and 1.9.1's new install rules (`onnxruntime<1.24` on Python 3.10, `[executorch]` empty on 3.14). |
+
+#### Why the ExecuTorch runtime had to change
+
+1.9.1 rewrites the `addmm` operations XNNPACK does not accelerate back into
+`aten.linear`; that is where its ~2.5× speedup comes from. An `RFDETRNano` export at
+384×384 ends up with 6 `aten::linear.out` calls that run outside the delegate — and
+`linear.out` ships only in ExecuTorch's *optimized* kernels. The portable kernels we
+linked before have `addmm.out` and `mm.out` but no `linear.out`, in both v1.3.1 and
+v1.4.0. Running a 1.9.1 model on the old setup fails immediately:
+
+```
+E executorch:method.cpp:819] Missing operator: [29] aten::linear.out
+E executorch:method.cpp:1125] There are 6 instructions don't have corresponding operator registered
+Error: ExecuTorch forward() failed with error code 20
+```
+
+So the optimized kernels are now enabled in the ExecuTorch builds this project drives
+itself — the CMake source-build fallback and the Docker image — and the runtime pin is
+v1.4.0. A prefix you built yourself and pass with `-DEXECUTORCH_ROOTDIR` is outside
+that: if it has no optimized kernels the build still configures, links the portable
+ones, and warns that 1.9.1 models will not load. Exporter and runtime must also be the
+same ExecuTorch version; `rfdetr[executorch]` does not guarantee that on its own.
+
+Checked end to end: `rf-detr-nano.pth` exported at 384×384 with rfdetr 1.9.1 to both
+`.onnx` and `.pte` and run on `data/dog.jpg`. Against a v1.4.0 prefix with optimized
+kernels, the `.pte` loads and gives the same 3 detections as the ONNX Runtime build —
+identical boxes, scores within 1e-6. See
+[docs/export.md](docs/export.md#verified-onnx--executorch-parity).
+
+#### Why nothing else was ported
+
+The other three upstream changes need no C++ work: the faster segmentation
+postprocessing (PR #1268) avoids a PyTorch temporary this code never creates; skipping
+the upsample of low-scoring masks (PR #1265) is what both the CPU and CUDA paths
+already did; and the export resize parity work (PR #1269) only touches upstream's own
+Python inference and calibration paths — its value here is the resize convention it
+documents, which is what the border fix above brings this project in line with.
+
+---
 
 ### GPU pipeline: DALI preprocessing + CUDA segmentation postprocessing
 
@@ -48,6 +125,17 @@ compressed bytes) and frees the video pipeline's preprocess thread.
 
 ---
 
+### CLI: inference parameters overridable without recompiling
+
+`src/main.cpp` previously hard-coded `resolution`, `max_detections`, and
+`mask_threshold` over the `Config` defaults, so tuning any of them — or the
+`Config` defaults themselves — meant editing and rebuilding.
+
+| File | Change |
+|------|--------|
+| `src/main.cpp` | Added `--resolution <px>`, `--max-detections <n>`, and `--mask-threshold <val>` alongside the existing `--threshold`. Options are held as `std::optional` and applied only when passed, so unset fields keep their `Config` defaults instead of being overwritten. Numeric arguments are parsed through `parse_int_option()`/`parse_float_option()`, which report the offending flag and value; previously a typo'd `--threshold` value let `std::stof` throw outside the `try` block and terminate the process. Values are range-checked (`--threshold` in `[0, 1]`, `--resolution`/`--max-detections` positive). |
+| `README.md` | New "Tuning Flags" table under Usage; the Configuration section now maps each `Config` field to its CLI override (or notes that it has none) instead of describing CLI-settable fields as source-edit only. |
+
 ### Documentation
 
 | File | Change |
@@ -64,7 +152,7 @@ compressed bytes) and frees the video pipeline's preprocess thread.
 
 ---
 
-## v0.4.0
+## [v0.4.0] - 2026-08-04
 
 Third inference backend and a unified dependency-resolution layer. **ExecuTorch**
 joins ONNX Runtime and TensorRT, running `.pte` programs exported by `rfdetr`
@@ -213,7 +301,7 @@ wired into both CI and local CMake targets.
 
 ---
 
-## v0.3.0
+## [v0.3.0] - 2026-07-03
 
 Swappable media/display backend and a unified Docker image matrix. The default
 image/video I/O + display layer moves from OpenCV to **FFmpeg + SDL2 + stb**;
@@ -252,7 +340,7 @@ first-class and independently testable. Backward-compatible: existing
 
 ---
 
-## v0.2.2
+## [v0.2.2] - 2026-07-01
 
 **Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.8.3
 
@@ -272,7 +360,7 @@ Completes the upstream RF-DETR 1.8.3 release alignment by moving the Python expo
 
 ---
 
-## v0.2.1
+## [v0.2.1] - 2026-07-01
 
 **Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.8.3 (partial backport)
 
@@ -291,7 +379,7 @@ Ports the box-clamping fix from upstream rf-detr v1.8.3 (`PostProcess._postproce
 
 ---
 
-## v0.2.0
+## [v0.2.0] - 2026-06-17
 
 **Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.8.0
 
@@ -328,7 +416,7 @@ RF-DETR 1.8.0 introduces keypoint detection models via `RFDETRKeypointPreview`. 
 
 ---
 
-## v0.1.3
+## [v0.1.3] - 2026-05-29
 
 **Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.7.0
 
@@ -360,7 +448,7 @@ Notable upstream changes between 1.6.5.post0 and 1.7.0:
 
 ---
 
-## v0.1.2
+## [v0.1.2] - 2026-05-12
 
 **Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.6.5.post0
 
@@ -389,9 +477,7 @@ Notable upstream changes between 1.4.3 and 1.6.5.post0:
 
 ---
 
-## v0.1.1
-
-[v0.1.1](https://github.com/olibartfast/rf-detr-cpp-inference/commit/f9028533ad96d79117da2a74a5aa121fd80277c1)
+## [v0.1.1] - 2026-02-17
 
 **Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.4.3
 
@@ -413,9 +499,7 @@ Patch release with no model or API changes affecting C++ inference. Upstream cha
 
 ---
 
-## v0.1.0
-
-[v0.1.0](https://github.com/olibartfast/rf-detr-cpp-inference/commit/5ba569b7f7454a2b0fbe3e56ee885d9dad46fc70)
+## [v0.1.0] - 2026-02-14
 
 **Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.4.2
 
@@ -437,3 +521,16 @@ Patch release with no model or API changes affecting C++ inference. Upstream cha
 2. **`RFDETRBase` deprecated** — upstream no longer lists it. Use `RFDETRNano/Small/Medium/Large` instead.
 3. **XL/2XL models added** — require `pip install rfdetr[plus]` (PML 1.0 license, not Apache).
 4. **ONNX Runtime output count bug** — `get_output_count()` checked `ort_output_tensors_` which is only populated after `run_inference()`, but the constructor validates output count before that. Fixed to use `output_name_strings_` (populated during `initialize()`).
+
+---
+
+[Unreleased]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.4.0...develop
+[v0.4.0]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.3.0...v0.4.0
+[v0.3.0]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.2.2...v0.3.0
+[v0.2.2]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.2.1...v0.2.2
+[v0.2.1]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.2.0...v0.2.1
+[v0.2.0]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.1.3...v0.2.0
+[v0.1.3]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.1.2...v0.1.3
+[v0.1.2]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.1.1...v0.1.2
+[v0.1.1]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.1.0...v0.1.1
+[v0.1.0]: https://github.com/olibartfast/rf-detr-cpp-inference/releases/tag/v0.1.0

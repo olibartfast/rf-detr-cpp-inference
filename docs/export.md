@@ -4,15 +4,18 @@ Follow the procedure listed at https://rfdetr.roboflow.com/learn/deploy/
 ## Requirements
 
 > [!IMPORTANT]
-> - Python version: **3.10+** (upstream `rfdetr` 1.9.0; Python 3.11 venv still recommended here)
+> - Python version: **3.10+** (upstream `rfdetr` 1.9.1; Python 3.11 venv still recommended here)
 > - Starting with RF-DETR 1.6.0, the export extra was renamed: use `pip install rfdetr[onnx]`
-> - **Tested version**: `rfdetr[onnx]==1.9.0`
+> - **Tested version**: `rfdetr[onnx]==1.9.1`
 > - Starting with RF-DETR 1.7.0, ONNX exports use variant filenames (e.g. `rfdetr-medium.onnx`, `rfdetr-seg-medium.onnx`) instead of the generic `inference_model.onnx`
 > - The `--simplify` flag was removed in 1.8.0 (already deprecated in 1.7.0). Export scripts no longer accept it.
 > - RF-DETR 1.8.x adds keypoint model export support via `RFDETRKeypointPreview`.
 > - 1.9.0 relaxes the `onnxsim` pin to `>=0.7.0`. Earlier releases pinned `<0.6.0`, which had no prebuilt wheels for CPython 3.11/3.13 and made `pip install rfdetr[onnx]` hang building it from source — relevant here because this guide recommends a 3.11 venv.
 > - 1.9.0 fixes ONNX export at a non-native resolution, which previously crashed.
 > - 1.9.0 adds ExecuTorch (`.pte`) export via `rfdetr[executorch]`; see [ExecuTorch Model Export](#executorch-model-export).
+> - 1.9.1 gates the extras to interpreters that ship wheels: `[onnx]` pins `onnxruntime<1.24` on Python 3.10 (newer releases dropped cp310 wheels), and `[executorch]` installs empty on Python 3.14 (ExecuTorch ships cp310–cp313 only). On the recommended 3.11 venv both resolve exactly as before.
+> - 1.9.1 makes the exported models' own inference helpers resize the way `predict()` does (bilinear, half-pixel centers, `antialias=False`) instead of PIL's antialiased filters. This C++ project already resizes that way — see [Preprocessing parity](#preprocessing-parity) — so exported ONNX/`.pte` models score here exactly as they did before; only upstream's Python-side ONNX/TFLite inference and INT8 calibration change. Re-export INT8 TFLite models if you ship any (not consumed by this project).
+> - 1.9.1 speeds up ExecuTorch/XNNPACK export ~2.5× by recombining undelegated `addmm` into `aten.linear`. **This changes which kernels the `.pte` needs at run time** — see [ExecuTorch Model Export](#executorch-model-export).
 
 ### Setup Virtual Environment
 
@@ -29,8 +32,31 @@ python3.11 -m venv rfdetr_venv
 source rfdetr_venv/bin/activate
 
 # Install RF-DETR with export dependencies (tested version)
-pip install rfdetr[onnx]==1.9.0
+pip install rfdetr[onnx]==1.9.1
 ```
+
+---
+
+## Preprocessing parity
+
+An exported model only reproduces `predict()`'s numbers if the caller resizes the way `predict()`
+does: **bilinear, half-pixel centers, no antialias filter**, on the raw tensor, then ImageNet
+mean/std normalization. 1.9.1 added `rfdetr/export/_resize.py` and routed upstream's own ONNX/TFLite
+inference helpers, INT8 calibration, and benchmark paths through it, replacing
+`PIL.Image.resize(BILINEAR)` — which low-pass filters on downscale and drifts from training.
+
+This project's C++ preprocessing (`media.cpp::preprocess_bgr_image`) uses exactly that convention:
+`src = (dst + 0.5) * scale - 0.5`, clamped into the source extent, with a plain 2×2 bilinear tap and
+no area averaging. Segmentation mask upsampling (`resize_threshold_mask`, and the CUDA kernel behind
+`--gpu-postprocess`) uses the same formula.
+
+Writing the convention down exposed one divergence, fixed in this release: the C++ clamped the
+derived *sample index* rather than the *source coordinate*, so output pixels mapping before the first
+source pixel kept a negative interpolation weight and extrapolated past the edge instead of holding
+it. Mask upsampling always upscales, so this affected the leading rows and columns of every mask.
+The convention is now locked in by `PreprocessFrame.ResizeIsAntialiasFree`,
+`MaskResize.HalfPixelCenterBilinear`, `MaskResize.LeadingEdgeClampsInsteadOfExtrapolating`, and
+`PreprocessFrame.UpscaleDoesNotExtrapolatePastEdge`.
 
 ---
 
@@ -132,15 +158,28 @@ RF-DETR 1.9.0 adds ExecuTorch (`.pte`) export for on-device inference. The C++ s
 through the ExecuTorch backend (`-DUSE_EXECUTORCH=ON`).
 
 ```bash
-pip install 'rfdetr[executorch]==1.9.0'
+pip install 'rfdetr[executorch]==1.9.1'
+pip show executorch   # confirm the runtime version it resolved
 ```
 
 > [!IMPORTANT]
-> Pin the version. `rfdetr[executorch]` does not constrain ExecuTorch itself, and `.pte` schema
-> compatibility across ExecuTorch releases is not guaranteed. `rfdetr[executorch]==1.9.0` resolves
-> ExecuTorch **1.3.1**, which is the C++ runtime version this project pins in
-> `cmake/deps/packages/ExecuTorch.cmake`. An unpinned install can pull a newer exporter whose `.pte`
-> the runtime cannot load.
+> Pinning `rfdetr` is not enough. The extra only constrains ExecuTorch to `>=1.3,<2.0`, so the
+> resolved runtime moves as ExecuTorch publishes releases — `rfdetr[executorch]==1.9.0` resolved
+> **1.3.1**, the same pin resolves **1.4.0** today — and `.pte` schema compatibility across
+> ExecuTorch releases is not guaranteed. This project pins the C++ runtime to **v1.4.0** in
+> `cmake/deps/packages/ExecuTorch.cmake`; check `pip show executorch` after installing and pin it
+> explicitly (`pip install 'executorch==1.4.0'`) if it differs from the runtime you build against.
+
+> [!WARNING]
+> **A 1.9.1 `.pte` needs the optimized kernel set.** 1.9.1 recombines the `addmm` ops XNNPACK
+> leaves un-delegated back into `aten.linear` — 6 such calls in an `RFDETRNano` export at 384×384,
+> which is where its ~2.5× XNNPACK speedup comes from. `aten::linear.out` is registered only by
+> ExecuTorch's optimized kernels; the portable set registers `addmm.out` and `mm.out` but not
+> `linear.out`, so a portable-only runtime fails at load with an unregistered-operator error.
+> Build the ExecuTorch prefix with `-DEXECUTORCH_BUILD_KERNELS_OPTIMIZED=ON` (it defaults to `OFF`);
+> see the README section [Building the ExecuTorch install
+> prefix](../README.md#building-the-executorch-install-prefix). The C++ build links
+> `optimized_native_cpu_ops_lib` when the prefix has it and warns at configure time when it does not.
 
 ### Using Python Script
 
@@ -206,6 +245,17 @@ identical detections — same count, classes, and order at thresholds 0.5 and 0.
 box delta of 1e-4 px and score delta of 1e-6. The ExecuTorch backend requires no preprocessing or
 postprocessing differences from the ONNX Runtime path.
 
+Re-run for 1.9.1 (`rfdetr[onnx,executorch]==1.9.1`, ExecuTorch runtime v1.4.0 built with
+`EXECUTORCH_BUILD_KERNELS_OPTIMIZED=ON`, `data/dog.jpg`): both backends found the same 3 detections
+with boxes equal to every printed digit and scores differing by at most 1e-6 (`car` 0.854236 vs
+0.854237). Against the previous portable-only prefix the same `.pte` refused to run:
+
+```
+E executorch:method.cpp:819] Missing operator: [29] aten::linear.out
+E executorch:method.cpp:1125] There are 6 instructions don't have corresponding operator registered
+Error: ExecuTorch forward() failed with error code 20
+```
+
 ---
 
 ## TensorRT Export (Optional)
@@ -223,7 +273,7 @@ model = RFDETRMedium(pretrain_weights=<CHECKPOINT_PATH>)
 model.export(format="tensorrt", fp16=True)  # alias: format="trt"
 ```
 
-Requires `pip install 'rfdetr[tensorrt]==1.9.0'`, which provides `tensorrt` + `polygraphy`. The engine is built in-process through the polygraphy API rather than by shelling out to `trtexec`, so no `trtexec` binary is needed, and it is built for the local GPU architecture. Pass `fp16=False` on TensorRT builds that do not expose the FP16 builder flag.
+Requires `pip install 'rfdetr[tensorrt]==1.9.1'`, which provides `tensorrt` + `polygraphy`. The engine is built in-process through the polygraphy API rather than by shelling out to `trtexec`, so no `trtexec` binary is needed, and it is built for the local GPU architecture. Pass `fp16=False` on TensorRT builds that do not expose the FP16 builder flag.
 
 Note that `[tensorrt]` no longer installs `pycuda` as of 1.9.0 — that moved to the separate `[tensorrt-bench]` extra and is only needed for `TRTInference`'s async benchmarking mode. The standard export-to-engine path is unaffected.
 

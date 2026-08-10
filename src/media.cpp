@@ -29,6 +29,18 @@ namespace {
     return static_cast<uint8_t>(std::clamp(value, 0.0f, 255.0f));
 }
 
+/// Clamp a half-pixel source coordinate ((dst + 0.5) * scale - 0.5) into the source extent.
+///
+/// The coordinate — not the derived sample index — is what must be clamped: on upscale the leading
+/// output pixels map to a negative coordinate, and clamping only the index leaves a negative
+/// interpolation weight, which extrapolates past the edge instead of holding it. torch's
+/// `F.interpolate(mode="bilinear", align_corners=False)` clamps the coordinate, and rfdetr 1.9.1
+/// made that convention explicit in `rfdetr/export/_resize.py`; mask upsampling always upscales, so
+/// this is the border of every mask. Mirrored by `resize_threshold_masks` in gpu/rfdetr_postprocess.cu.
+[[nodiscard]] float clamp_source_coord(float coord, int src_extent) noexcept {
+    return std::clamp(coord, 0.0f, static_cast<float>(src_extent - 1));
+}
+
 void set_pixel(Image &image, int x, int y, Color color) noexcept {
     if (x < 0 || y < 0 || x >= image.width || y >= image.height) {
         return;
@@ -207,13 +219,13 @@ void preprocess_bgr_image(const Image &image, std::span<float> output, int resol
     };
 
     for (int y = 0; y < resolution; ++y) {
-        const float src_y = (static_cast<float>(y) + 0.5f) * scale_y - 0.5f;
-        const int y0 = std::clamp(static_cast<int>(std::floor(src_y)), 0, image.height - 1);
+        const float src_y = clamp_source_coord((static_cast<float>(y) + 0.5f) * scale_y - 0.5f, image.height);
+        const int y0 = std::min(static_cast<int>(src_y), image.height - 1);
         const int y1 = std::min(y0 + 1, image.height - 1);
         const float wy = src_y - static_cast<float>(y0);
         for (int x = 0; x < resolution; ++x) {
-            const float src_x = (static_cast<float>(x) + 0.5f) * scale_x - 0.5f;
-            const int x0 = std::clamp(static_cast<int>(std::floor(src_x)), 0, image.width - 1);
+            const float src_x = clamp_source_coord((static_cast<float>(x) + 0.5f) * scale_x - 0.5f, image.width);
+            const int x0 = std::min(static_cast<int>(src_x), image.width - 1);
             const int x1 = std::min(x0 + 1, image.width - 1);
             const float wx = src_x - static_cast<float>(x0);
             const size_t dst = static_cast<size_t>(y) * res + static_cast<size_t>(x);
@@ -250,13 +262,13 @@ Mask resize_threshold_mask(std::span<const float> mask, int mask_width, int mask
         return mask[static_cast<size_t>(yy) * mw + static_cast<size_t>(xx)];
     };
     for (int y = 0; y < out_height; ++y) {
-        const float src_y = (static_cast<float>(y) + 0.5f) * scale_y - 0.5f;
-        const int y0 = std::clamp(static_cast<int>(std::floor(src_y)), 0, mask_height - 1);
+        const float src_y = clamp_source_coord((static_cast<float>(y) + 0.5f) * scale_y - 0.5f, mask_height);
+        const int y0 = std::min(static_cast<int>(src_y), mask_height - 1);
         const int y1 = std::min(y0 + 1, mask_height - 1);
         const float wy = src_y - static_cast<float>(y0);
         for (int x = 0; x < out_width; ++x) {
-            const float src_x = (static_cast<float>(x) + 0.5f) * scale_x - 0.5f;
-            const int x0 = std::clamp(static_cast<int>(std::floor(src_x)), 0, mask_width - 1);
+            const float src_x = clamp_source_coord((static_cast<float>(x) + 0.5f) * scale_x - 0.5f, mask_width);
+            const int x0 = std::min(static_cast<int>(src_x), mask_width - 1);
             const int x1 = std::min(x0 + 1, mask_width - 1);
             const float wx = src_x - static_cast<float>(x0);
             const float p00 = m(y0, x0);

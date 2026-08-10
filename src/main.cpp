@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstring>
 #include <iostream>
+#include <optional>
 #include <unordered_set>
 
 namespace {
@@ -31,14 +32,46 @@ constexpr const char *kBackendDescription = "ONNX Runtime — .onnx";
 constexpr const char *kBackendBuildFlags = "-DUSE_ONNX_RUNTIME=ON";
 #endif
 
+// Numeric options report a bad value against the flag it belongs to: std::stoi/std::stof throw on a
+// typo, and an uncaught exception here would abort before the usage text can help.
+bool parse_int_option(const char *flag, const char *value, std::optional<int> &out) {
+    try {
+        size_t consumed = 0;
+        const int parsed = std::stoi(value, &consumed);
+        if (consumed == std::strlen(value)) {
+            out = parsed;
+            return true;
+        }
+    } catch (const std::exception &) {
+        // fall through to the shared error message
+    }
+    std::cerr << "Error: " << flag << " expects an integer, got '" << value << "'" << std::endl;
+    return false;
+}
+
+bool parse_float_option(const char *flag, const char *value, std::optional<float> &out) {
+    try {
+        size_t consumed = 0;
+        const float parsed = std::stof(value, &consumed);
+        if (consumed == std::strlen(value)) {
+            out = parsed;
+            return true;
+        }
+    } catch (const std::exception &) {
+        // fall through to the shared error message
+    }
+    std::cerr << "Error: " << flag << " expects a number, got '" << value << "'" << std::endl;
+    return false;
+}
+
 } // anonymous namespace
 
 int main(int argc, const char *argv[]) {
     if (argc < 4) {
         std::cerr << "Usage: " << argv[0]
                   << " <path_to_model> <path_to_image_or_video> <path_to_coco_labels> [--segmentation|--keypoint] "
-                     "[--threshold <val>] [--display] [--gpu-preprocess] [--gpu-postprocess] "
-                     "[--dali-pipeline-dir <dir>]"
+                     "[--threshold <val>] [--resolution <px>] [--max-detections <n>] [--mask-threshold <val>] "
+                     "[--display] [--gpu-preprocess] [--gpu-postprocess] [--dali-pipeline-dir <dir>]"
                   << std::endl;
         std::cerr << "Examples:" << std::endl;
         std::cerr << "  Detection:    " << argv[0] << " " << kExampleModel << " ./image.jpg ./coco_labels.txt"
@@ -51,6 +84,8 @@ int main(int argc, const char *argv[]) {
                   << std::endl;
         std::cerr << "  Video+display:" << argv[0] << " " << kExampleModel << " ./video.mp4 ./coco_labels.txt --display"
                   << std::endl;
+        std::cerr << "  Tuned:        " << argv[0] << " " << kExampleModel
+                  << " ./image.jpg ./coco_labels.txt --threshold 0.7 --max-detections 100" << std::endl;
         std::cerr << "  GPU pipeline: " << argv[0]
                   << " ./model.engine ./image.jpg ./coco_labels.txt --segmentation --gpu-preprocess --gpu-postprocess"
                   << std::endl;
@@ -74,7 +109,12 @@ int main(int argc, const char *argv[]) {
     bool gpu_preprocess = false;
     bool gpu_postprocess = false;
     std::filesystem::path dali_pipeline_dir = "data/dali";
-    float threshold = -1.0f; // -1 = use Config default
+    // Unset means "leave the Config default alone" — a plain sentinel value would be ambiguous for
+    // --mask-threshold, whose argument is a logit and may legitimately be negative or zero.
+    std::optional<int> resolution;
+    std::optional<int> max_detections;
+    std::optional<float> threshold;
+    std::optional<float> mask_threshold;
 
     for (int i = 4; i < argc; ++i) {
         if (std::strcmp(argv[i], "--segmentation") == 0) {
@@ -90,10 +130,36 @@ int main(int argc, const char *argv[]) {
         } else if (std::strcmp(argv[i], "--dali-pipeline-dir") == 0 && i + 1 < argc) {
             dali_pipeline_dir = argv[++i];
         } else if (std::strcmp(argv[i], "--threshold") == 0 && i + 1 < argc) {
-            threshold = std::stof(argv[++i]);
+            if (!parse_float_option("--threshold", argv[++i], threshold)) {
+                return 1;
+            }
+        } else if (std::strcmp(argv[i], "--resolution") == 0 && i + 1 < argc) {
+            if (!parse_int_option("--resolution", argv[++i], resolution)) {
+                return 1;
+            }
+        } else if (std::strcmp(argv[i], "--max-detections") == 0 && i + 1 < argc) {
+            if (!parse_int_option("--max-detections", argv[++i], max_detections)) {
+                return 1;
+            }
+        } else if (std::strcmp(argv[i], "--mask-threshold") == 0 && i + 1 < argc) {
+            if (!parse_float_option("--mask-threshold", argv[++i], mask_threshold)) {
+                return 1;
+            }
         }
     }
 
+    if (threshold && (*threshold < 0.0f || *threshold > 1.0f)) {
+        std::cerr << "Error: --threshold must be in [0, 1], got " << *threshold << std::endl;
+        return 1;
+    }
+    if (resolution && *resolution <= 0) {
+        std::cerr << "Error: --resolution must be positive; omit it to auto-detect from the model" << std::endl;
+        return 1;
+    }
+    if (max_detections && *max_detections <= 0) {
+        std::cerr << "Error: --max-detections must be positive" << std::endl;
+        return 1;
+    }
     if (gpu_postprocess && !use_segmentation) {
         std::cerr << "Error: --gpu-postprocess applies to segmentation only; add --segmentation" << std::endl;
         return 1;
@@ -113,19 +179,23 @@ int main(int argc, const char *argv[]) {
 #endif
     try {
         Config config;
-        config.resolution = 0; // 0 = auto-detect from model
+        config.resolution = resolution.value_or(0); // 0 = auto-detect from model
         if (use_keypoint) {
             config.model_type = ModelType::KEYPOINT;
         } else {
             config.model_type = use_segmentation ? ModelType::SEGMENTATION : ModelType::DETECTION;
         }
-        config.max_detections = 300;
-        config.mask_threshold = 0.0F;
         config.gpu_preprocess = gpu_preprocess;
         config.gpu_postprocess = gpu_postprocess;
         config.dali_pipeline_dir = dali_pipeline_dir;
-        if (threshold >= 0.0f) {
-            config.threshold = threshold;
+        if (threshold) {
+            config.threshold = *threshold;
+        }
+        if (max_detections) {
+            config.max_detections = *max_detections;
+        }
+        if (mask_threshold) {
+            config.mask_threshold = *mask_threshold;
         }
 
         if (is_video_file(input_path)) {

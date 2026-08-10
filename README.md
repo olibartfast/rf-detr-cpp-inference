@@ -55,9 +55,9 @@ one is compiled in via `-DUSE_OPENCV=ON/OFF`.
 - Replaces FFmpeg, SDL2, **and** stb entirely — none of those are required when OpenCV is enabled
 
 ### Python / Pip Packages (Export Tooling)
-- **RF-DETR export package**: `rfdetr[onnx]==1.9.0` from `deploy/requirements.txt`
-- **ExecuTorch export (optional)**: `rfdetr[executorch]==1.9.0` — only needed to produce `.pte` models for the ExecuTorch backend. Pin it: the extra does not constrain ExecuTorch itself, and 1.9.0 resolves ExecuTorch 1.3.1, matching the C++ runtime this project pins
-- **TensorRT export (optional)**: `rfdetr[tensorrt]==1.9.0` — provides `tensorrt` + `polygraphy` for in-process engine builds (1.9.0+); `pycuda` moved to the separate `rfdetr[tensorrt-bench]` extra
+- **RF-DETR export package**: `rfdetr[onnx]==1.9.1` from `deploy/requirements.txt`
+- **ExecuTorch export (optional)**: `rfdetr[executorch]==1.9.1` — only needed to produce `.pte` models for the ExecuTorch backend. Pin it: the extra constrains ExecuTorch only to `>=1.3,<2.0`, and 1.9.1 currently resolves ExecuTorch 1.4.0, matching the C++ runtime this project pins. Check what pip actually installed (`pip show executorch`) and pin it explicitly if it differs
+- **TensorRT export (optional)**: `rfdetr[tensorrt]==1.9.1` — provides `tensorrt` + `polygraphy` for in-process engine builds (1.9.0+); `pycuda` moved to the separate `rfdetr[tensorrt-bench]` extra
 - **Python**: 3.10+ (Python 3.11 virtual environment recommended)
 - **pre-commit**: Optional for local hooks; install with `pip install pre-commit`
 
@@ -80,8 +80,8 @@ one is compiled in via `-DUSE_OPENCV=ON/OFF`.
 - **NVIDIA DALI** (for `-DUSE_DALI=ON`): C API libraries + headers staged from a pinned Triton container (`nvcr.io/nvidia/tritonserver:25.12-py3`) via `./scripts/fetch_dali.sh` — NVIDIA ships no standalone C++ DALI distribution. Point the build at the staged directory with `-DDALI_ROOT=<dir>`.
 - See [GPU Pipeline](#gpu-pipeline) for build and usage details
 #### ExecuTorch Backend (Optional)
-- **ExecuTorch**: Version v1.3.1 — resolved from an install prefix via `-DEXECUTORCH_ROOTDIR`, otherwise built from source
-- **Model format**: `.pte`, exported by `rfdetr[executorch]` 1.9.0+
+- **ExecuTorch**: Version v1.4.0, built with `EXECUTORCH_BUILD_KERNELS_OPTIMIZED=ON` — resolved from an install prefix via `-DEXECUTORCH_ROOTDIR`, otherwise built from source
+- **Model format**: `.pte`, exported by `rfdetr[executorch]` 1.9.0+ (1.9.1 exports require the optimized kernel set — see [Building the ExecuTorch install prefix](#building-the-executorch-install-prefix))
 - **Delegate**: XNNPACK (default) or portable CPU kernels, selected with `-DEXECUTORCH_DELEGATE`
 - **Platform**: Linux; CPU inference through the linked delegate
 - **Note**: The delegate linked here must match the one baked into the `.pte` at export time
@@ -98,7 +98,7 @@ This project supports both RF-DETR detection and segmentation models from Robofl
 
 2. **Download the ONNX Model**:
    - Follow instructions in the [export documentation](docs/export.md) to export models in ONNX format.
-   - **Tested with**: `rfdetr[onnx]==1.9.0` (Python 3.10+; 3.11 venv recommended)
+   - **Tested with**: `rfdetr[onnx]==1.9.1` (Python 3.10+; 3.11 venv recommended)
    - **Detection models**: Export with standard configuration (outputs: `dets`, `labels`)
    - **Segmentation models**: Export with segmentation configuration (outputs: `dets`, `labels`, `masks`)
    - **Keypoint models**: Export with keypoint configuration (outputs: `dets`, `labels`, `keypoints`)
@@ -370,12 +370,12 @@ cmake --build build --parallel
 
 #### Building the ExecuTorch install prefix
 
-ExecuTorch **v1.3.1** is the pinned version — it matches the ExecuTorch that
-`rfdetr[executorch]==1.9.0` installs for the Python exporter, and `.pte` schema
+ExecuTorch **v1.4.0** is the pinned version — it matches the ExecuTorch that
+`rfdetr[executorch]==1.9.1` installs for the Python exporter, and `.pte` schema
 compatibility across runtime versions is not guaranteed.
 
 ```bash
-git clone --depth 1 -b v1.3.1 https://github.com/pytorch/executorch.git
+git clone --depth 1 -b v1.4.0 https://github.com/pytorch/executorch.git
 cd executorch && git submodule update --init --recursive --depth 1
 
 # ExecuTorch runs operator codegen through PYTHON_EXECUTABLE during its own
@@ -385,11 +385,6 @@ python3 -m venv /tmp/et-venv
 /tmp/et-venv/bin/pip install --index-url https://download.pytorch.org/whl/cpu torch
 /tmp/et-venv/bin/pip install pyyaml setuptools
 
-# Required: upstream v1.3.1 installs extension_evalue_util into the *build* tree
-# instead of the install prefix, which makes find_package fail later. See note below.
-sed -i 's|DESTINATION ${CMAKE_BINARY_DIR}/lib|DESTINATION ${CMAKE_INSTALL_LIBDIR}|' \
-    extension/evalue_util/CMakeLists.txt
-
 cmake -S . -B cmake-out -GNinja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX=$HOME/dependencies/executorch \
@@ -398,6 +393,7 @@ cmake -S . -B cmake-out -GNinja \
   -DEXECUTORCH_BUILD_EXTENSION_TENSOR=ON \
   -DEXECUTORCH_BUILD_EXTENSION_DATA_LOADER=ON \
   -DEXECUTORCH_BUILD_EXTENSION_NAMED_DATA_MAP=ON \
+  -DEXECUTORCH_BUILD_KERNELS_OPTIMIZED=ON \
   -DEXECUTORCH_BUILD_XNNPACK=ON \
   -DPYTHON_EXECUTABLE=/tmp/et-venv/bin/python
 
@@ -407,17 +403,31 @@ cmake --build cmake-out -j"$(nproc)" && cmake --install cmake-out
 Build ExecuTorch with the **same compiler** you build this project with, so both
 link against one C++ runtime.
 
-> **Upstream bug (v1.3.1)** — `extension/evalue_util/CMakeLists.txt:27` uses
+> **`-DEXECUTORCH_BUILD_KERNELS_OPTIMIZED=ON` is required, not optional.** It defaults to
+> `OFF`, and without it the prefix ships only `portable_ops_lib`, which registers
+> `aten::addmm.out` and `aten::mm.out` but no `aten::linear.out`. rfdetr 1.9.1 recombines
+> the `addmm` ops XNNPACK leaves un-delegated back into `aten.linear` (6 such calls in an
+> `RFDETRNano` export), so a `.pte` from 1.9.1 fails at load on a portable-only prefix.
+> The build links `optimized_native_cpu_ops_lib` when the prefix provides it — it is a
+> superset of the portable set — and falls back to `portable_ops_lib` with a CMake warning
+> when it does not. Exactly one op library is linked either way: each registers its kernels
+> from a static initializer, and registering an op twice aborts the runtime at startup.
+
+> **Upstream bug (v1.3.1 and earlier)** — `extension/evalue_util/CMakeLists.txt` used
 > `DESTINATION ${CMAKE_BINARY_DIR}/lib` where every other extension uses
-> `${CMAKE_INSTALL_LIBDIR}`. Without the `sed` above, `libextension_evalue_util.a` never
-> reaches `<prefix>/lib` and its exported target keeps an absolute build-tree path, so
-> `find_package(executorch CONFIG)` hard-fails once the build tree is deleted — even
-> though this project never links that target. The FetchContent fallback is unaffected,
-> because it uses the targets directly and never runs the faulty `install()` rule.
+> `${CMAKE_INSTALL_LIBDIR}`, so `libextension_evalue_util.a` never reached `<prefix>/lib`
+> and its exported target kept an absolute build-tree path, making
+> `find_package(executorch CONFIG)` hard-fail once the build tree was deleted — even
+> though this project never links that target. Fixed in v1.4.0. On an older tag, patch it
+> before configuring:
+> ```bash
+> sed -i 's|DESTINATION ${CMAKE_BINARY_DIR}/lib|DESTINATION ${CMAKE_INSTALL_LIBDIR}|' \
+>     extension/evalue_util/CMakeLists.txt
+> ```
 
 **What happens**:
 - `EXECUTORCH_ROOTDIR` is added to `CMAKE_PREFIX_PATH` and resolved with `find_package(executorch CONFIG)`
-- If no install prefix is found, the build falls back to compiling ExecuTorch v1.3.1 from source (slow; needs a Python interpreter with ExecuTorch's build-time dependencies, since ExecuTorch runs flatbuffers codegen during its own configure)
+- If no install prefix is found, the build falls back to compiling ExecuTorch v1.4.0 from source with the optimized kernels enabled (slow; needs a Python interpreter with ExecuTorch's build-time dependencies, since ExecuTorch runs flatbuffers codegen during its own configure)
 - `-DEXECUTORCH_DELEGATE=xnnpack` (default) or `portable` selects the delegate library to link, which must match the delegate the `.pte` was exported with — a mismatch fails at run time, not at link time
 - At load the backend verifies the program returns `dets` before `labels`, since ExecuTorch outputs are an unnamed tuple and postprocessing addresses them positionally
 
@@ -557,15 +567,28 @@ Video with segmentation:
 
 Supported video formats: `.mp4`, `.avi`, `.mov`, `.mkv`, `.webm`, `.flv`, `.wmv`. Output is written to `output_video.mp4`.
 
-#### Custom Confidence Threshold
+#### Tuning Flags
 
-Override the default confidence threshold (0.5) without recompiling using the `--threshold` flag:
+The inference parameters can be overridden without recompiling:
+
+| Flag | Default | Effect |
+|------|---------|--------|
+| `--threshold <val>` | `0.5` | Confidence threshold for keeping a detection; must be in `[0, 1]` |
+| `--resolution <px>` | auto-detect | Model input resolution; omit to detect it from the model |
+| `--max-detections <n>` | `300` | Top-k cap on the number of predictions considered |
+| `--mask-threshold <val>` | `0.0` | Mask logit cutoff for binary mask generation (segmentation only); may be negative |
 
 ```bash
-./build/inference_app /path/to/model.onnx /path/to/image.jpg /path/to/coco-labels-91.txt --threshold 0.7
+./build/inference_app /path/to/model.onnx /path/to/image.jpg /path/to/coco-labels-91.txt \
+  --threshold 0.7 --max-detections 100
+
+./build/inference_app /path/to/model.onnx /path/to/image.jpg /path/to/coco-labels-91.txt \
+  --segmentation --mask-threshold 0.5
 ```
 
-`--threshold` works with all modes (`--segmentation`, `--keypoint`, video input, and `--display`).
+These flags work with all modes (`--segmentation`, `--keypoint`, video input, and `--display`). `--resolution`
+is only useful for models that accept an input size other than the one recorded in the model file — the
+auto-detected value is correct for a normally exported model.
 
 #### Using Pre-built TensorRT Engine
 
@@ -674,17 +697,28 @@ consistent with the TensorRT 10.13.3.9 / CUDA 13.x pin above.
 
 ## Configuration
 
-The inference engine supports various configuration options that can be modified in `src/main.cpp`:
+`Config` (`src/rfdetr_inference.hpp`) holds the inference settings. Most of them are reachable from the
+command line — see [Tuning Flags](#tuning-flags) — and the rest require editing `src/main.cpp`:
 
-- **Model Type**: `ModelType::DETECTION`, `ModelType::SEGMENTATION`, or `ModelType::KEYPOINT` (selected via the `--segmentation` / `--keypoint` CLI flags)
-- **Resolution**: Set to `0` for auto-detection from model, or specify manually (e.g., `432`, `560`)
-- **Confidence Threshold**: Default `0.5` (adjustable in `Config::threshold`)
-- **Max Detections**: Default `300` for top-k selection (adjustable in `Config::max_detections`)
-- **Mask Threshold**: Default `0.0` for binary mask generation (adjustable in `Config::mask_threshold`)
-- **Normalization**: ImageNet mean `[0.485, 0.456, 0.406]` and std `[0.229, 0.224, 0.225]`
-- **GPU Pipeline**: `Config::gpu_preprocess` / `Config::gpu_postprocess` (set via the `--gpu-preprocess` / `--gpu-postprocess` CLI flags, default `false`), `Config::dali_pipeline_dir` (default `data/dali`, via `--dali-pipeline-dir`), and `Config::gpu_device_id` (default `0`)
+| `Config` field | Default | CLI override |
+|----------------|---------|--------------|
+| `model_type` | `ModelType::DETECTION` | `--segmentation` / `--keypoint` |
+| `threshold` | `0.5` | `--threshold <val>` |
+| `resolution` | auto-detected from the model | `--resolution <px>` |
+| `max_detections` | `300` (top-k selection) | `--max-detections <n>` |
+| `mask_threshold` | `0.0` (binary mask generation) | `--mask-threshold <val>` |
+| `gpu_preprocess` / `gpu_postprocess` | `false` | `--gpu-preprocess` / `--gpu-postprocess` |
+| `dali_pipeline_dir` | `data/dali` | `--dali-pipeline-dir <dir>` |
+| `gpu_device_id` | `0` | — (edit `src/main.cpp`) |
+| `means` / `stds` | ImageNet `[0.485, 0.456, 0.406]` / `[0.229, 0.224, 0.225]` | — (edit `src/main.cpp`) |
+| `keypoint_*`, `skeleton`, `draw_uncertainty` | COCO 17-keypoint layout | — (edit `src/main.cpp`) |
+
+`src/main.cpp` leaves every field it does not override at its `Config` default, so changing a default in
+`src/rfdetr_inference.hpp` is enough for the fields with no CLI flag.
 
 ### Example Custom Configuration
+
+When embedding `RFDETRInference` rather than using the CLI:
 
 ```cpp
 Config config;
@@ -693,6 +727,8 @@ config.threshold = 0.6f;            // Higher confidence threshold
 config.max_detections = 100;        // Fewer detections
 config.mask_threshold = 0.5f;       // More conservative masks
 config.model_type = ModelType::SEGMENTATION;
+
+RFDETRInference inference(model_path, label_path, config);
 ```
 
 ---
@@ -866,8 +902,9 @@ A single parametric `Dockerfile` builds the full **inference-backend × media-ba
 > **ExecuTorch images build the ExecuTorch C++ runtime from source** (there is no distro
 > or registry package), so the first build is slow — it clones ExecuTorch with recursive
 > submodules and installs a CPU-only `torch` wheel for the operator codegen. Pin a
-> different runtime with `--build-arg EXECUTORCH_VERSION=<tag>`; it defaults to `v1.3.1`
-> to match the exporter that `rfdetr[executorch]==1.9.0` installs. The build applies the
+> different runtime with `--build-arg EXECUTORCH_VERSION=<tag>`; it defaults to `v1.4.0`
+> to match the exporter that `rfdetr[executorch]==1.9.1` installs, and enables the optimized
+> kernel set that 1.9.1 `.pte` files need. The build applies the
 > upstream `extension_evalue_util` install fix automatically. ExecuTorch links
 > statically, so the runtime image ships no extra shared libraries and needs no GPU.
 
