@@ -171,7 +171,7 @@ RUN CUDA_INC=""; \
 # for ExecuTorch, which is static-linked (.a) into inference_app — nothing to ship.
 RUN mkdir -p /staging/ort && \
     if [ "$INFERENCE_BACKEND" = "onnx" ]; then \
-        cp /workspace/build/_deps/onnxruntime-linux-x64-*/lib/libonnxruntime.so* /staging/ort/ ; \
+        cp /workspace/build/_deps/onnxruntime-linux-*/lib/libonnxruntime.so* /staging/ort/ ; \
     fi
 
 # =============================================================================

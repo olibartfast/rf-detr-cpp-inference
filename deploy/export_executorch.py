@@ -108,7 +108,7 @@ def main():
     print("\nModel outputs:")
     print("  - dets: Bounding boxes [batch, num_queries, 4]")
     print("  - labels: Class logits [batch, num_queries, num_classes]")
-    print("\nNote: ExecuTorch export requires 'pip install rfdetr[executorch]==1.9.1'.")
+    print("\nNote: ExecuTorch export requires 'pip install rfdetr[executorch]==1.9.2'.")
     print("      The extra only constrains ExecuTorch to >=1.3,<2.0, so check what it")
     print("      installed ('pip show executorch'): the .pte must be exported with the")
     print("      same version as the C++ runtime, which this project pins to v1.4.0.")

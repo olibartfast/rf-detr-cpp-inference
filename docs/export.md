@@ -4,15 +4,16 @@ Follow the procedure listed at https://rfdetr.roboflow.com/learn/deploy/
 ## Requirements
 
 > [!IMPORTANT]
-> - Python version: **3.10+** (upstream `rfdetr` 1.9.1; Python 3.11 venv still recommended here)
+> - Python version: **3.10+** (upstream `rfdetr` 1.9.2; Python 3.11 venv still recommended here)
 > - Starting with RF-DETR 1.6.0, the export extra was renamed: use `pip install rfdetr[onnx]`
-> - **Tested version**: `rfdetr[onnx]==1.9.1`
+> - **Tested version**: `rfdetr[onnx]==1.9.2`
 > - Starting with RF-DETR 1.7.0, ONNX exports use variant filenames (e.g. `rfdetr-medium.onnx`, `rfdetr-seg-medium.onnx`) instead of the generic `inference_model.onnx`
 > - The `--simplify` flag was removed in 1.8.0 (already deprecated in 1.7.0). Export scripts no longer accept it.
 > - RF-DETR 1.8.x adds keypoint model export support via `RFDETRKeypointPreview`.
 > - 1.9.0 relaxes the `onnxsim` pin to `>=0.7.0`. Earlier releases pinned `<0.6.0`, which had no prebuilt wheels for CPython 3.11/3.13 and made `pip install rfdetr[onnx]` hang building it from source — relevant here because this guide recommends a 3.11 venv.
 > - 1.9.0 fixes ONNX export at a non-native resolution, which previously crashed.
 > - 1.9.0 adds ExecuTorch (`.pte`) export via `rfdetr[executorch]`; see [ExecuTorch Model Export](#executorch-model-export).
+> - 1.9.2 changes hierarchical COCO label mapping: unannotated grouping categories no longer consume a class slot, and all splits share the training split mapping. Retrain pre-1.9.2 checkpoints when adopting the re-filtered label space; otherwise per-class metrics can be misaligned. Exported model I/O is unchanged.
 > - 1.9.1 gates the extras to interpreters that ship wheels: `[onnx]` pins `onnxruntime<1.24` on Python 3.10 (newer releases dropped cp310 wheels), and `[executorch]` installs empty on Python 3.14 (ExecuTorch ships cp310–cp313 only). On the recommended 3.11 venv both resolve exactly as before.
 > - 1.9.1 makes the exported models' own inference helpers resize the way `predict()` does (bilinear, half-pixel centers, `antialias=False`) instead of PIL's antialiased filters. This C++ project already resizes that way — see [Preprocessing parity](#preprocessing-parity) — so exported ONNX/`.pte` models score here exactly as they did before; only upstream's Python-side ONNX/TFLite inference and INT8 calibration change. Re-export INT8 TFLite models if you ship any (not consumed by this project).
 > - 1.9.1 speeds up ExecuTorch/XNNPACK export ~2.5× by recombining undelegated `addmm` into `aten.linear`. **This changes which kernels the `.pte` needs at run time** — see [ExecuTorch Model Export](#executorch-model-export).
@@ -32,7 +33,7 @@ python3.11 -m venv rfdetr_venv
 source rfdetr_venv/bin/activate
 
 # Install RF-DETR with export dependencies (tested version)
-pip install rfdetr[onnx]==1.9.1
+pip install rfdetr[onnx]==1.9.2
 ```
 
 ---
@@ -158,7 +159,7 @@ RF-DETR 1.9.0 adds ExecuTorch (`.pte`) export for on-device inference. The C++ s
 through the ExecuTorch backend (`-DUSE_EXECUTORCH=ON`).
 
 ```bash
-pip install 'rfdetr[executorch]==1.9.1'
+pip install 'rfdetr[executorch]==1.9.2'
 pip show executorch   # confirm the runtime version it resolved
 ```
 
@@ -273,7 +274,7 @@ model = RFDETRMedium(pretrain_weights=<CHECKPOINT_PATH>)
 model.export(format="tensorrt", fp16=True)  # alias: format="trt"
 ```
 
-Requires `pip install 'rfdetr[tensorrt]==1.9.1'`, which provides `tensorrt` + `polygraphy`. The engine is built in-process through the polygraphy API rather than by shelling out to `trtexec`, so no `trtexec` binary is needed, and it is built for the local GPU architecture. Pass `fp16=False` on TensorRT builds that do not expose the FP16 builder flag.
+Requires `pip install 'rfdetr[tensorrt]==1.9.2'`, which provides `tensorrt` + `polygraphy`. The engine is built in-process through the polygraphy API rather than by shelling out to `trtexec`, so no `trtexec` binary is needed, and it is built for the local GPU architecture. Pass `fp16=False` on TensorRT builds that do not expose the FP16 builder flag.
 
 Note that `[tensorrt]` no longer installs `pycuda` as of 1.9.0 — that moved to the separate `[tensorrt-bench]` extra and is only needed for `TRTInference`'s async benchmarking mode. The standard export-to-engine path is unaffected.
 

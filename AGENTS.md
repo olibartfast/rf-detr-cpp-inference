@@ -44,6 +44,7 @@ The `executorch` variant builds the ExecuTorch runtime from source into `/opt/ex
 - Strict warnings (CI): `-DWERROR=ON` at configure time
 
 ## Release Documentation Sync
+- Mandatory: before acting on any release, version-alignment, or dependency-sync request, read `AGENTS.md`, `README.md`, and `CHANGELOG.md`, then verify the named release against the official upstream project. Never assume that an upstream version is a local Git tag or infer the required scope from the version string alone; inspect the repository documentation and upstream release notes/diff first.
 - Mandatory for every release or dependency-facing patch: update `README.md` in the same change when code, build options, backend versions, Docker images, or Python export packages change.
 - Verify README dependency/version statements against `CMakeLists.txt`, `CMakePresets.json`, `deploy/requirements.txt`, `Dockerfile*`, and `docs/export.md`.
 - README must list current C++ library/runtime versions, CMake options, backend constraints, and pip packages used for export tooling.
