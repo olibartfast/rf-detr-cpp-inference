@@ -7,6 +7,66 @@ upstream `rfdetr` releases it is kept in step with.
 
 ## [Unreleased]
 
+### Fixed: ONNX Runtime download ignored the target platform
+
+`cmake/deps/packages/OnnxRuntime.cmake` hard-coded the `onnxruntime-linux-x64`
+archive URL, extracted directory, and `.so` path, so a provided-download build on
+any non-x86-64 host fetched the x86-64 archive: every source file compiled and the
+link then failed on incompatible objects. The catalog entry now derives the
+archive from `CMAKE_SYSTEM_NAME` and `CMAKE_SYSTEM_PROCESSOR`, covering the
+official CPU packages for Linux (`x64`, `aarch64`) and Windows (`x64`, `arm64`)
+with the right extension (`.tgz`/`.zip`) and link/runtime library names
+(`libonnxruntime.so.<ver>` vs `onnxruntime.lib` + `onnxruntime.dll`).
+Because the selection follows the *target* processor, cross-compilation resolves
+the target's archive rather than the host's. An unsupported target now fails at
+configure time with a message pointing at `ONNXRUNTIME_ROOTDIR`, conan, or vcpkg,
+instead of producing a link error at the end of a full build.
+
+| File | Change |
+|------|--------|
+| `cmake/deps/packages/OnnxRuntime.cmake` | OS/architecture-derived archive, extension, and library paths; `FATAL_ERROR` on unsupported targets. |
+| `Dockerfile` | ONNX Runtime staging glob is architecture-neutral (`onnxruntime-linux-*`), so the `onnx` image builds on arm64. |
+| `README.md` | Documents the per-target archive table and the supported-platform behaviour. |
+| `docs/package-manager-architecture.md` | Catalog example matches the computed declaration and notes that entries may compute values from the target platform. |
+
+---
+
+### RF-DETR 1.9.2 alignment
+
+**Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.9.2
+
+RF-DETR 1.9.2 is a fix-and-performance release with no new public APIs and no
+changes to exported model inputs, outputs, preprocessing, or runtime operator
+requirements. The C++ inference implementation therefore needs no compatibility
+change; the export package pins and current release guidance move to 1.9.2.
+
+#### Breaking upstream dataset change
+
+Hierarchical COCO datasets now share one label mapping derived from the training
+split, and unannotated grouping/root categories no longer consume a class slot.
+This fixes Roboflow COCO exports that previously produced an N+1-class head or
+split-dependent label indices. Checkpoints trained before 1.9.2 retain their old
+head width and label ordering; evaluating them against a dataset re-filtered by
+1.9.2 can misalign per-class metrics. Retrain those checkpoints when adopting the
+new label space. This affects Python training and dataset evaluation, not C++
+postprocessing of an already-exported model.
+
+#### Changed
+
+| File | Change |
+|------|--------|
+| `deploy/requirements.txt` | `rfdetr[onnx]` 1.9.1 → 1.9.2. |
+| `deploy/export_executorch.py` | Current ExecuTorch exporter install guidance moved to `rfdetr[executorch]==1.9.2`; the 1.9.1 `aten::linear.out` compatibility explanation remains applicable. |
+| `README.md`, `docs/export.md` | Current ONNX, ExecuTorch, and TensorRT export pins moved to 1.9.2; historical 1.9.1 behaviour and runtime requirements remain documented. |
+| `tests/integration/integration_test_rfdetr_inference.cpp` | Missing-model guidance now names rfdetr 1.9.2. |
+| `AGENTS.md` | Added a mandatory rule to inspect repository documentation and verify official upstream release information before acting on version-alignment requests. |
+
+The upstream matcher memory/time improvements, checkpoint-resume fixes, training
+determinism changes, and Python-side prediction optimizations do not map to code
+paths implemented by this repository.
+
+---
+
 ### RF-DETR 1.9.1 alignment
 
 **Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.9.1

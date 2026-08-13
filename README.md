@@ -55,17 +55,25 @@ one is compiled in via `-DUSE_OPENCV=ON/OFF`.
 - Replaces FFmpeg, SDL2, **and** stb entirely — none of those are required when OpenCV is enabled
 
 ### Python / Pip Packages (Export Tooling)
-- **RF-DETR export package**: `rfdetr[onnx]==1.9.1` from `deploy/requirements.txt`
-- **ExecuTorch export (optional)**: `rfdetr[executorch]==1.9.1` — only needed to produce `.pte` models for the ExecuTorch backend. Pin it: the extra constrains ExecuTorch only to `>=1.3,<2.0`, and 1.9.1 currently resolves ExecuTorch 1.4.0, matching the C++ runtime this project pins. Check what pip actually installed (`pip show executorch`) and pin it explicitly if it differs
-- **TensorRT export (optional)**: `rfdetr[tensorrt]==1.9.1` — provides `tensorrt` + `polygraphy` for in-process engine builds (1.9.0+); `pycuda` moved to the separate `rfdetr[tensorrt-bench]` extra
+- **RF-DETR export package**: `rfdetr[onnx]==1.9.2` from `deploy/requirements.txt`
+- **ExecuTorch export (optional)**: `rfdetr[executorch]==1.9.2` — only needed to produce `.pte` models for the ExecuTorch backend. Pin it: the extra constrains ExecuTorch only to `>=1.3,<2.0`. Check what pip actually installed (`pip show executorch`) and ensure it matches the C++ runtime this project pins to v1.4.0
+- **TensorRT export (optional)**: `rfdetr[tensorrt]==1.9.2` — provides `tensorrt` + `polygraphy` for in-process engine builds (1.9.0+); `pycuda` moved to the separate `rfdetr[tensorrt-bench]` extra
 - **Python**: 3.10+ (Python 3.11 virtual environment recommended)
 - **pre-commit**: Optional for local hooks; install with `pip install pre-commit`
 
 ### Backend-Specific Dependencies
 
 #### ONNX Runtime Backend (Default)
-- **ONNX Runtime**: Version 1.21.0 — the default download is the **Linux x64 CPU** archive (`onnxruntime-linux-x64-1.21.0.tgz`)
-- **Platform**: Linux x64 out of the box. For other platforms, supply your own build — point `-DONNXRUNTIME_ROOTDIR=<prefix>` at it, or use the conan/vcpkg coordinates (`onnxruntime/1.21.0` / `onnxruntime`)
+- **ONNX Runtime**: Version 1.21.0 — the official CPU archive is downloaded automatically, selected from the **target** OS and architecture (`CMAKE_SYSTEM_NAME` / `CMAKE_SYSTEM_PROCESSOR`), so cross-compiling picks the target's archive rather than the host's:
+
+  | Target | Archive |
+  |--------|---------|
+  | Linux x86_64 / amd64 | `onnxruntime-linux-x64-1.21.0.tgz` |
+  | Linux aarch64 / arm64 | `onnxruntime-linux-aarch64-1.21.0.tgz` |
+  | Windows x86_64 / amd64 | `onnxruntime-win-x64-1.21.0.zip` |
+  | Windows arm64 | `onnxruntime-win-arm64-1.21.0.zip` |
+
+- **Platform**: Any combination in the table above works out of the box. Anything else (macOS, 32-bit Windows, other processors) is a configure-time `FATAL_ERROR` telling you to supply your own build — point `-DONNXRUNTIME_ROOTDIR=<prefix>` at it, or use the conan/vcpkg coordinates (`onnxruntime/1.21.0` / `onnxruntime`)
 - **Acceleration**: CPU only. `OnnxRuntimeBackend` creates its session without appending an execution provider, so even a CUDA or DirectML build of ONNX Runtime runs on CPU here until the backend is extended to register one
 
 #### TensorRT Backend (Optional)
@@ -98,7 +106,7 @@ This project supports both RF-DETR detection and segmentation models from Robofl
 
 2. **Download the ONNX Model**:
    - Follow instructions in the [export documentation](docs/export.md) to export models in ONNX format.
-   - **Tested with**: `rfdetr[onnx]==1.9.1` (Python 3.10+; 3.11 venv recommended)
+   - **Tested with**: `rfdetr[onnx]==1.9.2` (Python 3.10+; 3.11 venv recommended)
    - **Detection models**: Export with standard configuration (outputs: `dets`, `labels`)
    - **Segmentation models**: Export with segmentation configuration (outputs: `dets`, `labels`, `masks`)
    - **Keypoint models**: Export with keypoint configuration (outputs: `dets`, `labels`, `keypoints`)
@@ -156,7 +164,7 @@ This project uses **compile-time backend selection**. Choose your backend when b
 
 | Backend | Model format | Best For | Pros | Cons |
 |---------|--------------|----------|------|------|
-| **ONNX Runtime** | `.onnx` | Development, CPU inference | Easy setup, no GPU or extra SDK needed | CPU only as shipped — the default download is the Linux x64 CPU archive and no execution provider is registered |
+| **ONNX Runtime** | `.onnx` | Development, CPU inference | Easy setup, no GPU or extra SDK needed | CPU only as shipped — the download is the CPU archive for the target platform and no execution provider is registered |
 | **TensorRT** | `.engine` / `.trt` (also accepts `.onnx`, building/caching an engine beside it) | Production on NVIDIA GPUs | Maximum performance | GPU-only, requires CUDA/TensorRT |
 | **ExecuTorch** | `.pte` | On-device / edge deployment | Small runtime, delegate-based (XNNPACK) | Requires an ExecuTorch install; rfdetr 1.9.0+ to export |
 
@@ -370,9 +378,9 @@ cmake --build build --parallel
 
 #### Building the ExecuTorch install prefix
 
-ExecuTorch **v1.4.0** is the pinned version — it matches the ExecuTorch that
-`rfdetr[executorch]==1.9.1` installs for the Python exporter, and `.pte` schema
-compatibility across runtime versions is not guaranteed.
+ExecuTorch **v1.4.0** is the pinned C++ runtime. The `rfdetr[executorch]==1.9.2`
+extra allows ExecuTorch `>=1.3,<2.0` and does not guarantee that version; `.pte` schema
+compatibility across ExecuTorch versions is not guaranteed.
 
 ```bash
 git clone --depth 1 -b v1.4.0 https://github.com/pytorch/executorch.git
@@ -903,7 +911,7 @@ A single parametric `Dockerfile` builds the full **inference-backend × media-ba
 > or registry package), so the first build is slow — it clones ExecuTorch with recursive
 > submodules and installs a CPU-only `torch` wheel for the operator codegen. Pin a
 > different runtime with `--build-arg EXECUTORCH_VERSION=<tag>`; it defaults to `v1.4.0`
-> to match the exporter that `rfdetr[executorch]==1.9.1` installs, and enables the optimized
+> to match the exporter used by `rfdetr[executorch]==1.9.2`, and enables the optimized
 > kernel set that 1.9.1 `.pte` files need. The build applies the
 > upstream `extension_evalue_util` install fix automatically. ExecuTorch links
 > statically, so the runtime image ships no extra shared libraries and needs no GPU.
