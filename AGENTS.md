@@ -1,5 +1,11 @@
 # AGENTS.md
 
+## Project Specs
+Read these before starting work; this file covers commands, the specs cover intent.
+- [specs/mission.md](specs/mission.md) — what this project is and the architectural commitments not to break
+- [specs/tech-stack.md](specs/tech-stack.md) — pinned versions and where each pin lives, CMake options, CI coverage
+- [specs/roadmap.md](specs/roadmap.md) — phased work queue, deferred items, and the GPU pipeline design constraints
+
 ## Backend Selection
 Exactly one backend is compiled in; enabling two is a configure-time error.
 - ONNX Runtime (default): 
@@ -27,7 +33,7 @@ The `executorch` variant builds the ExecuTorch runtime from source into `/opt/ex
 - Runtime flags (default off): `--gpu-preprocess`, `--gpu-postprocess` (segmentation only), `--dali-pipeline-dir <dir>` (default `data/dali`)
 - Regenerate `.dali` pipelines for a new resolution: `./scripts/generate_dali_pipelines.sh <res>` (needs `--gpus all` Docker); 432 and 576 are checked in
 - GPU unit tests (`test_gpu_postprocess.cpp`) `GTEST_SKIP()` without a CUDA device; like TensorRT, CI compiles but does not execute GPU paths — test manually
-- Design/phase plan: [docs/GPU_PIPELINE_ROADMAP.md](docs/GPU_PIPELINE_ROADMAP.md)
+- Design constraints and remaining phases: [specs/roadmap.md](specs/roadmap.md)
 
 ## Dependency Resolution
 - Default (`-DDEPS_MODE=apt`): system packages + pinned downloads — no extra tooling

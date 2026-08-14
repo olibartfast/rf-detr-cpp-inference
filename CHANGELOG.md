@@ -7,6 +7,29 @@ upstream `rfdetr` releases it is kept in step with.
 
 ## [Unreleased]
 
+### Documentation: agent-facing `specs/` folder
+
+Added `specs/mission.md`, `specs/tech-stack.md`, and `specs/roadmap.md`, following the
+`specs/` convention from the DeepLearning.AI *AI Coding Workflows* course. `AGENTS.md`
+remains the command reference and now links to them; the specs carry intent, pinned
+versions with the file that owns each pin, and the phased work queue.
+
+| File | Change |
+|------|--------|
+| `specs/mission.md` | New. Purpose, the architectural commitments (one backend at a time, backends behind `InferenceBackend`, CPU/GPU postprocessing parity, mock-injected tests), component map, out-of-scope list. |
+| `specs/tech-stack.md` | New. Versions with their pin locations, backend and media/GPU tables, every CMake option and default, configure-time constraints, CI coverage, and the known pin duplications (TensorRT in two places; `project()` declares no version). |
+| `specs/roadmap.md` | New. Five phases with verification criteria, the deferred list with reasons, and the GPU pipeline design reference. |
+| `docs/GPU_PIPELINE_ROADMAP.md` | **Removed**, folded into `specs/roadmap.md`. Completed phases 1–3 collapse into the design reference (architecture, the 8-rule model contract, the packed output contract, correctness rules, risks); the unbuilt phases 0.3/0.4, 4.3, and 5 become roadmap phases 2–4 with their tolerances intact. |
+| `AGENTS.md`, `README.md` | Link to `specs/` instead of the removed doc. |
+
+No code, build, or version change, so no README dependency statements move.
+
+Noted while writing: the `.gitignore` known issue below is partly stale — `*.pte` is
+now ignored, and `output_video.mp4` has no leading slash so it already matches at any
+depth. Tracked in `specs/roadmap.md` Phase 1.
+
+---
+
 ### Fixed: ONNX Runtime download ignored the target platform
 
 `cmake/deps/packages/OnnxRuntime.cmake` hard-coded the `onnxruntime-linux-x64`
@@ -151,8 +174,8 @@ execution context — no Triton server. Both halves are compile-time optional
 (`-DUSE_DALI`, `-DUSE_CUDA_POSTPROCESS`, or `-DUSE_GPU_PIPELINE` for both) and
 runtime opt-in (`--gpu-preprocess`, `--gpu-postprocess`,
 `--dali-pipeline-dir <dir>`); the CPU paths stay the default, and the ONNX
-Runtime build is untouched. Design and phase plan:
-`docs/GPU_PIPELINE_ROADMAP.md`.
+Runtime build is untouched. Design and phase plan: `docs/GPU_PIPELINE_ROADMAP.md`
+at the time, since folded into `specs/roadmap.md`.
 
 #### Added
 
