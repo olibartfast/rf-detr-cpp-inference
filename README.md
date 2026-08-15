@@ -634,7 +634,8 @@ Both flags default off — the CPU paths remain the default even in a GPU-pipeli
 
 An opt-in pipeline that moves preprocessing and segmentation postprocessing onto
 the GPU, on the same CUDA stream as the TensorRT execution context — no Triton
-server involved. Design constraints and remaining phases: [specs/roadmap.md](specs/roadmap.md).
+server involved. Design constraints: [specs/gpu-pipeline.md](specs/gpu-pipeline.md) — remaining
+phases: [specs/roadmap.md](specs/roadmap.md).
 
 ```
 image bytes ──> DALI "encoded" pipeline ──┐

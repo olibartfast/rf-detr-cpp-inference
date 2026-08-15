@@ -46,6 +46,8 @@ Deliberately not built, each for a recorded reason — see [roadmap.md](roadmap.
 ## Where to go next
 
 - [tech-stack.md](tech-stack.md) — pinned versions, CMake options, CI coverage
-- [roadmap.md](roadmap.md) — the phased work queue and GPU design constraints
-- [AGENTS.md](../AGENTS.md) — build, test, and lint commands
+- [roadmap.md](roadmap.md) — the phased work queue and the deferred list
+- [gpu-pipeline.md](gpu-pipeline.md) — GPU design constraints; the model contract to check any `src/gpu/` change against
+- [features/](features/) — the spec directory for each phase of work
+- [AGENTS.md](../AGENTS.md) — build, test, and lint commands, and the workflow
 - [README.md](../README.md) — full user-facing reference
