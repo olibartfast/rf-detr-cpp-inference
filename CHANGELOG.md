@@ -7,6 +7,45 @@ upstream `rfdetr` releases it is kept in step with.
 
 ## [Unreleased]
 
+### Workflow: spec-driven development loop, four skills, roadmap split
+
+Second pass over the agent workflow, reviewing the previous `specs/` change against the reference
+project for the DeepLearning.AI spec-driven-development course
+([sc-spec-driven-development-files](https://github.com/https-deeplearning-ai/sc-spec-driven-development-files)).
+That workflow is: constitution → feature spec (interview first, then `requirements`/`plan`/
+`validation`) → implement → validate → replan → changelog → merge. We already had the constitution
+and are ahead of the reference on agent replaceability (`AGENTS.md` canonical, with `CLAUDE.md`,
+`.clinerules`, `CONVENTIONS.md`, and `.github/copilot-instructions.md` as thin pointers) and on the
+changelog, which is written by hand with reasoning and per-file tables rather than scraped from
+`git log`. Four gaps were real: no completion state on roadmap phases, no acceptance criteria
+written *before* the work, recurring rituals living as prose that is easy to skip, and a
+`roadmap.md` that was three documents in one.
+
+| File | Change |
+|------|--------|
+| `specs/gpu-pipeline.md` | New. The GPU architecture diagram, the 8-rule model contract, the packed output contract, correctness rules, and the risk table, moved verbatim out of `specs/roadmap.md`. These are standing constraints on `src/gpu/`, not planned work, and were burying the work queue. |
+| `specs/roadmap.md` | Phase items are now `[ ]`/`[x]` checkboxes, so "the next phase" is the first section that is all unticked — mechanically findable rather than inferred from prose. Volatile status ("49 commits ahead of `master`") removed; git-flow model and the v0.5.0 gate kept. Phase content and ordering are unchanged: v0.5.0 still waits on Phases 1–4. |
+| `specs/features/2026-08-15-gpu-parity-fixtures/` | New. `requirements.md`, `plan.md`, `validation.md` for roadmap Phase 2, seeding the convention with the phase that is actually next. Records one thing the roadmap missed: `tests/unit/test_gpu_postprocess.cpp` already covers segmentation postprocess parity including a dense case, so the new `test_gpu_parity.cpp` is for the uncovered half — DALI preprocess versus CPU preprocess on real image geometry. |
+| `.claude/skills/feature-spec/SKILL.md` | New. Next unticked phase → branch from `develop` → three grouped questions before any file is written → the spec triple. Also states when a spec is *not* required, so small fixes stay CHANGELOG-only. |
+| `.claude/skills/rfdetr-alignment/SKILL.md` | New. The standing obligation as a checklist: verify the release against upstream first, classify input/output/operator/API change, move CPU and CUDA postprocessing together, update the pins, and say explicitly when no C++ change is needed. |
+| `.claude/skills/release/SKILL.md` | New. Spec Sync checks, `[Unreleased]` → `[vX.Y.Z]`, the git-flow cut, and the version reconciliation this release owes: `project()` declares none, `vcpkg.json` says `0.1.0`, the README badge says `0.4.0`. |
+| `.claude/skills/gpu-verify/SKILL.md` | New. The gate CI cannot run: the build matrix, the four pre/post combinations with their numeric tolerances, the dense fixture, `compute-sanitizer` over 1000 frames, benchmarks including the flat ones, and confirmation that the default CPU path is bit-identical. |
+| `AGENTS.md` | New "Workflow" section: the loop, the four skills, and when a feature spec is required. "Release Documentation Sync" widens into "Spec Sync" — every existing release rule kept verbatim, plus the reference's replanning discipline, that a `specs/mission.md` or `specs/tech-stack.md` change propagates to `README.md`, `AGENTS.md`, and open feature specs in the same commit. |
+| `specs/mission.md`, `README.md` | Links follow the roadmap split. |
+
+The skills are plain markdown checklists with no agent-specific mechanics beyond the interview
+step, and are linked from `AGENTS.md`, so a Copilot, Cline, or Aider user can follow the same
+procedure by hand. That was the point of the existing pointer-file arrangement and this change does
+not narrow it.
+
+Deliberately not adopted: the course's `changelog` skill (a `git log` scraper — this file's
+per-file tables and reasoning would be lost), and its `TODO.md` / `backlog/` inboxes (the roadmap's
+Deferred table already does that job, with a recorded reason per item).
+
+No code, build, or version change, so no README dependency statements move.
+
+---
+
 ### Documentation: agent-facing `specs/` folder
 
 Added `specs/mission.md`, `specs/tech-stack.md`, and `specs/roadmap.md`, following the
