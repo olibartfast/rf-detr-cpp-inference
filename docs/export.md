@@ -154,6 +154,19 @@ python deploy/export_keypoint.py
 
 This command saves the ONNX keypoint model to the `output` directory as `rfdetr-keypoint-preview.onnx`. The export script also writes a compatibility copy as `rfdetr-keypoint.onnx`.
 
+> [!WARNING]
+> **Keypoint exports from `rfdetr` 1.8.2+ are not decodable by the current default build.**
+> Upstream 1.8.2 changed the default keypoint schema from background-first `[0, 17]` to
+> active-first `[17]` ([#1160](https://github.com/roboflow/rf-detr/pull/1160)), moving person from
+> `class_id=1` to `class_id=0`. `Config::keypoint_counts` still defaults to `{0, 17}` and has no CLI
+> override, so a default export from the pinned 1.9.4 is expected to fail postprocessing with
+> `Keypoint tensor channels (17) not divisible by number of keypoint classes (2)`. Until this is
+> fixed (roadmap Phase 1), export with the legacy schema —
+> `RFDETRKeypointPreviewConfig(num_keypoints_per_class=[0, 17])` — or edit `keypoint_counts` in
+> `src/rfdetr_inference.hpp` and rebuild. Separately, re-export any keypoint model built with 1.8.0:
+> 1.8.1 [#1135](https://github.com/roboflow/rf-detr/pull/1135) fixed eval-mode query routing, and
+> export traces the eval graph.
+
 > [!NOTE]
 > `RFDETRKeypointPreview` is a Preview API — tensor layout may change in future releases.
 

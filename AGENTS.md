@@ -11,7 +11,7 @@ Read these before starting work; this file covers commands, the specs cover inte
 ## Workflow
 The loop: pick the next unticked phase in `specs/roadmap.md` → write its spec → implement from `plan.md` → pass `validation.md` → update `CHANGELOG.md` → merge to `develop` → tick the phase.
 
-A spec directory under `specs/features/YYYY-MM-DD-<name>/` is **required** for a roadmap phase, a release, an upstream `rfdetr` alignment, or any change touching a path CI cannot execute (`src/gpu/`, `src/backends/tensorrt_backend.cpp`, `src/backends/executorch_backend.cpp`, `deploy/export_executorch.py`). It is **not** required for bug fixes, docs, or dependency bumps with no contract change — those go in `CHANGELOG.md` only.
+A spec directory under `specs/features/YYYY-MM-DD-<name>/` is **required** for a roadmap phase, a release, an upstream `rfdetr` alignment, or any change touching a path CI cannot execute (`src/gpu/`, `src/backends/tensorrt_backend.cpp`, `src/backends/executorch_backend.cpp`, `deploy/export_executorch.py`). It is **not** required for bug fixes, docs, or dependency bumps with no contract change — those go in `CHANGELOG.md` only. "CHANGELOG only" is about specs, not a mandate to log everything: `CHANGELOG.md` covers this C++ project's own features and fixes and the upstream `rfdetr` releases it tracks, so changes confined to agent tooling (`specs/`, `.claude/`, `.opencode/`, `AGENTS.md` and its pointer files) are recorded in the commit message alone.
 
 Four workflows are written down as skills. Each is a plain markdown checklist, usable by hand with any agent:
 

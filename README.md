@@ -555,6 +555,11 @@ After building the project, run the inference application:
 ./build/inference_app /path/to/model.onnx /path/to/image.jpg /path/to/coco-labels-91.txt --keypoint
 ```
 
+> [!WARNING]
+> Keypoint models exported with `rfdetr` 1.8.2 or later use the active-first schema (`[17]`) and are
+> not decodable by the default build, which still expects background-first `{0, 17}`. See the
+> keypoint warning in [docs/export.md](docs/export.md#keypoint-model-export).
+
 #### Video Processing
 
 ```bash
