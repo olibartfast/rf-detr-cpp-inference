@@ -55,9 +55,9 @@ one is compiled in via `-DUSE_OPENCV=ON/OFF`.
 - Replaces FFmpeg, SDL2, **and** stb entirely — none of those are required when OpenCV is enabled
 
 ### Python / Pip Packages (Export Tooling)
-- **RF-DETR export package**: `rfdetr[onnx]==1.9.2` from `deploy/requirements.txt`
-- **ExecuTorch export (optional)**: `rfdetr[executorch]==1.9.2` — only needed to produce `.pte` models for the ExecuTorch backend. Pin it: the extra constrains ExecuTorch only to `>=1.3,<2.0`. Check what pip actually installed (`pip show executorch`) and ensure it matches the C++ runtime this project pins to v1.4.0
-- **TensorRT export (optional)**: `rfdetr[tensorrt]==1.9.2` — provides `tensorrt` + `polygraphy` for in-process engine builds (1.9.0+); `pycuda` moved to the separate `rfdetr[tensorrt-bench]` extra
+- **RF-DETR export package**: `rfdetr[onnx]==1.9.4` from `deploy/requirements.txt`
+- **ExecuTorch export (optional)**: `rfdetr[executorch]==1.9.4` — only needed to produce `.pte` models for the ExecuTorch backend. Pin it: the extra constrains ExecuTorch only to `>=1.3,<2.0`. Check what pip actually installed (`pip show executorch`) and ensure it matches the C++ runtime this project pins to v1.4.0
+- **TensorRT export (optional)**: `rfdetr[tensorrt]==1.9.4` — provides `tensorrt` + `polygraphy` for in-process engine builds (1.9.0+); `pycuda` moved to the separate `rfdetr[tensorrt-bench]` extra
 - **Python**: 3.10+ (Python 3.11 virtual environment recommended)
 - **pre-commit**: Optional for local hooks; install with `pip install pre-commit`
 
@@ -89,7 +89,7 @@ one is compiled in via `-DUSE_OPENCV=ON/OFF`.
 - See [GPU Pipeline](#gpu-pipeline) for build and usage details
 #### ExecuTorch Backend (Optional)
 - **ExecuTorch**: Version v1.4.0, built with `EXECUTORCH_BUILD_KERNELS_OPTIMIZED=ON` — resolved from an install prefix via `-DEXECUTORCH_ROOTDIR`, otherwise built from source
-- **Model format**: `.pte`, exported by `rfdetr[executorch]` 1.9.0+ (1.9.1 exports require the optimized kernel set — see [Building the ExecuTorch install prefix](#building-the-executorch-install-prefix))
+- **Model format**: `.pte`, exported by `rfdetr[executorch]` 1.9.0+ (1.9.1+ exports require the optimized kernel set — see [Building the ExecuTorch install prefix](#building-the-executorch-install-prefix))
 - **Delegate**: XNNPACK (default) or portable CPU kernels, selected with `-DEXECUTORCH_DELEGATE`
 - **Platform**: Linux; CPU inference through the linked delegate
 - **Note**: The delegate linked here must match the one baked into the `.pte` at export time
@@ -106,7 +106,7 @@ This project supports both RF-DETR detection and segmentation models from Robofl
 
 2. **Download the ONNX Model**:
    - Follow instructions in the [export documentation](docs/export.md) to export models in ONNX format.
-   - **Tested with**: `rfdetr[onnx]==1.9.2` (Python 3.10+; 3.11 venv recommended)
+   - **Tested with**: `rfdetr[onnx]==1.9.4` (Python 3.10+; 3.11 venv recommended)
    - **Detection models**: Export with standard configuration (outputs: `dets`, `labels`)
    - **Segmentation models**: Export with segmentation configuration (outputs: `dets`, `labels`, `masks`)
    - **Keypoint models**: Export with keypoint configuration (outputs: `dets`, `labels`, `keypoints`)
@@ -378,7 +378,7 @@ cmake --build build --parallel
 
 #### Building the ExecuTorch install prefix
 
-ExecuTorch **v1.4.0** is the pinned C++ runtime. The `rfdetr[executorch]==1.9.2`
+ExecuTorch **v1.4.0** is the pinned C++ runtime. The `rfdetr[executorch]==1.9.4`
 extra allows ExecuTorch `>=1.3,<2.0` and does not guarantee that version; `.pte` schema
 compatibility across ExecuTorch versions is not guaranteed.
 
@@ -415,7 +415,7 @@ link against one C++ runtime.
 > `OFF`, and without it the prefix ships only `portable_ops_lib`, which registers
 > `aten::addmm.out` and `aten::mm.out` but no `aten::linear.out`. rfdetr 1.9.1 recombines
 > the `addmm` ops XNNPACK leaves un-delegated back into `aten.linear` (6 such calls in an
-> `RFDETRNano` export), so a `.pte` from 1.9.1 fails at load on a portable-only prefix.
+> `RFDETRNano` export), so a `.pte` from 1.9.1 or newer fails at load on a portable-only prefix.
 > The build links `optimized_native_cpu_ops_lib` when the prefix provides it — it is a
 > superset of the portable set — and falls back to `portable_ops_lib` with a CMake warning
 > when it does not. Exactly one op library is linked either way: each registers its kernels
@@ -583,8 +583,9 @@ The inference parameters can be overridden without recompiling:
 |------|---------|--------|
 | `--threshold <val>` | `0.5` | Confidence threshold for keeping a detection; must be in `[0, 1]` |
 | `--resolution <px>` | auto-detect | Model input resolution; omit to detect it from the model |
-| `--max-detections <n>` | `300` | Top-k cap on the number of predictions considered |
+| `--max-detections <n>` | `300` | Top-k cap on the number of query/class pairs ranked before thresholding (upstream's `num_select`) |
 | `--mask-threshold <val>` | `0.0` | Mask logit cutoff for binary mask generation (segmentation only); may be negative |
+| `--background-class-id <n\|none>` | `0` | Exported logit slot holding background, excluded before ranking; negative counts from the end, `none` keeps every slot |
 
 ```bash
 ./build/inference_app /path/to/model.onnx /path/to/image.jpg /path/to/coco-labels-91.txt \
@@ -597,6 +598,24 @@ The inference parameters can be overridden without recompiling:
 These flags work with all modes (`--segmentation`, `--keypoint`, video input, and `--display`). `--resolution`
 is only useful for models that accept an input size other than the one recorded in the model file — the
 auto-detected value is correct for a normally exported model.
+
+`--background-class-id` mirrors the argument rfdetr 1.9.4 added to its own ONNX/TFLite decoders. The default
+`0` matches the shipped RF-DETR exports, whose logit 0 is background and whose logit *n* is COCO category *n*
+— which is exactly how `data/coco-labels-91.txt` is indexed. Change it only for a checkpoint with a different
+class layout: `none` for one where every logit slot is a real class (a fine-tuned model with contiguous
+0-based ids), or `-1` for one whose background sits in the final slot. Getting it wrong shifts every reported
+label by one.
+
+#### How detections are selected
+
+RF-DETR scores classes with independent sigmoids rather than a softmax, so one query can legitimately clear
+the threshold on several classes at once. Postprocessing therefore ranks the flattened *(query, class)* grid
+and keeps the top `--max-detections` pairs **before** applying `--threshold`, which is what
+`PostProcess._select_topk` does upstream — a per-query argmax would silently drop every class but the
+strongest (the bug rfdetr 1.9.3 fixed in its own exported-model decoders). Results come back in
+descending-score order, with exact ties broken by ascending flattened query/class index, so a given model and
+image always produce the same ordering. Detection, segmentation, keypoint, and the CUDA postprocess kernels
+all share that rule.
 
 #### Using Pre-built TensorRT Engine
 
@@ -716,6 +735,7 @@ command line — see [Tuning Flags](#tuning-flags) — and the rest require edit
 | `resolution` | auto-detected from the model | `--resolution <px>` |
 | `max_detections` | `300` (top-k selection) | `--max-detections <n>` |
 | `mask_threshold` | `0.0` (binary mask generation) | `--mask-threshold <val>` |
+| `background_class_id` | `0` (background-first exports) | `--background-class-id <n\|none>` |
 | `gpu_preprocess` / `gpu_postprocess` | `false` | `--gpu-preprocess` / `--gpu-postprocess` |
 | `dali_pipeline_dir` | `data/dali` | `--dali-pipeline-dir <dir>` |
 | `gpu_device_id` | `0` | — (edit `src/main.cpp`) |
@@ -912,8 +932,8 @@ A single parametric `Dockerfile` builds the full **inference-backend × media-ba
 > or registry package), so the first build is slow — it clones ExecuTorch with recursive
 > submodules and installs a CPU-only `torch` wheel for the operator codegen. Pin a
 > different runtime with `--build-arg EXECUTORCH_VERSION=<tag>`; it defaults to `v1.4.0`
-> to match the exporter used by `rfdetr[executorch]==1.9.2`, and enables the optimized
-> kernel set that 1.9.1 `.pte` files need. The build applies the
+> to match the exporter used by `rfdetr[executorch]==1.9.4`, and enables the optimized
+> kernel set that 1.9.1+ `.pte` files need. The build applies the
 > upstream `extension_evalue_util` install fix automatically. ExecuTorch links
 > statically, so the runtime image ships no extra shared libraries and needs no GPU.
 
