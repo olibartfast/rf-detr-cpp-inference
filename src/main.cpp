@@ -71,6 +71,7 @@ int main(int argc, const char *argv[]) {
         std::cerr << "Usage: " << argv[0]
                   << " <path_to_model> <path_to_image_or_video> <path_to_coco_labels> [--segmentation|--keypoint] "
                      "[--threshold <val>] [--resolution <px>] [--max-detections <n>] [--mask-threshold <val>] "
+                     "[--background-class-id <n|none>] "
                      "[--display] [--gpu-preprocess] [--gpu-postprocess] [--dali-pipeline-dir <dir>]"
                   << std::endl;
         std::cerr << "Examples:" << std::endl;
@@ -93,6 +94,9 @@ int main(int argc, const char *argv[]) {
         std::cerr << "Note: exactly one backend is selected at compile time; this binary was built with" << std::endl;
         std::cerr << "      " << kBackendDescription << std::endl;
         std::cerr << "      Rebuild with " << kBackendBuildFlags << " to select it explicitly." << std::endl;
+        std::cerr << "      --background-class-id selects the exported logit slot holding background" << std::endl;
+        std::cerr << "      (default 0 = background-first, as the shipped RF-DETR exports are;" << std::endl;
+        std::cerr << "      negative counts from the end, 'none' keeps every slot)." << std::endl;
         std::cerr << "      --gpu-preprocess needs -DUSE_DALI=ON, --gpu-postprocess needs" << std::endl;
         std::cerr << "      -DUSE_CUDA_POSTPROCESS=ON; both require the TensorRT backend." << std::endl;
         return 1;
@@ -115,6 +119,10 @@ int main(int argc, const char *argv[]) {
     std::optional<int> max_detections;
     std::optional<float> threshold;
     std::optional<float> mask_threshold;
+    // Two levels of "unset": no flag at all leaves the Config default, while
+    // --background-class-id none is an explicit request to keep every logit slot.
+    bool background_class_id_given = false;
+    std::optional<int> background_class_id;
 
     for (int i = 4; i < argc; ++i) {
         if (std::strcmp(argv[i], "--segmentation") == 0) {
@@ -139,6 +147,14 @@ int main(int argc, const char *argv[]) {
             }
         } else if (std::strcmp(argv[i], "--max-detections") == 0 && i + 1 < argc) {
             if (!parse_int_option("--max-detections", argv[++i], max_detections)) {
+                return 1;
+            }
+        } else if (std::strcmp(argv[i], "--background-class-id") == 0 && i + 1 < argc) {
+            const char *value = argv[++i];
+            background_class_id_given = true;
+            if (std::strcmp(value, "none") == 0) {
+                background_class_id.reset();
+            } else if (!parse_int_option("--background-class-id", value, background_class_id)) {
                 return 1;
             }
         } else if (std::strcmp(argv[i], "--mask-threshold") == 0 && i + 1 < argc) {
@@ -196,6 +212,9 @@ int main(int argc, const char *argv[]) {
         }
         if (mask_threshold) {
             config.mask_threshold = *mask_threshold;
+        }
+        if (background_class_id_given) {
+            config.background_class_id = background_class_id;
         }
 
         if (is_video_file(input_path)) {
