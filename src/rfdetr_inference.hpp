@@ -31,8 +31,20 @@ struct Config {
     std::array<float, 3> means{0.485f, 0.456f, 0.406f};
     std::array<float, 3> stds{0.229f, 0.224f, 0.225f};
     ModelType model_type{ModelType::DETECTION};
-    int max_detections{300};
+    int max_detections{300}; ///< Cap on ranked query/class candidates, upstream's `num_select`
     float mask_threshold{0.0f};
+
+    /// Exported logit slot that holds background, excluded before ranking.
+    ///
+    /// Mirrors the `background_class_id` argument rfdetr 1.9.4 added to its own
+    /// ONNX/TFLite decoders. Negative values count from the end (`-1` = final
+    /// slot) and `std::nullopt` keeps every slot. The default 0 matches the
+    /// background-first layout the shipped RF-DETR exports use: logit 0 is
+    /// background and logit *n* is COCO category *n*, so the surviving slots map
+    /// in order onto the label file (`data/coco-labels-91.txt`, indexed by COCO
+    /// id). Upstream's own default is `-1`, which mis-decodes exactly these
+    /// checkpoints — their final slot is the real category 90.
+    std::optional<int> background_class_id{0};
 
     // Keypoint-specific configuration
     std::vector<int> keypoint_counts{
@@ -156,6 +168,10 @@ class RFDETRInference {
     // Output tensor cache
     std::vector<std::vector<float>> output_data_cache_;
     std::vector<std::vector<int64_t>> output_shapes_cache_;
+
+    /// Reusable (num_queries, foreground classes) score grid that top-k ranking
+    /// consumes, so a video run does not reallocate it per frame.
+    std::vector<float> score_grid_;
 
 #if defined(USE_CUDA_POSTPROCESS) || defined(USE_DALI)
     /// Lazily built on first use so a CPU-only run never touches the device.

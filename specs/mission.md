@@ -4,7 +4,7 @@ RF-DETR C++ Inference runs the RF-DETR model — object detection, instance segm
 
 The point is portability across runtimes. The same source builds against ONNX Runtime, TensorRT, or ExecuTorch, chosen at compile time, so the same postprocessing and drawing code serves a CPU laptop, an NVIDIA server, and an edge device. It handles single images and video, the latter through a multi-threaded ring-buffer pipeline, with an opt-in GPU pipeline (DALI preprocessing + CUDA segmentation postprocessing) on the TensorRT backend.
 
-The project is kept deliberately in step with upstream [`rfdetr`](https://github.com/roboflow/rf-detr) releases — currently **1.9.2**. Every upstream release triggers an alignment pass, recorded in [CHANGELOG.md](../CHANGELOG.md).
+The project is kept deliberately in step with upstream [`rfdetr`](https://github.com/roboflow/rf-detr) releases — currently **1.9.4**. Every upstream release triggers an alignment pass, recorded in [CHANGELOG.md](../CHANGELOG.md).
 
 ## Architectural commitments
 

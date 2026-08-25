@@ -8,10 +8,27 @@
 #include <iostream>
 #include <numeric>
 #include <stdexcept>
+#include <string>
+
+namespace {
+
+/// rfdetr 1.9.3 made `PostProcess(num_select=<negative>)` a construction-time
+/// error rather than a silently accepted no-op; the cap is validated here for
+/// the same reason.
+void validate_config(const Config &config) {
+    if (config.max_detections < 0) {
+        throw std::invalid_argument("max_detections must be non-negative, got " +
+                                    std::to_string(config.max_detections));
+    }
+}
+
+} // namespace
 
 RFDETRInference::RFDETRInference(const std::filesystem::path &model_path, const std::filesystem::path &label_file_path,
                                  const Config &config)
     : backend_(create_backend()), config_(config), input_shape_({1, 3, config_.resolution, config_.resolution}) {
+
+    validate_config(config_);
 
     std::cout << "Using backend: " << backend_->get_backend_name() << std::endl;
 
@@ -46,6 +63,7 @@ RFDETRInference::RFDETRInference(const std::filesystem::path &model_path, const 
 RFDETRInference::RFDETRInference(std::unique_ptr<InferenceBackend> backend,
                                  const std::filesystem::path &label_file_path, const Config &config)
     : backend_(std::move(backend)), config_(config), input_shape_({1, 3, config_.resolution, config_.resolution}) {
+    validate_config(config_);
     load_coco_labels(label_file_path);
 }
 
@@ -125,46 +143,54 @@ void RFDETRInference::postprocess_outputs(float scale_w, float scale_h, std::vec
     const auto &labels_data = output_data_cache_[1];
     const auto &labels_shape = output_shapes_cache_[1];
 
-    const auto num_detections = static_cast<size_t>(dets_shape[1]);
-    const auto num_classes = static_cast<size_t>(labels_shape[2]);
+    const auto num_queries = static_cast<int>(dets_shape[1]);
+    const auto num_classes = static_cast<int>(labels_shape[2]);
     const auto res = static_cast<float>(config_.resolution);
     const auto max_w = scale_w * res;
     const auto max_h = scale_h * res;
 
-    for (size_t i = 0; i < num_detections; ++i) {
-        const size_t det_offset = i * static_cast<size_t>(dets_shape[2]);
-        const size_t label_offset = i * num_classes;
+    // Rank the flattened query/class grid rather than taking a per-query argmax:
+    // RF-DETR's class scores are independent sigmoids, so one query can clear the
+    // threshold on several classes and an argmax would drop all but the strongest
+    // (rfdetr 1.9.3, PR #1320). Results come out in descending-score order.
+    const int background_slot = rfdetr::processing::resolve_background_slot(config_.background_class_id, num_classes);
+    const auto num_foreground =
+        static_cast<size_t>(rfdetr::processing::foreground_class_count(num_classes, background_slot));
 
-        float max_score = -1.0f;
-        int max_class_idx = -1;
-        for (size_t j = 0; j < num_classes; ++j) {
-            const float logit = labels_data[label_offset + j];
-            const float score = rfdetr::processing::sigmoid(logit);
-            if (score > max_score) {
-                max_score = score;
-                max_class_idx = static_cast<int>(j);
-            }
+    rfdetr::processing::build_foreground_scores(labels_data, num_queries, num_classes, background_slot, score_grid_);
+    const auto ranked =
+        rfdetr::processing::select_topk_multiclass(score_grid_, static_cast<size_t>(config_.max_detections));
+
+    for (const size_t flat : ranked) {
+        const float score = score_grid_[flat];
+        // Negated so a NaN score is dropped rather than kept, matching upstream's
+        // `scores > threshold` filter. The cap applies to the candidates ranked,
+        // the threshold to the ones kept.
+        if (!(score > config_.threshold)) {
+            continue;
         }
 
-        max_class_idx -= 1; // Fix the +1 offset
-
-        if (max_score > config_.threshold && max_class_idx >= 0 &&
-            static_cast<size_t>(max_class_idx) < coco_labels_.size()) {
-            const float cx = dets_data[det_offset + 0] * res;
-            const float cy = dets_data[det_offset + 1] * res;
-            const float w = dets_data[det_offset + 2] * res;
-            const float h = dets_data[det_offset + 3] * res;
-
-            auto xyxy = rfdetr::processing::cxcywh_to_xyxy(cx, cy, w, h);
-            auto scaled = rfdetr::processing::scale_box(xyxy, scale_w, scale_h);
-            auto clamped = rfdetr::processing::clamp_box(scaled, max_w, max_h);
-
-            BoundingBox box{clamped.x_min, clamped.y_min, clamped.x_max, clamped.y_max};
-
-            scores.push_back(max_score);
-            class_ids.push_back(max_class_idx);
-            boxes.push_back(std::move(box));
+        const size_t query = flat / num_foreground;
+        const auto class_id = static_cast<int>(flat % num_foreground);
+        if (static_cast<size_t>(class_id) >= coco_labels_.size()) {
+            continue;
         }
+
+        const size_t det_offset = query * static_cast<size_t>(dets_shape[2]);
+        const float cx = dets_data[det_offset + 0] * res;
+        const float cy = dets_data[det_offset + 1] * res;
+        const float w = dets_data[det_offset + 2] * res;
+        const float h = dets_data[det_offset + 3] * res;
+
+        auto xyxy = rfdetr::processing::cxcywh_to_xyxy(cx, cy, w, h);
+        auto scaled = rfdetr::processing::scale_box(xyxy, scale_w, scale_h);
+        auto clamped = rfdetr::processing::clamp_box(scaled, max_w, max_h);
+
+        BoundingBox box{clamped.x_min, clamped.y_min, clamped.x_max, clamped.y_max};
+
+        scores.push_back(score);
+        class_ids.push_back(class_id);
+        boxes.push_back(std::move(box));
     }
 }
 
@@ -189,47 +215,32 @@ void RFDETRInference::postprocess_segmentation_outputs(float scale_w, float scal
     const auto &masks_data = output_data_cache_[2];
     const auto &masks_shape = output_shapes_cache_[2];
 
-    const auto num_detections = static_cast<size_t>(dets_shape[1]);
-    const auto num_classes = static_cast<size_t>(labels_shape[2]);
+    const auto num_queries = static_cast<int>(dets_shape[1]);
+    const auto num_classes = static_cast<int>(labels_shape[2]);
     const auto mask_h = static_cast<size_t>(masks_shape[2]);
     const auto mask_w = static_cast<size_t>(masks_shape[3]);
 
-    // Compute scores and apply sigmoid
-    std::vector<float> all_scores;
-    std::vector<size_t> all_indices;
+    // Same flattened query/class ranking the detection path uses — see
+    // postprocess_outputs() — so a query whose mask covers two classes yields
+    // both, and ties resolve deterministically.
+    const int background_slot = rfdetr::processing::resolve_background_slot(config_.background_class_id, num_classes);
+    const auto num_foreground =
+        static_cast<size_t>(rfdetr::processing::foreground_class_count(num_classes, background_slot));
 
-    for (size_t i = 0; i < num_detections; ++i) {
-        for (size_t j = 0; j < num_classes; ++j) {
-            const size_t label_offset = i * num_classes;
-            const float logit = labels_data[label_offset + j];
-            const float score = rfdetr::processing::sigmoid(logit);
-            all_scores.push_back(score);
-            all_indices.push_back(i * num_classes + j);
-        }
-    }
+    rfdetr::processing::build_foreground_scores(labels_data, num_queries, num_classes, background_slot, score_grid_);
+    const auto ranked =
+        rfdetr::processing::select_topk_multiclass(score_grid_, static_cast<size_t>(config_.max_detections));
 
-    // Top-k selection
-    const size_t num_select = std::min(static_cast<size_t>(config_.max_detections), all_scores.size());
-    std::vector<size_t> topk_indices(all_scores.size());
-    std::iota(topk_indices.begin(), topk_indices.end(), 0);
-    std::partial_sort(topk_indices.begin(), topk_indices.begin() + static_cast<ptrdiff_t>(num_select),
-                      topk_indices.end(),
-                      [&all_scores](size_t i1, size_t i2) { return all_scores[i1] > all_scores[i2]; });
-
-    // Process top-k detections
-    for (size_t k = 0; k < num_select; ++k) {
-        const size_t idx = topk_indices[k];
-        const float score = all_scores[idx];
-
-        if (score <= config_.threshold) {
+    for (const size_t flat : ranked) {
+        const float score = score_grid_[flat];
+        if (!(score > config_.threshold)) {
             continue;
         }
 
-        const size_t detection_idx = all_indices[idx] / num_classes;
-        const size_t class_idx = all_indices[idx] % num_classes;
-        const int class_id = static_cast<int>(class_idx) - 1; // Fix the +1 offset
+        const size_t detection_idx = flat / num_foreground;
+        const auto class_id = static_cast<int>(flat % num_foreground);
 
-        if (class_id < 0 || static_cast<size_t>(class_id) >= coco_labels_.size()) {
+        if (static_cast<size_t>(class_id) >= coco_labels_.size()) {
             continue;
         }
 
@@ -358,27 +369,37 @@ void RFDETRInference::postprocess_keypoint_outputs(float scale_w, float scale_h,
 
     const float res = static_cast<float>(config_.resolution);
 
-    for (size_t q = 0; q < num_queries; ++q) {
-        const size_t det_offset = q * static_cast<size_t>(dets_shape[2]);
-        const size_t label_offset = q * num_classes;
+    // Keypoint labels share the detection path's class layout and its flattened
+    // query/class ranking (see postprocess_outputs()). The shipped keypoint
+    // checkpoints are background-first — logit 0 is background, logit 1 the first
+    // real class (COCO person for the preview model) — which is what
+    // `Config::background_class_id`'s default 0 and `keypoint_counts`' leading 0
+    // both encode; upstream calls the same layout `background_class_id=0`.
+    const int background_slot =
+        rfdetr::processing::resolve_background_slot(config_.background_class_id, static_cast<int>(num_classes));
+    const auto num_foreground =
+        static_cast<size_t>(rfdetr::processing::foreground_class_count(static_cast<int>(num_classes), background_slot));
 
-        // RF-DETR keypoint labels use the same offset as detection: logit 0 is background,
-        // logit 1 is the first real class (COCO person for the preview model).
-        float best_score = -1.0f;
-        int best_class_idx = -1;
-        for (size_t j = 0; j < num_classes; ++j) {
-            const float logit = labels_data[label_offset + j];
-            const float score = rfdetr::processing::sigmoid(logit);
-            if (score > best_score) {
-                best_score = score;
-                best_class_idx = static_cast<int>(j);
-            }
-        }
+    rfdetr::processing::build_foreground_scores(labels_data, static_cast<int>(num_queries),
+                                                static_cast<int>(num_classes), background_slot, score_grid_);
+    const auto ranked =
+        rfdetr::processing::select_topk_multiclass(score_grid_, static_cast<size_t>(config_.max_detections));
 
-        const int class_id = best_class_idx - 1;
-        if (best_score <= config_.threshold || class_id < 0 || static_cast<size_t>(class_id) >= coco_labels_.size()) {
+    for (const size_t flat : ranked) {
+        const float best_score = score_grid_[flat];
+        if (!(best_score > config_.threshold)) {
             continue;
         }
+
+        const size_t q = flat / num_foreground;
+        const auto class_id = static_cast<int>(flat % num_foreground);
+        if (static_cast<size_t>(class_id) >= coco_labels_.size()) {
+            continue;
+        }
+        // kp_counts / kp_map are indexed by exported logit slot, not by label index.
+        const int best_class_idx = rfdetr::processing::slot_for_foreground_column(class_id, background_slot);
+
+        const size_t det_offset = q * static_cast<size_t>(dets_shape[2]);
 
         // Decode bbox
         const float cx = dets_data[det_offset + 0] * res;
@@ -702,6 +723,8 @@ void RFDETRInference::postprocess_segmentation_outputs_gpu(float scale_w, float 
         params.mask_threshold = config_.mask_threshold;
         params.max_detections = config_.max_detections;
         params.num_labels = static_cast<int>(coco_labels_.size());
+        params.background_slot =
+            rfdetr::processing::resolve_background_slot(config_.background_class_id, params.num_classes);
         params.orig_w = orig_w;
         params.orig_h = orig_h;
         params.scale_w = scale_w;

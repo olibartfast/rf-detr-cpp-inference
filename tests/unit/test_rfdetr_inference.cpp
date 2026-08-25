@@ -9,6 +9,8 @@
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
+#include <limits>
+#include <optional>
 #include <thread>
 
 // ============================================================================
@@ -269,7 +271,14 @@ class PostprocessTest : public ::testing::Test {
         Config config;
         config.resolution = resolution;
         config.threshold = threshold;
+        return make_inference(std::move(output_data), std::move(output_shapes), config);
+    }
 
+    // Same, for tests that need to vary more of the Config than threshold/resolution.
+    std::unique_ptr<RFDETRInference> make_inference(std::vector<std::vector<float>> output_data,
+                                                    std::vector<std::vector<int64_t>> output_shapes,
+                                                    const Config &config) {
+        const int resolution = config.resolution;
         auto backend = std::make_unique<MockBackend>();
         backend->set_outputs(std::move(output_data), std::move(output_shapes));
 
@@ -424,6 +433,255 @@ TEST_F(PostprocessTest, BoxesClampedToImageBounds) {
     EXPECT_NEAR(boxes[1].y_min, 80.0f, 0.01f);
     EXPECT_NEAR(boxes[1].x_max, 100.0f, 0.01f);
     EXPECT_NEAR(boxes[1].y_max, 100.0f, 0.01f);
+}
+
+// --- Multi-class top-k selection (rfdetr 1.9.3, PR #1320) -------------------
+//
+// Class scores are independent sigmoids, so ranking the flattened query/class
+// grid is what keeps a query that clears the threshold on several classes. The
+// per-query argmax these paths used before silently dropped all but the
+// strongest class.
+
+TEST_F(PostprocessTest, MultiLabelQueryYieldsEveryClassAboveThreshold) {
+    const int num_dets = 1;
+    const int num_classes = 6;
+
+    std::vector<float> dets_data = {0.5f, 0.5f, 0.2f, 0.1f};
+
+    // One query scoring high on two classes at once ("car" and "truck" in the
+    // upstream example): slot 1 -> label 0, slot 3 -> label 2.
+    std::vector<float> labels_data(static_cast<size_t>(num_classes), -10.0f);
+    labels_data[1] = 4.0f;
+    labels_data[3] = 6.0f;
+
+    auto inference =
+        make_inference({dets_data, labels_data}, {{1, num_dets, 4}, {1, num_dets, num_classes}}, 0.5f, 560);
+
+    std::vector<float> scores;
+    std::vector<int> class_ids;
+    std::vector<BoundingBox> boxes;
+    inference->postprocess_outputs(1.0f, 1.0f, scores, class_ids, boxes);
+
+    ASSERT_EQ(scores.size(), 2u);
+    // Ranked by descending score, so the stronger class comes first.
+    EXPECT_EQ(class_ids[0], 2);
+    EXPECT_EQ(class_ids[1], 0);
+    EXPECT_GT(scores[0], scores[1]);
+    // Both detections address the same query, so they share its box.
+    EXPECT_FLOAT_EQ(boxes[0].x_min, boxes[1].x_min);
+    EXPECT_FLOAT_EQ(boxes[0].y_max, boxes[1].y_max);
+}
+
+TEST_F(PostprocessTest, ResultsAreRankedByDescendingScore) {
+    const int num_dets = 3;
+    const int num_classes = 6;
+
+    std::vector<float> dets_data(static_cast<size_t>(num_dets * 4), 0.5f);
+    std::vector<float> labels_data(static_cast<size_t>(num_dets * num_classes), -10.0f);
+    labels_data[1] = 2.0f;                     // query 0, weakest
+    labels_data[num_classes + 1] = 8.0f;       // query 1, strongest
+    labels_data[(2 * num_classes) + 1] = 5.0f; // query 2
+
+    auto inference =
+        make_inference({dets_data, labels_data}, {{1, num_dets, 4}, {1, num_dets, num_classes}}, 0.5f, 560);
+
+    std::vector<float> scores;
+    std::vector<int> class_ids;
+    std::vector<BoundingBox> boxes;
+    inference->postprocess_outputs(1.0f, 1.0f, scores, class_ids, boxes);
+
+    ASSERT_EQ(scores.size(), 3u);
+    EXPECT_GT(scores[0], scores[1]);
+    EXPECT_GT(scores[1], scores[2]);
+}
+
+TEST_F(PostprocessTest, TiesResolveByAscendingFlattenedIndex) {
+    const int num_dets = 2;
+    const int num_classes = 6;
+
+    std::vector<float> dets_data(static_cast<size_t>(num_dets * 4), 0.5f);
+    std::vector<float> labels_data(static_cast<size_t>(num_dets * num_classes), -10.0f);
+    // Four exactly equal scores across both queries. Upstream's stable rule
+    // (descending score, then ascending flattened query/class index) fixes the
+    // order: (q0,slot3), (q0,slot4), (q1,slot1), (q1,slot2).
+    labels_data[3] = 7.0f;
+    labels_data[4] = 7.0f;
+    labels_data[num_classes + 1] = 7.0f;
+    labels_data[num_classes + 2] = 7.0f;
+
+    auto inference =
+        make_inference({dets_data, labels_data}, {{1, num_dets, 4}, {1, num_dets, num_classes}}, 0.5f, 560);
+
+    std::vector<float> scores;
+    std::vector<int> class_ids;
+    std::vector<BoundingBox> boxes;
+    inference->postprocess_outputs(1.0f, 1.0f, scores, class_ids, boxes);
+
+    ASSERT_EQ(class_ids.size(), 4u);
+    EXPECT_EQ(class_ids, (std::vector<int>{2, 3, 0, 1}));
+}
+
+TEST_F(PostprocessTest, MaxDetectionsCapsCandidatesBeforeThresholding) {
+    const int num_dets = 4;
+    const int num_classes = 6;
+
+    Config config;
+    config.resolution = 560;
+    config.threshold = 0.5f;
+    config.max_detections = 2;
+
+    std::vector<float> dets_data(static_cast<size_t>(num_dets * 4), 0.5f);
+    std::vector<float> labels_data(static_cast<size_t>(num_dets * num_classes), -10.0f);
+    for (int q = 0; q < num_dets; ++q) {
+        labels_data[static_cast<size_t>(q * num_classes) + 1] = 5.0f + static_cast<float>(q);
+    }
+
+    auto inference = make_inference({dets_data, labels_data}, {{1, num_dets, 4}, {1, num_dets, num_classes}}, config);
+
+    std::vector<float> scores;
+    std::vector<int> class_ids;
+    std::vector<BoundingBox> boxes;
+    inference->postprocess_outputs(1.0f, 1.0f, scores, class_ids, boxes);
+
+    // All four clear the threshold; only the two highest-scoring are ranked.
+    EXPECT_EQ(scores.size(), 2u);
+}
+
+TEST_F(PostprocessTest, NegativeMaxDetectionsRejectedAtConstruction) {
+    Config config;
+    config.max_detections = -1;
+
+    auto backend = std::make_unique<MockBackend>();
+    backend->set_outputs({{}, {}}, {{1, 1, 4}, {1, 1, 6}});
+
+    EXPECT_THROW(RFDETRInference(std::move(backend), labels_file_->path(), config), std::invalid_argument);
+}
+
+TEST_F(PostprocessTest, NaNScoreIsDroppedNotKept) {
+    const int num_dets = 1;
+    const int num_classes = 6;
+
+    std::vector<float> dets_data = {0.5f, 0.5f, 0.2f, 0.1f};
+    std::vector<float> labels_data(static_cast<size_t>(num_classes), -10.0f);
+    labels_data[2] = std::numeric_limits<float>::quiet_NaN();
+
+    auto inference =
+        make_inference({dets_data, labels_data}, {{1, num_dets, 4}, {1, num_dets, num_classes}}, 0.5f, 560);
+
+    std::vector<float> scores;
+    std::vector<int> class_ids;
+    std::vector<BoundingBox> boxes;
+    inference->postprocess_outputs(1.0f, 1.0f, scores, class_ids, boxes);
+
+    // A NaN ranks first (as it does in torch's descending sort) but fails the
+    // `score > threshold` test, so it never reaches the output.
+    EXPECT_TRUE(scores.empty());
+}
+
+// --- Background logit slot (rfdetr 1.9.4, PR #1397) -------------------------
+
+TEST_F(PostprocessTest, BackgroundClassIdNoneKeepsEverySlot) {
+    const int num_dets = 1;
+    const int num_classes = 5; // exactly as many slots as the fixture has labels
+
+    Config config;
+    config.resolution = 560;
+    config.threshold = 0.5f;
+    config.background_class_id = std::nullopt;
+
+    std::vector<float> dets_data = {0.5f, 0.5f, 0.2f, 0.1f};
+    std::vector<float> labels_data(static_cast<size_t>(num_classes), -10.0f);
+    labels_data[0] = 10.0f; // slot 0 is a real class when no slot is excluded
+
+    auto inference = make_inference({dets_data, labels_data}, {{1, num_dets, 4}, {1, num_dets, num_classes}}, config);
+
+    std::vector<float> scores;
+    std::vector<int> class_ids;
+    std::vector<BoundingBox> boxes;
+    inference->postprocess_outputs(1.0f, 1.0f, scores, class_ids, boxes);
+
+    ASSERT_EQ(class_ids.size(), 1u);
+    EXPECT_EQ(class_ids[0], 0); // no shift: slot 0 -> "person"
+}
+
+TEST_F(PostprocessTest, BackgroundClassIdCountsFromTheEnd) {
+    const int num_dets = 1;
+    const int num_classes = 6;
+
+    Config config;
+    config.resolution = 560;
+    config.threshold = 0.5f;
+    config.background_class_id = -1; // upstream's own default: final slot
+
+    std::vector<float> dets_data = {0.5f, 0.5f, 0.2f, 0.1f};
+    std::vector<float> labels_data(static_cast<size_t>(num_classes), -10.0f);
+    labels_data[0] = 10.0f;               // now a foreground slot -> label 0
+    labels_data[num_classes - 1] = 20.0f; // excluded as background
+
+    auto inference = make_inference({dets_data, labels_data}, {{1, num_dets, 4}, {1, num_dets, num_classes}}, config);
+
+    std::vector<float> scores;
+    std::vector<int> class_ids;
+    std::vector<BoundingBox> boxes;
+    inference->postprocess_outputs(1.0f, 1.0f, scores, class_ids, boxes);
+
+    ASSERT_EQ(class_ids.size(), 1u);
+    EXPECT_EQ(class_ids[0], 0);
+}
+
+TEST_F(PostprocessTest, BackgroundClassIdOutOfRangeRejected) {
+    const int num_dets = 1;
+    const int num_classes = 6;
+
+    Config config;
+    config.resolution = 560;
+    config.background_class_id = num_classes; // one past the last slot
+
+    std::vector<float> dets_data = {0.5f, 0.5f, 0.2f, 0.1f};
+    std::vector<float> labels_data(static_cast<size_t>(num_classes), -10.0f);
+
+    auto inference = make_inference({dets_data, labels_data}, {{1, num_dets, 4}, {1, num_dets, num_classes}}, config);
+
+    std::vector<float> scores;
+    std::vector<int> class_ids;
+    std::vector<BoundingBox> boxes;
+    EXPECT_THROW(inference->postprocess_outputs(1.0f, 1.0f, scores, class_ids, boxes), std::invalid_argument);
+}
+
+// --- Segmentation shares the detection path's selection --------------------
+
+TEST_F(PostprocessTest, SegmentationRanksFlattenedQueryClassPairs) {
+    const int num_dets = 1;
+    const int num_classes = 6;
+    const int mask_h = 2;
+    const int mask_w = 2;
+
+    std::vector<float> dets_data = {0.5f, 0.5f, 0.2f, 0.1f};
+
+    std::vector<float> labels_data(static_cast<size_t>(num_classes), -10.0f);
+    labels_data[1] = 4.0f; // -> label 0
+    labels_data[3] = 6.0f; // -> label 2
+
+    // One mask per query, positive everywhere so the whole frame is foreground.
+    std::vector<float> masks_data(static_cast<size_t>(mask_h * mask_w), 1.0f);
+
+    auto inference =
+        make_inference({dets_data, labels_data, masks_data},
+                       {{1, num_dets, 4}, {1, num_dets, num_classes}, {1, num_dets, mask_h, mask_w}}, 0.5f, 560);
+
+    std::vector<float> scores;
+    std::vector<int> class_ids;
+    std::vector<BoundingBox> boxes;
+    std::vector<rfdetr::media::Mask> masks;
+    inference->postprocess_segmentation_outputs(1.0f, 1.0f, 4, 4, scores, class_ids, boxes, masks);
+
+    // Both classes of the single query survive, strongest first, each carrying
+    // its own copy of that query's mask.
+    ASSERT_EQ(class_ids.size(), 2u);
+    EXPECT_EQ(class_ids[0], 2);
+    EXPECT_EQ(class_ids[1], 0);
+    ASSERT_EQ(masks.size(), 2u);
+    EXPECT_EQ(masks[0].data, masks[1].data);
 }
 
 // ============================================================================
