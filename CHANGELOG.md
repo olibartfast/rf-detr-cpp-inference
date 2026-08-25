@@ -28,7 +28,20 @@ Phase 4.
 |------|--------|
 | `scripts/run_gate.sh` | New. Drives step 1 (full TensorRT+DALI+CUDA build, both halves independently, and the two `USE_DALI`/`USE_CUDA_POSTPROCESS` + ONNX Runtime configure guards that must `FATAL_ERROR`), step 2 as smoke runs, step 4 (`compute-sanitizer` memcheck over a long video), step 5 (benchmarks), and step 6 (default ONNX Runtime build + UnitTests). Writes a `PASS`/`FAIL`/`UNRUN` summary plus per-check output into `~/gate-results/` for the CHANGELOG entry step 7 asks for. Not `set -e`: a failing check is data, so the remaining checks still run. |
 | `scripts/run_gate.sh` | Cost control, because the gate runs on metered hardware. A `systemd-run` deadline watchdog fires `brev stop` after `DEADLINE_HOURS` whether the run finished, crashed, or hung — the self-stop at the end only covers the clean path. `SKIP_DEFAULT_PATH=1` moves step 6, which needs no GPU, back to a local machine and off the metered clock. `CUDA_ARCH` defaults to `89` (L4/L40S/RTX-Ada) rather than the CMake default `86`, since the arch is a property of the rented box, not the project. |
-| `AGENTS.md` | One line under "GPU Pipeline" pointing at the script and its env knobs, alongside the existing `fetch_dali.sh` and `generate_dali_pipelines.sh` entries. |
+| `docs/rented-gpu-runbook.md` | New. The operational half the skill deliberately leaves out: how to choose an instance, what to prepare at home before the meter starts, the provisioning setup script, running under `tmux`, and collecting results. Leads with what a rented hour actually buys today — steps 1, 2 (smoke), 4 and 5 — so nobody reads a green summary as a passed gate. Records the selection rule the hard way round: this workload is build-bound, so rank instances by CPU count and provisioning time, not VRAM, and avoid `highcpu`-class families whose ~0.9 GB per vCPU will OOM-kill a parallel C++ build on a swapless cloud VM. |
+| `AGENTS.md`, `.claude/skills/gpu-verify/SKILL.md` | Pointers to the script and the runbook, alongside the existing `fetch_dali.sh` and `generate_dali_pipelines.sh` entries. |
+
+The version probes behind step 7 are the part most likely to be quietly useless, so they were
+written against how this project actually resolves its dependencies rather than against convention.
+TensorRT is normally *not* a system package here — `cmake/deps/packages/TensorRT.cmake` downloads
+the pinned tarball into `${CMAKE_BINARY_DIR}/_deps` — so a probe reading `/usr/include` finds
+nothing on a correct build. `probe_tensorrt` searches the build trees, then `TENSORRT_ROOTDIR`,
+then the system paths, and reads the version from the `NV_TENSORRT_*` macros rather than parsing
+the extracted directory name, which can drift from the pin. It runs *after* step 1, since that
+configure is what performs the download. DALI ships no version header in the extracted wheel, so
+`probe_dali` records the provenance that does identify it: the Triton image pinned in
+`fetch_dali.sh`, read out of that script so the two cannot disagree. Both probes were exercised
+against a synthetic tree, present and absent.
 
 Two checks are untestable from the script by construction and say so: the `GTEST_SKIP()`-without-a-
 device behaviour needs a machine with no CUDA device, and the guest-shutdown watchdog fallback
@@ -38,7 +51,8 @@ than billed-but-off.
 No `specs/features/` directory: per [AGENTS.md](AGENTS.md), a spec is required for a roadmap phase,
 a release, an rfdetr alignment, or a change to a path CI cannot execute. This adds a helper script
 and touches none of `src/`, so it is CHANGELOG-only. No README change either — it alters no code,
-build option, backend version, Docker image, or export package.
+build option, backend version, Docker image, or export package; `docs/rented-gpu-runbook.md` is
+reached from `AGENTS.md` and the skill, which is where someone running the gate is already looking.
 
 
 ### Workflow: spec-driven development loop, four skills, roadmap split

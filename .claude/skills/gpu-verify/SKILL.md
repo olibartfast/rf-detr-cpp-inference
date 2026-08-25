@@ -20,6 +20,10 @@ Written for any coding agent; every step is a shell command a human can run.
 - Checked-in `.dali` pipelines exist for resolutions **432** and **576** only; anything else needs
   `./scripts/generate_dali_pipelines.sh <res>` with `--gpus all` Docker
 
+On rented hardware, `./scripts/run_gate.sh` drives steps 1, 2, 4, 5 and 6 below unattended and
+reports the rest as `UNRUN`. Renting, preparing and collecting:
+[docs/rented-gpu-runbook.md](../../../docs/rented-gpu-runbook.md).
+
 ## 1. Build the matrix
 
 ```bash

@@ -78,15 +78,66 @@ arm_watchdog() {
 }
 
 # --- Environment --------------------------------------------------------------
+# Step 7 of the skill wants driver, CUDA, TensorRT and DALI versions in the
+# CHANGELOG, so these probes have to actually find something.
+
+# TensorRT is normally NOT a system package here: cmake/deps/packages/TensorRT.cmake
+# downloads the tarball and extracts it under ${CMAKE_BINARY_DIR}/_deps, so a probe
+# that only looks in /usr/include finds nothing on a correct build. Search the build
+# trees first, then TENSORRT_ROOTDIR, then the system paths, and read the version
+# from the macros rather than guessing it from the directory name — a pin can be
+# edited without the extracted path following.
+probe_tensorrt() {
+    local header=""
+    local candidate
+    for candidate in \
+        "$REPO"/build-gpu/_deps/TensorRT-*/include/NvInferVersion.h \
+        "$REPO"/build-*/_deps/TensorRT-*/include/NvInferVersion.h \
+        "${TENSORRT_ROOTDIR:-/nonexistent}"/include/NvInferVersion.h \
+        /usr/include/x86_64-linux-gnu/NvInferVersion.h \
+        /usr/include/NvInferVersion.h
+    do
+        [[ -f "$candidate" ]] && { header="$candidate"; break; }
+    done
+
+    if [[ -z "$header" ]]; then
+        echo "NvInferVersion.h not found — run this after step 1, which downloads TensorRT"
+        return
+    fi
+
+    local major minor patch build
+    major=$(awk '/define NV_TENSORRT_MAJOR/ {print $3}' "$header")
+    minor=$(awk '/define NV_TENSORRT_MINOR/ {print $3}' "$header")
+    patch=$(awk '/define NV_TENSORRT_PATCH/ {print $3}' "$header")
+    build=$(awk '/define NV_TENSORRT_BUILD/ {print $3}' "$header")
+    echo "TensorRT ${major}.${minor}.${patch}.${build}"
+    echo "header: ${header}"
+}
+
+# DALI ships no version header in the extracted wheel, so the honest identifier is
+# the Triton image it was extracted from — that is what fetch_dali.sh pins.
+probe_dali() {
+    if [[ ! -f "${DALI_ROOT}/include/dali/c_api.h" ]]; then
+        echo "DALI not staged at ${DALI_ROOT} — run scripts/fetch_dali.sh"
+        return
+    fi
+    echo "staged at ${DALI_ROOT}"
+    # Reads the pin out of fetch_dali.sh's own `${TRITON_IMAGE:-<default>}`, so the
+    # recorded provenance follows the pin instead of duplicating it here.
+    echo "extracted from: ${TRITON_IMAGE:-$(sed -n 's/.*TRITON_IMAGE:-\([^}]*\)}.*/\1/p' \
+        "$REPO/scripts/fetch_dali.sh" 2>/dev/null)}"
+    find "$DALI_ROOT" -maxdepth 1 -name 'libdali*.so' -printf '%f %s bytes\n' 2>/dev/null
+}
+
 capture_env() {
     note "=== environment ==="
     {
-        nvidia-smi 2>&1 | head -12
-        echo "--- nvcc ---";     nvcc --version 2>&1 | tail -2
-        echo "--- TensorRT ---"; grep -rhoE 'TensorRT [0-9.]+|NV_TENSORRT_[A-Z]+ +[0-9]+' \
-                                    /usr/include/x86_64-linux-gnu/NvInferVersion.h 2>/dev/null | head
-        echo "--- DALI ---";     find "$DALI_ROOT" -maxdepth 1 2>&1 | head
-        echo "--- repo ---";     git -C "$REPO" log --oneline -1 2>&1
+        echo "--- driver / GPU ---"; nvidia-smi 2>&1 | head -12
+        echo "--- nvcc ---";         nvcc --version 2>&1 | tail -2
+        echo "--- TensorRT ---";     probe_tensorrt
+        echo "--- DALI ---";         probe_dali
+        echo "--- repo ---";         git -C "$REPO" log --oneline -1 2>&1
+        echo "--- arch ---";         echo "CMAKE_CUDA_ARCHITECTURES=${CUDA_ARCH}"
     } > "${RESULTS}/environment.txt" 2>&1
     note "environment written to environment.txt (needed for the CHANGELOG entry, step 7)"
 }
@@ -247,13 +298,24 @@ step_default_path() {
 main() {
     note "gate starting; results in ${RESULTS}"
     arm_watchdog
+
+    # Cheap preflight so a missing toolchain shows up in seconds rather than
+    # after a long failing configure.
+    command -v nvidia-smi >/dev/null || note "WARNING: no nvidia-smi — is this a GPU box?"
+    command -v nvcc       >/dev/null || note "WARNING: no nvcc — CUDA postprocess will not build"
+
+    local build_ok=0
+    step_build || build_ok=1
+
+    # After step 1, not before: TensorRT is downloaded by that configure into
+    # build-gpu/_deps, so probing earlier would report it missing on every box.
     capture_env
 
-    step_build && {
+    if [[ "$build_ok" -eq 0 ]]; then
         step_combinations
         step_sanitizer
         step_benchmarks
-    }
+    fi
     step_default_path
 
     note "=== summary ==="
