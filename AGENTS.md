@@ -68,6 +68,7 @@ The `executorch` variant builds the ExecuTorch runtime from source into `/opt/ex
 - Strict warnings (CI): `-DWERROR=ON` at configure time
 
 ## Spec Sync
+- Mandatory: `git fetch` and check the branch against its upstream **before starting any work** — not just before pushing. A stale local branch hides the rules you are supposed to follow: on 2026-08-24 an alignment pass was written against a `develop` four commits behind `origin/develop`, missing an already-completed 1.9.2 alignment, the `specs/` tree, and the `rfdetr-alignment` skill that governs the task. If the branch is behind, integrate or at least read what landed, then re-read `AGENTS.md`, `.claude/skills/`, and `specs/` before planning.
 - Mandatory: before acting on any release, version-alignment, or dependency-sync request, read `AGENTS.md`, `README.md`, and `CHANGELOG.md`, then verify the named release against the official upstream project. Never assume that an upstream version is a local Git tag or infer the required scope from the version string alone; inspect the repository documentation and upstream release notes/diff first.
 - A change to `specs/mission.md` or `specs/tech-stack.md` must propagate in the **same commit** to `README.md`, `AGENTS.md`, and any open spec under `specs/features/`. The constitution and what it describes never diverge across commits.
 - Mandatory for every release or dependency-facing patch: update `README.md` in the same change when code, build options, backend versions, Docker images, or Python export packages change.

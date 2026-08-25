@@ -29,6 +29,10 @@ struct SegPostprocessParams {
     float mask_threshold{0.0F}; ///< raw-logit threshold (NOT sigmoid-then-0.5)
     int max_detections{300};    ///< cap on the number of ranked candidates examined
     int num_labels{0};          ///< label-file size; class ids at or above it are dropped
+    /// Resolved exported logit slot holding background, or -1 to keep every slot.
+    /// Fill it from `rfdetr::processing::resolve_background_slot()` so the GPU and
+    /// CPU paths exclude the same column before ranking.
+    int background_slot{0};
 };
 
 /// Packed segmentation results, host side.

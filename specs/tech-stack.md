@@ -13,7 +13,7 @@ Every version below cites the file that owns the pin. Change it there, not here 
 | Dependencies | apt / conan / vcpkg facade | — | `find_dependency_unified()`, `DEPS_MODE` default `apt` (`cmake/deps/Deps.cmake:6`) |
 | Format | clang-format | 18 | `.clang-format`: LLVM base, indent 4, column 120 |
 | Static analysis | clang-tidy 18, cppcheck | — | `.clang-tidy`; CI excludes `tensorrt_backend.cpp` from clang-tidy |
-| Export tooling | `rfdetr[onnx]` | 1.9.2 | `deploy/requirements.txt` — the only pinned pip requirement; ONNX opset 17 |
+| Export tooling | `rfdetr[onnx]` | 1.9.4 | `deploy/requirements.txt` — the only pinned pip requirement; ONNX opset 17 |
 | Vendored | stb, font8x8 | unversioned | `third_party/` — no install step |
 
 ## Inference backends

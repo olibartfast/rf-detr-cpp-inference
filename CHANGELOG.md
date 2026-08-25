@@ -129,6 +129,83 @@ paths implemented by this repository.
 
 ---
 
+### RF-DETR 1.9.3 / 1.9.4 alignment
+
+**Upstream releases**: [1.9.3](https://github.com/roboflow/rf-detr/releases/tag/1.9.3),
+[1.9.4](https://github.com/roboflow/rf-detr/releases/tag/1.9.4)
+
+Continues from the 1.9.2 alignment above, which correctly found nothing for C++ to do.
+1.9.3 and 1.9.4 are different: two changes land on the decode path, and both were wrong
+here in the same way they were wrong upstream:
+
+1. **Detections were being dropped.** Class scores are independent sigmoids, so one
+   query can score above threshold on several classes at once. The detection and
+   keypoint paths took a per-query `argmax` and kept only the strongest, exactly the bug
+   1.9.3 (PR #1320) fixed in upstream's own ONNX/TFLite decoders. All three heads now
+   rank the flattened *(query, class)* grid the way `PostProcess._select_topk` does.
+2. **The background logit slot was hardcoded.** 1.9.4 (PR #1397) made it an explicit
+   argument, because the assumption is checkpoint-dependent and a wrong guess shifts
+   every reported label. Exposed here as `Config::background_class_id` and
+   `--background-class-id`.
+
+Ordering also became contractual: descending score, then ascending flattened query/class
+index. That fell out of 1.9.3 replacing `torch.topk` with a stable `argsort`.
+
+#### Fixed
+
+| File | Change |
+|------|--------|
+| `src/rfdetr_inference.cpp` | `postprocess_outputs()` and `postprocess_keypoint_outputs()` rank the flattened *(query, class)* grid instead of taking a per-query `argmax`, so a query above threshold on more than one class now yields one detection per class rather than only its strongest. Both also honour `max_detections` as the ranking cap, which the detection path previously ignored entirely. |
+| `src/rfdetr_inference.cpp` | The segmentation path excludes the background column **before** ranking. It used to rank every column and skip background candidates afterwards, so background pairs consumed slots of the `max_detections` cap and could push real detections out of a crowded frame. |
+| `src/rfdetr_inference.cpp`, `src/gpu/rfdetr_postprocess.cu` | Kept scores are now tested with `score > threshold` rather than `!(score <= threshold)`. A NaN score fails the first and passes the second, so a malformed logit used to be emitted as a detection with a NaN confidence. |
+| `src/processing_utils.cpp` | The segmentation ranking comparator was `all_scores[i1] > all_scores[i2]`, which is not a strict weak ordering when any score is NaN — undefined behaviour in `std::partial_sort`. The shared `select_topk_multiclass()` substitutes `+inf` for NaN before comparing, which both restores the ordering and reproduces torch's NaN-ranks-first behaviour. |
+
+#### Added
+
+| File | Change |
+|------|--------|
+| `src/processing_utils.{hpp,cpp}` | `resolve_background_slot()`, `foreground_class_count()`, `slot_for_foreground_column()`, `build_foreground_scores()`, `select_topk_multiclass()` — C++ mirrors of upstream's `export/_class_layout.py` (1.9.4) and `export/_topk.py` (1.9.3). One selection rule now serves detection, segmentation, keypoint, and the CUDA kernels. |
+| `src/rfdetr_inference.hpp` | `Config::background_class_id` (`std::optional<int>`, default `0`): the exported logit slot holding background, excluded before ranking. Negative values count from the end, `std::nullopt` keeps every slot — upstream's `background_class_id` semantics. |
+| `src/main.cpp` | `--background-class-id <n\|none>`. |
+| `tests/unit/test_rfdetr_inference.cpp` | Ten tests: multi-label selection (a query yielding two classes), descending-score output order, the ascending-flat-index tie rule, `max_detections` capping candidates before thresholding, NaN dropped rather than kept, `background_class_id` as `none` / negative / out-of-range, negative `max_detections` rejected at construction, and the segmentation path sharing the same selection. |
+
+#### Changed
+
+| File | Change |
+|------|--------|
+| `src/rfdetr_inference.cpp` | Construction rejects a negative `max_detections` with `std::invalid_argument`, mirroring 1.9.3 making `PostProcess(num_select=<negative>)` a construction-time `ValueError` instead of a silently accepted no-op. |
+| `src/gpu/rfdetr_postprocess.{hpp,cu}` | `SegPostprocessParams::background_slot`; `decode_scores` compacts the foreground columns before the sort so the GPU ranks the same candidate set as the CPU. CUB's radix sort is stable, so ties already came out in ascending flattened index order — the CPU rule is now written down beside it. |
+| `deploy/requirements.txt`, `deploy/export_executorch.py` | `rfdetr` 1.9.2 → 1.9.4. |
+| `specs/mission.md`, `specs/tech-stack.md` | Version statement and export-tooling pin row to 1.9.4, propagated in this same commit per the Spec Sync rule. |
+| `specs/features/2026-08-25-rfdetr-1.9.4-alignment/` | Spec triple for this pass: the skill's Step 1 classification table, the decisions behind the `background_class_id` default and the pre-ranking exclusion, and a validation sheet recording what was and was not verified. Written after the implementation rather than before it — the reason is in its `requirements.md` → Context, and the `AGENTS.md` rule below is the fix. |
+| `AGENTS.md` | New mandatory rule: `git fetch` and check against upstream **before starting work**, not only before pushing. This alignment was written against a `develop` four commits stale, so it missed the completed 1.9.2 pass, the `specs/` tree, and the `rfdetr-alignment` skill governing the task — and then conflicted in six files. |
+| `README.md`, `docs/export.md` | Version statements to rfdetr 1.9.4. New "How detections are selected" README section (multi-label ranking, the cap-then-threshold order, the tie rule) and a `--background-class-id` entry explaining when the default is wrong. `docs/export.md` notes what 1.9.2–1.9.4 do and do not change for an exported model. |
+
+#### Why the class ids did not move
+
+Upstream's own decoder defaults to `background_class_id=-1` — background in the *final*
+logit slot — and 1.9.4's release notes say plainly that this mis-decodes the official
+pretrained COCO weights, whose final slot holds real category 90 (`toothbrush`). This
+project has always used the other convention: slot 0 is background, slot *n* is COCO
+category *n*, and `data/coco-labels-91.txt` is indexed by COCO id so slot *n* reads
+entry *n*. That is upstream's `background_class_id=0` case, so the default stays `0` and
+decoded labels are unchanged. The flag exists for checkpoints that are laid out
+differently — a fine-tuned model with contiguous 0-based ids wants `none`.
+
+#### Not mirrored
+
+The rest of 1.9.3–1.9.4 does not reach an exported model: evaluation-sweep and matcher
+performance, `metrics.csv` history across resumes, `BestModelCallback` scoring the
+Lightning sanity check as a real epoch, EMA epoch-boundary double counting, YOLO
+test-split resolution, AdamW-aware auto-batch probing, keypoint flip-pair and
+Albumentations `TimeReverse`/`SquareSymmetry` augmentation fixes, non-square training
+resize, and the TFLite conversion fixes. One is worth knowing about anyway and is
+written up in `docs/export.md`: 1.9.3's `SegmentationHead.skip_blocks` fix is
+training-only — the export path already applied the projection, so no re-export is
+needed. (1.9.2's label-space change is covered in its own entry above.)
+
+---
+
 ### RF-DETR 1.9.1 alignment
 
 **Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.9.1

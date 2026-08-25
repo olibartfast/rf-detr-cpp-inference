@@ -34,6 +34,8 @@ struct DeviceParams {
     float mask_threshold;
     int max_detections;
     int num_labels;
+    int background_slot;
+    int num_foreground;
 };
 
 DeviceParams to_device_params(const SegPostprocessParams &p) {
@@ -50,22 +52,31 @@ DeviceParams to_device_params(const SegPostprocessParams &p) {
                         p.threshold,
                         p.mask_threshold,
                         p.max_detections,
-                        p.num_labels};
+                        p.num_labels,
+                        p.background_slot,
+                        p.background_slot < 0 ? p.num_classes : p.num_classes - 1};
 }
 
 /// Matches rfdetr::processing::sigmoid.
 __device__ __forceinline__ float sigmoid(float x) { return 1.0F / (1.0F + __expf(-x)); }
 
-/// One thread per (query, class) pair. The segmentation path ranks every pair
-/// globally rather than taking a per-query argmax, so a single query can yield
-/// several detections — see postprocess_segmentation_outputs.
+/// One thread per (query, foreground class) pair. The segmentation path ranks
+/// every pair globally rather than taking a per-query argmax, so a single query
+/// can yield several detections — see postprocess_segmentation_outputs.
+///
+/// The background column is dropped here, before ranking, exactly as
+/// `build_foreground_scores` drops it on the CPU: leaving it in would let
+/// background candidates consume slots of the top-k cap.
 __global__ void decode_scores(const float *__restrict__ labels, float *__restrict__ scores,
-                              int32_t *__restrict__ indices, int total) {
+                              int32_t *__restrict__ indices, DeviceParams p, int total) {
     const int i = static_cast<int>(blockIdx.x) * blockDim.x + threadIdx.x;
     if (i >= total) {
         return;
     }
-    scores[i] = sigmoid(labels[i]);
+    const int query = i / p.num_foreground;
+    const int column = i % p.num_foreground;
+    const int slot = (p.background_slot >= 0 && column >= p.background_slot) ? column + 1 : column;
+    scores[i] = sigmoid(labels[query * p.num_classes + slot]);
     indices[i] = i;
 }
 
@@ -87,16 +98,19 @@ __global__ void select_and_decode(const float *__restrict__ sorted_scores, const
     for (int k = 0; k < num_select; ++k) {
         const float score = sorted_scores[k];
         // Threshold after ranking, exactly as the CPU path does: the cap applies
-        // to the candidates examined, the threshold to the ones kept.
-        if (score <= p.threshold) {
+        // to the candidates examined, the threshold to the ones kept. Negated so
+        // a NaN score is dropped rather than kept, matching `score > threshold`
+        // on the CPU and upstream.
+        if (!(score > p.threshold)) {
             continue;
         }
 
         const int flat = sorted_indices[k];
-        const int query = flat / p.num_classes;
-        // Logit 0 is background; shift so that logit 1 becomes class 0.
-        const int class_id = (flat % p.num_classes) - 1;
-        if (class_id < 0 || class_id >= p.num_labels) {
+        const int query = flat / p.num_foreground;
+        // Ranking already dropped the background column, so the foreground column
+        // is the label index directly.
+        const int class_id = flat % p.num_foreground;
+        if (class_id >= p.num_labels) {
             continue;
         }
 
@@ -194,7 +208,7 @@ struct SegPostprocessor::Impl {
     SegPostprocessParams params;
     cudaStream_t stream{nullptr};
 
-    // Ranking scratch, sized by num_queries * num_classes.
+    // Ranking scratch, sized by num_queries * foreground classes.
     DeviceBuffer scores_in;
     DeviceBuffer scores_out;
     DeviceBuffer indices_in;
@@ -220,7 +234,12 @@ struct SegPostprocessor::Impl {
     size_t host_small_bytes{0};
 
     explicit Impl(const SegPostprocessParams &p, StreamHandle s) : params(p), stream(static_cast<cudaStream_t>(s)) {
-        const int total = p.num_queries * p.num_classes;
+        if (p.background_slot >= p.num_classes) {
+            throw std::runtime_error("Segmentation postprocess background slot does not index an exported class");
+        }
+        // Ranking runs over foreground pairs only; the background column is
+        // excluded before the sort, as it is on the CPU.
+        const int total = p.num_queries * (p.background_slot < 0 ? p.num_classes : p.num_classes - 1);
         if (total <= 0) {
             throw std::runtime_error("Segmentation postprocess needs positive num_queries and num_classes");
         }
@@ -288,14 +307,18 @@ void SegPostprocessor::run(const void *dets_device, const void *labels_device, c
         throw std::runtime_error("Segmentation postprocess frame geometry has not been set");
     }
 
-    const int total = p.num_queries * p.num_classes;
     const DeviceParams dp = to_device_params(p);
+    const int total = p.num_queries * dp.num_foreground;
 
     decode_scores<<<grid_for(total), kBlockSize, 0, s.stream>>>(static_cast<const float *>(labels_device),
                                                                 static_cast<float *>(s.scores_in.get()),
-                                                                static_cast<int32_t *>(s.indices_in.get()), total);
+                                                                static_cast<int32_t *>(s.indices_in.get()), dp, total);
     CUDA_CHECK_LAST();
 
+    // Radix sort is stable, so equal scores keep the ascending flattened index
+    // order decode_scores wrote them in — the same tie rule rfdetr 1.9.3 made
+    // explicit (`torch.argsort(..., stable=True)`) and that select_topk_multiclass
+    // applies on the CPU.
     size_t temp_bytes = s.sort_temp.capacity();
     CUDA_CHECK(cub::DeviceRadixSort::SortPairsDescending(
         s.sort_temp.get(), temp_bytes, static_cast<const float *>(s.scores_in.get()),

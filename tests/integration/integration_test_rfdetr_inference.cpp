@@ -96,7 +96,7 @@ void save_white_test_image(const std::filesystem::path &path, int width = 100, i
     do {                                                                                                               \
         if (!(fixture).model_available_) {                                                                             \
             GTEST_SKIP() << "No " << kModelFormatName                                                                  \
-                         << " found for the compiled-in backend. Export with rfdetr 1.9.2 or set "                     \
+                         << " found for the compiled-in backend. Export with rfdetr 1.9.4 or set "                     \
                             "RFDETR_TEST_MODEL.";                                                                      \
         }                                                                                                              \
     } while (0)
