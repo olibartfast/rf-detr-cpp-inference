@@ -18,6 +18,12 @@ Before starting any phase, run the [`feature-spec`](../.claude/skills/feature-sp
 
 From the Known Issues table in [CHANGELOG.md](../CHANGELOG.md). Independent of each other and of everything below.
 
+- [ ] Support the active-first keypoint schema (`rfdetr` 1.8.2+)
+  - Upstream 1.8.2 changed the default `num_keypoints_per_class` from background-first `[0, 17]` to active-first `[17]` ([#1160](https://github.com/roboflow/rf-detr/pull/1160)); `Config::keypoint_counts` still defaults to `{0, 17}` and has no CLI override
+  - `deploy/requirements.txt` pins 1.9.4, so the documented export path produces a schema the default build cannot decode — expected to throw `Keypoint tensor channels (17) not divisible by number of keypoint classes (2)`
+  - **Verify against a real 1.8.2+ keypoint export first.** The failure is derived from the release notes and the code, not observed; the `labels` column count under the new schema is unconfirmed and decides whether `background_class_id` also needs to change
+  - Decide between a `--keypoint-counts` flag and auto-detecting the schema from the tensor shape. Either way, pre-1.8.2 exports must keep working
+  - Also re-export keypoint models with 1.8.1+: [#1135](https://github.com/roboflow/rf-detr/pull/1135) fixed eval-mode query routing, which export traces
 - [ ] Add segmentation export to `deploy/export_executorch.py`
   - `--model_type` offers only detection classes; the script instantiates `RFDETRNano`…`RFDETR2XLarge`, never `RFDETRSeg*`
   - Not an upstream or runtime limitation: `rfdetr` exports `RFDETRSegMedium` to `.pte` without error, `ExecuTorchBackend::validate_output_order()` inspects only outputs 0 and 1 so a third `masks` output passes, and `postprocess_segmentation_outputs()` addresses outputs positionally
