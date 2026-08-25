@@ -177,6 +177,8 @@ VIDEO=~/long.mp4 \
 | `DEADLINE_HOURS` | `6` | Watchdog fires `brev stop` after this, run finished or not |
 | `SKIP_DEFAULT_PATH` | `0` | `1` skips step 6, which needs no GPU |
 | `SELF_STOP` | `1` | `0` leaves the instance up after a clean finish |
+| `WATCHDOG` | `1` | `0` does not arm the watchdog at all. **Set this when running at home** — without a `brev` CLI the watchdog falls back to `sudo shutdown -h`, which halts your own machine |
+| `EXTRA_CMAKE_ARGS` | *(empty)* | Extra `-D` flags for the four TensorRT configures, e.g. `-DTENSORRT_ROOTDIR=<prefix>` on a box that already has TensorRT |
 | `REPO`, `DALI_ROOT`, `RESULTS` | derived / `~/dependencies/dali` / `~/gate-results` | Paths |
 
 ### Protecting a one-hour budget
@@ -209,8 +211,15 @@ plainly as unrun**. An unrun check is reported as unrun, never implied to have p
 
 ## Known rough edges
 
-- The script has **no execution history against real hardware**. Budget a few minutes on the first
-  run for a wrong path.
+- First run against real hardware was 2026-08-26 on an RTX 3060 Laptop; see `CHANGELOG.md` for the
+  result and the six fixes it took to get there. It is no longer untried, but it has been tried
+  exactly once, on one card, with `-DWERROR=OFF`.
+- `src/backends/tensorrt_backend.cpp` does **not** compile under `-DWERROR=ON`, which step 1 uses.
+  Until that is fixed (roadmap Phase 1), a full gate run needs `EXTRA_CMAKE_ARGS="-DWERROR=OFF"`,
+  and the result must say so.
+- `compute-sanitizer` must match the driver. A toolkit older than the driver's CUDA version may
+  fail to attach at all; the script now reports that as `UNRUN` rather than `FAIL`, but the
+  `daliOutputRelease` ordering check is then simply not done.
 - The `GTEST_SKIP()`-without-a-device check is untestable on a GPU box by construction. Verify it on
   a CPU-only host.
 - `probe_tensorrt` searches `build-*/_deps/TensorRT-*/`, then `TENSORRT_ROOTDIR`, then the system

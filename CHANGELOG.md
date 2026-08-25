@@ -216,6 +216,81 @@ is on the record; these predate it.
 
 ---
 
+### GPU gate: first execution of `run_gate.sh` against real hardware
+
+The [gpu-verify](.claude/skills/gpu-verify/SKILL.md) gate had never been run — the script's own
+header said so ("no execution history against real hardware"). Running it on a local RTX 3060
+Laptop, following [docs/rented-gpu-runbook.md](docs/rented-gpu-runbook.md), took six fixes before
+it produced a usable result. Two of them are bugs anyone would have hit; four are in the script.
+
+#### Result
+
+Hardware and versions from `gate-results/environment.txt`, per gate step 7:
+
+| | |
+|---|---|
+| GPU / driver | NVIDIA GeForce RTX 3060 Laptop, 6 GB, driver 580.173.02 |
+| CUDA | `nvcc` 12.0.140 (Ubuntu `nvidia-cuda-toolkit`); driver reports CUDA 13.0 |
+| TensorRT | 10.13.3.9, `Linux.x86_64-gnu.cuda-12.9` tarball via `TENSORRT_ROOTDIR` |
+| DALI | staged from `nvcr.io/nvidia/tritonserver:25.12-py3` |
+| Model | `rfdetr-seg-medium.onnx`, rfdetr 1.9.4, 432×432 |
+| `CMAKE_CUDA_ARCHITECTURES` | 86 |
+
+**9 PASS, 0 FAIL, 5 UNRUN.** Passing: the full TensorRT + DALI + CUDA build, `USE_DALI=ON` alone,
+`USE_CUDA_POSTPROCESS=ON` alone, both configure-time guards rejecting the ONNX Runtime combination,
+all four pre/post combinations as smoke runs, and benchmarks.
+
+Unrun, stated plainly as unrun rather than implied to have passed:
+
+- The parity tolerances (tensor 2e-2, scores 1e-3, box centres 1 px, mask IoU 0.999) — no
+  `tests/data/gpu_parity/`, roadmap Phase 2.
+- The dense >100-detection fixture — roadmap Phase 2.
+- The per-stage four-combination benchmark — `bench_gpu_pipeline.cpp` does not exist, Phase 2.
+- **`compute-sanitizer` over 1000 frames** — the box's sanitizer (CUDA 12.0, Jan 2023) cannot
+  instrument the app. The `daliOutputRelease` ordering check the pipeline spec calls for is
+  therefore still unperformed; a passing smoke run is not a substitute for it.
+- Gate step 6 on the GPU box — run locally instead, where it passed.
+
+Also unrun and not attempted: `-DWERROR=ON`. See Known Issues.
+
+#### What the four combinations showed
+
+Not a parity check — one image, final scores rather than the preprocessed tensor — but the first
+real signal on the question Phase 2 exists to answer:
+
+| Combination | bicycle | dog | car | motorbike |
+|---|---|---|---|---|
+| cpu-cpu | 0.952574 | 0.891811 | 0.816406 | 0.580352 |
+| cpupre-gpupost | 0.952574 | 0.891811 | 0.816406 | 0.580352 |
+| gpupre-cpupost | 0.956145 | 0.888372 | 0.800068 | 0.571767 |
+| gpupre-gpupost | 0.956145 | 0.888372 | 0.800068 | 0.571767 |
+
+They split by **preprocessing**, not postprocessing. CUDA postprocessing is bit-identical to the CPU
+path on real hardware — the `src/gpu/` correctness rule holding outside `test_gpu_postprocess.cpp`
+for the first time. DALI preprocessing is not: max score delta 0.0163 on `car`, **16× the gate's
+1e-3 score tolerance**. Phase 2 should be written expecting to find a discrepancy, not to confirm
+its absence.
+
+#### Fixed
+
+| File | Change |
+|------|--------|
+| `cmake/deps/packages/TensorRT.cmake` | The pinned download URL was a hard 404: `...Linux.x86_64.gnu.cuda-13.0.tar.gz`, where NVIDIA's path is `x86_64-gnu`. This blocked `-DUSE_TENSORRT=ON` from a clean tree for everyone, including the runbook's own provisioning script, which installs only the CUDA toolkit and lets CMake fetch TensorRT. Undetected because CI never builds this backend. |
+| `scripts/run_gate.sh` | `arm_watchdog()` falls back to `sudo shutdown -h "+N"` when no `brev` CLI is present, so running the gate on a local machine would halt it — `SELF_STOP` does not cover that path. New `WATCHDOG` variable (default `1`, rented behaviour unchanged) skips arming it. |
+| `scripts/run_gate.sh` | Exports the TensorRT lib directory on `LD_LIBRARY_PATH`. `libnvinfer` dlopens `libnvinfer_builder_resource.so` at engine-build time, and a dlopen from inside a dependency does not use the executable's `RUNPATH`, so every combination died with `Unable to load library` before building an engine. Covers both an existing prefix and the tarball `cmake/deps` downloads into `build-gpu/_deps`. |
+| `scripts/run_gate.sh` | `probe_tensorrt()` read `$3` of `#define NV_TENSORRT_MAJOR`, which in TensorRT 10.x expands to `TRT_MAJOR_ENTERPRISE`, not a literal — so `environment.txt`, the file step 7 says to copy into this changelog, recorded `TensorRT TRT_MAJOR_ENTERPRISE.TRT_MINOR_ENTERPRISE...`. Now resolves one level of indirection. |
+| `scripts/run_gate.sh` | New `EXTRA_CMAKE_ARGS`, appended to the four TensorRT configures and deliberately not to the ONNX Runtime one. A box with its own TensorRT needs `-DTENSORRT_ROOTDIR=<prefix>`, which `ProvidedPackageManager.cmake` reads as a CMake variable, not an environment variable. `TRT_PREFIX` derives one prefix from either source for both the loader path and the version probe. |
+| `scripts/run_gate.sh` | `step_sanitizer()` treated "no `ERROR SUMMARY: 0` line" as findings, so a sanitizer that never attached was reported `FAIL` — the same column as a real memory error. A tool that could not instrument the app is now `UNRUN`. |
+
+#### Not fixed
+
+`environment.txt` also showed the app's `RUNPATH` carrying raw link items —
+`/usr/lib/x86_64-linux-gnu/libcudart_static.a:Threads::Threads:dl:` — which means unresolved link
+targets are reaching the RPATH computation in the TensorRT build. Harmless here, recorded rather
+than chased.
+
+---
+
 ### Tooling: `scripts/run_gate.sh`, an unattended driver for the gpu-verify gate
 
 The [gpu-verify](.claude/skills/gpu-verify/SKILL.md) checklist is the only thing standing between
@@ -356,6 +431,7 @@ compressed bytes) and frees the video pipeline's preprocess thread.
 
 | Area | Issue |
 |------|-------|
+| `src/backends/tensorrt_backend.cpp` | **Does not compile under `-DWERROR=ON`**, which is what the gpu-verify gate builds with — so gate step 1 fails outright and every later step is skipped. Nine errors on TensorRT 10.13.3.9: `-Wsign-conversion` at lines 148, 161, 257, 267 and 271; `-Wunused-parameter` on `input_shape` at 171; and `-Wdeprecated-declarations` for `NetworkDefinitionCreationFlag::kEXPLICIT_BATCH` (180), `IBuilder::platformHasFastFp16()` (223) and `BuilderFlag::kFP16` (224). The conversions and the unused parameter are mechanical; the deprecations are a real API migration — `kEXPLICIT_BATCH` is a no-op in TensorRT 10 and the FP16 flags are superseded by strongly-typed networks — so per `AGENTS.md` this needs a spec directory before it is touched. CI compiles only the ONNX Runtime lane, which is why strict warnings never reached this file. The gate results above were obtained with `-DWERROR=OFF`. |
 | `src/rfdetr_inference.hpp`, `src/main.cpp` | **Keypoint models exported with `rfdetr` 1.8.2 or later do not decode.** Upstream 1.8.2 changed the default keypoint schema from background-first `[0, 17]` to active-first `[17]` ([#1160](https://github.com/roboflow/rf-detr/pull/1160)); `Config::keypoint_counts` still defaults to `{0, 17}` and there is no CLI override, so the schema can only be changed by editing `Config` and rebuilding. `deploy/requirements.txt` pins `rfdetr[onnx]==1.9.4`, so `deploy/export_keypoint.py` as documented produces the new schema. Expected effect, derived from the release notes and the code rather than observed against an export: the `keypoints` tensor carries one class instead of two, so `postprocess_keypoint_outputs()` raises `Keypoint tensor channels (17) not divisible by number of keypoint classes (2)`; if the `labels` tensor also drops to a single column, `background_class_id`'s default `0` leaves no foreground column and every frame yields zero detections (guarded, not undefined — `build_foreground_scores()` returns empty for a non-positive foreground count). Not yet verified against a real 1.8.2+ keypoint export, and not yet fixed: the choice between a `--keypoint-counts` flag and auto-detecting the schema from the tensor shape needs a model to test against. Pre-1.8.2 exports are unaffected. |
 | `deploy/export_executorch.py` | Cannot export segmentation models: `--model_type` offers only the detection classes and the script instantiates `RFDETRNano`…`RFDETR2XLarge`, never `RFDETRSeg*`. Not an upstream or runtime limitation — `rfdetr` 1.9.0 exports `RFDETRSegMedium` to `.pte` without error, `ExecuTorchBackend::validate_output_order()` inspects only outputs 0 and 1 so a third `masks` output passes, and `postprocess_segmentation_outputs()` addresses outputs positionally. Segmentation `.pte` files must currently be exported by hand; see [docs/backend-parity-segmentation-video.md](docs/backend-parity-segmentation-video.md). |
 | `src/main.cpp` | Video output is hard-coded to `output_video.mp4` in the current working directory with no override flag, so comparing backends requires running each from its own directory. |

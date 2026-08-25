@@ -39,6 +39,15 @@ CUDA_ARCH="${CUDA_ARCH:-89}"
 # Hard stop regardless of whether the gate finished. Re-armed on every run.
 DEADLINE_HOURS="${DEADLINE_HOURS:-6}"
 SELF_STOP="${SELF_STOP:-1}"
+# 0 disables the deadline watchdog entirely. The watchdog exists to stop a
+# metered instance; on a local machine its fallback (`sudo shutdown -h`) would
+# halt your own box, so set this to 0 when running the gate at home.
+WATCHDOG="${WATCHDOG:-1}"
+
+# Extra -D flags appended to every TensorRT configure. A box that already has
+# TensorRT (rather than letting cmake/deps download the pinned tarball) needs
+# -DTENSORRT_ROOTDIR=<prefix>, which is read as a CMake variable, not an env var.
+read -r -a EXTRA_CMAKE <<< "${EXTRA_CMAKE_ARGS:-}"
 
 # Step 6 needs no GPU. On a rented box that is paid time for nothing — run it at
 # home first and set this to 1 to keep the metered clock on GPU-only work.
@@ -48,6 +57,18 @@ MODEL="${MODEL:-}"                                   # .onnx or .engine — requ
 VIDEO="${VIDEO:-}"                                   # >= 1000 frames — required for step 4
 IMAGE="${IMAGE:-$REPO/data/dog.jpg}"
 LABELS="${LABELS:-$REPO/data/coco-labels-91.txt}"
+
+# libnvinfer dlopens libnvinfer_builder_resource.so at engine-build time. A
+# dlopen from inside a dependency does not use the executable's RUNPATH, so
+# without this every run dies with "Unable to load library" before it builds
+# an engine. Covers both TensorRT sources: an existing prefix and the tarball
+# cmake/deps downloads into build-gpu/_deps.
+# A prefix may arrive either as TENSORRT_ROOTDIR or inside EXTRA_CMAKE_ARGS.
+TRT_PREFIX="${TENSORRT_ROOTDIR:-$(sed -n 's/.*-DTENSORRT_ROOTDIR=\([^ ]*\).*/\1/p' <<< "${EXTRA_CMAKE_ARGS:-}")}"
+for _trtlib in "${TRT_PREFIX:-/nonexistent}/lib" "$REPO"/build-gpu/_deps/TensorRT-*/lib; do
+    [[ -d "$_trtlib" ]] && LD_LIBRARY_PATH="${_trtlib}:${LD_LIBRARY_PATH:-}"
+done
+export LD_LIBRARY_PATH
 
 mkdir -p "$RESULTS"
 : > "$SUMMARY"
@@ -63,6 +84,10 @@ unrun()  { record UNRUN "$1"; }
 # survives you forgetting about the box; the self-stop at the end only covers
 # the clean path.
 arm_watchdog() {
+    if [[ "$WATCHDOG" != "1" ]]; then
+        note "watchdog disabled (WATCHDOG=0) — nothing will stop this machine"
+        return
+    fi
     if command -v brev >/dev/null 2>&1; then
         sudo systemd-run --on-active="${DEADLINE_HOURS}h" --unit=gate-watchdog \
             "$(command -v brev)" stop "$(hostname)" 2>/dev/null \
@@ -93,7 +118,7 @@ probe_tensorrt() {
     for candidate in \
         "$REPO"/build-gpu/_deps/TensorRT-*/include/NvInferVersion.h \
         "$REPO"/build-*/_deps/TensorRT-*/include/NvInferVersion.h \
-        "${TENSORRT_ROOTDIR:-/nonexistent}"/include/NvInferVersion.h \
+        "${TRT_PREFIX:-/nonexistent}"/include/NvInferVersion.h \
         /usr/include/x86_64-linux-gnu/NvInferVersion.h \
         /usr/include/NvInferVersion.h
     do
@@ -105,11 +130,22 @@ probe_tensorrt() {
         return
     fi
 
+    # TensorRT 10.x does not put the numbers on NV_TENSORRT_*: those expand to
+    # TRT_<part>_ENTERPRISE, which is where the literal lives. Reading $3 blindly
+    # yields "TRT_MAJOR_ENTERPRISE" and writes that into environment.txt, which
+    # step 7 copies into the CHANGELOG. Resolve one level of indirection.
+    trt_define() { # macro name
+        local v
+        v=$(awk -v m="$1" '$1=="#define" && $2==m {print $3; exit}' "$header")
+        [[ "$v" =~ ^[0-9]+$ ]] || v=$(awk -v m="$v" '$1=="#define" && $2==m {print $3; exit}' "$header")
+        echo "$v"
+    }
+
     local major minor patch build
-    major=$(awk '/define NV_TENSORRT_MAJOR/ {print $3}' "$header")
-    minor=$(awk '/define NV_TENSORRT_MINOR/ {print $3}' "$header")
-    patch=$(awk '/define NV_TENSORRT_PATCH/ {print $3}' "$header")
-    build=$(awk '/define NV_TENSORRT_BUILD/ {print $3}' "$header")
+    major=$(trt_define NV_TENSORRT_MAJOR)
+    minor=$(trt_define NV_TENSORRT_MINOR)
+    patch=$(trt_define NV_TENSORRT_PATCH)
+    build=$(trt_define NV_TENSORRT_BUILD)
     echo "TensorRT ${major}.${minor}.${patch}.${build}"
     echo "header: ${header}"
 }
@@ -149,7 +185,7 @@ step_build() {
     if cmake -S "$REPO" -B "$REPO/build-gpu" -G Ninja \
              -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON -DUSE_GPU_PIPELINE=ON \
              -DDALI_ROOT="$DALI_ROOT" -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCH" \
-             -DCMAKE_BUILD_TYPE=Release -DWERROR=ON >> "$LOG" 2>&1 \
+             -DCMAKE_BUILD_TYPE=Release -DWERROR=ON "${EXTRA_CMAKE[@]}" >> "$LOG" 2>&1 \
        && cmake --build "$REPO/build-gpu" --parallel >> "$LOG" 2>&1; then
         pass "full TensorRT + DALI + CUDA build"
     else
@@ -162,7 +198,7 @@ step_build() {
     # needs no DALI. A change that silently couples them is a regression.
     if cmake -S "$REPO" -B "$REPO/build-dali-only" -G Ninja \
              -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON -DUSE_DALI=ON \
-             -DDALI_ROOT="$DALI_ROOT" -DCMAKE_BUILD_TYPE=Release >> "$LOG" 2>&1 \
+             -DDALI_ROOT="$DALI_ROOT" -DCMAKE_BUILD_TYPE=Release "${EXTRA_CMAKE[@]}" >> "$LOG" 2>&1 \
        && cmake --build "$REPO/build-dali-only" --parallel >> "$LOG" 2>&1; then
         pass "USE_DALI=ON alone"
     else
@@ -172,7 +208,7 @@ step_build() {
     if cmake -S "$REPO" -B "$REPO/build-cudapost-only" -G Ninja \
              -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON -DUSE_CUDA_POSTPROCESS=ON \
              -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCH" \
-             -DCMAKE_BUILD_TYPE=Release >> "$LOG" 2>&1 \
+             -DCMAKE_BUILD_TYPE=Release "${EXTRA_CMAKE[@]}" >> "$LOG" 2>&1 \
        && cmake --build "$REPO/build-cudapost-only" --parallel >> "$LOG" 2>&1; then
         pass "USE_CUDA_POSTPROCESS=ON alone"
     else
@@ -239,8 +275,15 @@ step_sanitizer() {
     compute-sanitizer --tool memcheck "$REPO/build-gpu/inference_app" \
         "$MODEL" "$VIDEO" "$LABELS" --segmentation --gpu-preprocess --gpu-postprocess \
         > "${RESULTS}/compute-sanitizer.txt" 2>&1
+    # "no ERROR SUMMARY line" is ambiguous: it means either a clean run that was
+    # cut short or a sanitizer that never attached. Reporting the second as FAIL
+    # puts a tooling problem in the same column as a real memory error.
     if grep -qE '0 errors|ERROR SUMMARY: 0' "${RESULTS}/compute-sanitizer.txt"; then
         pass "compute-sanitizer: no findings on the long run"
+    elif grep -qE 'Unable to find injection library|terminated before first instrumented API call' \
+             "${RESULTS}/compute-sanitizer.txt"; then
+        unrun "compute-sanitizer could not instrument the app (toolkit/driver mismatch)
+          — see compute-sanitizer.txt; NOT a clean run"
     else
         fail "compute-sanitizer: findings present — see compute-sanitizer.txt"
     fi
@@ -252,7 +295,7 @@ step_benchmarks() {
     if cmake -S "$REPO" -B "$REPO/build-gpu-bench" -G Ninja \
              -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON -DUSE_GPU_PIPELINE=ON \
              -DDALI_ROOT="$DALI_ROOT" -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCH" \
-             -DCMAKE_BUILD_TYPE=Release -DBENCHMARKS=ON >> "$LOG" 2>&1 \
+             -DCMAKE_BUILD_TYPE=Release -DBENCHMARKS=ON "${EXTRA_CMAKE[@]}" >> "$LOG" 2>&1 \
        && cmake --build "$REPO/build-gpu-bench" --parallel >> "$LOG" 2>&1 \
        && "$REPO/build-gpu-bench/benchmarks" > "${RESULTS}/benchmarks.txt" 2>&1; then
         pass "benchmarks ran — see benchmarks.txt"
