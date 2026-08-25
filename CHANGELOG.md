@@ -7,182 +7,12 @@ upstream `rfdetr` releases it is kept in step with.
 
 ## [Unreleased]
 
-### Tooling: `scripts/run_gate.sh`, an unattended driver for the gpu-verify gate
-
-The [gpu-verify](.claude/skills/gpu-verify/SKILL.md) checklist is the only thing standing between
-the TensorRT, DALI and CUDA paths and an unverified release, and running it means renting a GPU by
-the hour. Two things made that awkward in practice: the checklist is a document, so every run was
-hand-driven from an SSH session that dies when the laptop closes, and a hung or finished run keeps
-billing until someone notices. This turns the executable part into one script.
-
-What it does not do is the point. `tests/data/gpu_parity/` does not exist and `src/main.cpp` has no
-output-path flag — roadmap Phases 2 and 1 respectively — so the numeric tolerances the gate is
-actually built around (preprocessed tensor `max |Δ| ≤ 2e-2`, scores within `1e-3`, box centres
-within 1 px, mask IoU ≥ 0.999) have nothing to run against. The script reports those as `UNRUN`
-rather than skipping them silently, and the four combinations it *can* run are labelled smoke
-tests, not parity checks. That follows the skill's own rule: an unrun check is reported as unrun,
-never implied to have passed. Running this script is not passing the gate; Phase 2 still gates
-Phase 4.
-
-| File | Change |
-|------|--------|
-| `scripts/run_gate.sh` | New. Drives step 1 (full TensorRT+DALI+CUDA build, both halves independently, and the two `USE_DALI`/`USE_CUDA_POSTPROCESS` + ONNX Runtime configure guards that must `FATAL_ERROR`), step 2 as smoke runs, step 4 (`compute-sanitizer` memcheck over a long video), step 5 (benchmarks), and step 6 (default ONNX Runtime build + UnitTests). Writes a `PASS`/`FAIL`/`UNRUN` summary plus per-check output into `~/gate-results/` for the CHANGELOG entry step 7 asks for. Not `set -e`: a failing check is data, so the remaining checks still run. |
-| `scripts/run_gate.sh` | Cost control, because the gate runs on metered hardware. A `systemd-run` deadline watchdog fires `brev stop` after `DEADLINE_HOURS` whether the run finished, crashed, or hung — the self-stop at the end only covers the clean path. `SKIP_DEFAULT_PATH=1` moves step 6, which needs no GPU, back to a local machine and off the metered clock. `CUDA_ARCH` defaults to `89` (L4/L40S/RTX-Ada) rather than the CMake default `86`, since the arch is a property of the rented box, not the project. |
-| `docs/rented-gpu-runbook.md` | New. The operational half the skill deliberately leaves out: how to choose an instance, what to prepare at home before the meter starts, the provisioning setup script, running under `tmux`, and collecting results. Leads with what a rented hour actually buys today — steps 1, 2 (smoke), 4 and 5 — so nobody reads a green summary as a passed gate. Records the selection rule the hard way round: this workload is build-bound, so rank instances by CPU count and provisioning time, not VRAM, and avoid `highcpu`-class families whose ~0.9 GB per vCPU will OOM-kill a parallel C++ build on a swapless cloud VM. |
-| `AGENTS.md`, `.claude/skills/gpu-verify/SKILL.md` | Pointers to the script and the runbook, alongside the existing `fetch_dali.sh` and `generate_dali_pipelines.sh` entries. |
-
-The version probes behind step 7 are the part most likely to be quietly useless, so they were
-written against how this project actually resolves its dependencies rather than against convention.
-TensorRT is normally *not* a system package here — `cmake/deps/packages/TensorRT.cmake` downloads
-the pinned tarball into `${CMAKE_BINARY_DIR}/_deps` — so a probe reading `/usr/include` finds
-nothing on a correct build. `probe_tensorrt` searches the build trees, then `TENSORRT_ROOTDIR`,
-then the system paths, and reads the version from the `NV_TENSORRT_*` macros rather than parsing
-the extracted directory name, which can drift from the pin. It runs *after* step 1, since that
-configure is what performs the download. DALI ships no version header in the extracted wheel, so
-`probe_dali` records the provenance that does identify it: the Triton image pinned in
-`fetch_dali.sh`, read out of that script so the two cannot disagree. Both probes were exercised
-against a synthetic tree, present and absent.
-
-Two checks are untestable from the script by construction and say so: the `GTEST_SKIP()`-without-a-
-device behaviour needs a machine with no CUDA device, and the guest-shutdown watchdog fallback
-needs one manual confirmation on the provider console that a halted VM bills as *stopped* rather
-than billed-but-off.
-
-No `specs/features/` directory: per [AGENTS.md](AGENTS.md), a spec is required for a roadmap phase,
-a release, an rfdetr alignment, or a change to a path CI cannot execute. This adds a helper script
-and touches none of `src/`, so it is CHANGELOG-only. No README change either — it alters no code,
-build option, backend version, Docker image, or export package; `docs/rented-gpu-runbook.md` is
-reached from `AGENTS.md` and the skill, which is where someone running the gate is already looking.
-
-
-### Workflow: spec-driven development loop, four skills, roadmap split
-
-Second pass over the agent workflow, reviewing the previous `specs/` change against the reference
-project for the DeepLearning.AI spec-driven-development course
-([sc-spec-driven-development-files](https://github.com/https-deeplearning-ai/sc-spec-driven-development-files)).
-That workflow is: constitution → feature spec (interview first, then `requirements`/`plan`/
-`validation`) → implement → validate → replan → changelog → merge. We already had the constitution
-and are ahead of the reference on agent replaceability (`AGENTS.md` canonical, with `CLAUDE.md`,
-`.clinerules`, `CONVENTIONS.md`, and `.github/copilot-instructions.md` as thin pointers) and on the
-changelog, which is written by hand with reasoning and per-file tables rather than scraped from
-`git log`. Four gaps were real: no completion state on roadmap phases, no acceptance criteria
-written *before* the work, recurring rituals living as prose that is easy to skip, and a
-`roadmap.md` that was three documents in one.
-
-| File | Change |
-|------|--------|
-| `specs/gpu-pipeline.md` | New. The GPU architecture diagram, the 8-rule model contract, the packed output contract, correctness rules, and the risk table, moved verbatim out of `specs/roadmap.md`. These are standing constraints on `src/gpu/`, not planned work, and were burying the work queue. |
-| `specs/roadmap.md` | Phase items are now `[ ]`/`[x]` checkboxes, so "the next phase" is the first section that is all unticked — mechanically findable rather than inferred from prose. Volatile status ("49 commits ahead of `master`") removed; git-flow model and the v0.5.0 gate kept. Phase content and ordering are unchanged: v0.5.0 still waits on Phases 1–4. |
-| `specs/features/2026-08-15-gpu-parity-fixtures/` | New. `requirements.md`, `plan.md`, `validation.md` for roadmap Phase 2, seeding the convention with the phase that is actually next. Records one thing the roadmap missed: `tests/unit/test_gpu_postprocess.cpp` already covers segmentation postprocess parity including a dense case, so the new `test_gpu_parity.cpp` is for the uncovered half — DALI preprocess versus CPU preprocess on real image geometry. |
-| `.claude/skills/feature-spec/SKILL.md` | New. Next unticked phase → branch from `develop` → three grouped questions before any file is written → the spec triple. Also states when a spec is *not* required, so small fixes stay CHANGELOG-only. |
-| `.claude/skills/rfdetr-alignment/SKILL.md` | New. The standing obligation as a checklist: verify the release against upstream first, classify input/output/operator/API change, move CPU and CUDA postprocessing together, update the pins, and say explicitly when no C++ change is needed. |
-| `.claude/skills/release/SKILL.md` | New. Spec Sync checks, `[Unreleased]` → `[vX.Y.Z]`, the git-flow cut, and the version reconciliation this release owes: `project()` declares none, `vcpkg.json` says `0.1.0`, the README badge says `0.4.0`. |
-| `.claude/skills/gpu-verify/SKILL.md` | New. The gate CI cannot run: the build matrix, the four pre/post combinations with their numeric tolerances, the dense fixture, `compute-sanitizer` over 1000 frames, benchmarks including the flat ones, and confirmation that the default CPU path is bit-identical. |
-| `AGENTS.md` | New "Workflow" section: the loop, the four skills, and when a feature spec is required. "Release Documentation Sync" widens into "Spec Sync" — every existing release rule kept verbatim, plus the reference's replanning discipline, that a `specs/mission.md` or `specs/tech-stack.md` change propagates to `README.md`, `AGENTS.md`, and open feature specs in the same commit. |
-| `specs/mission.md`, `README.md` | Links follow the roadmap split. |
-
-The skills are plain markdown checklists with no agent-specific mechanics beyond the interview
-step, and are linked from `AGENTS.md`, so a Copilot, Cline, or Aider user can follow the same
-procedure by hand. That was the point of the existing pointer-file arrangement and this change does
-not narrow it.
-
-Deliberately not adopted: the course's `changelog` skill (a `git log` scraper — this file's
-per-file tables and reasoning would be lost), and its `TODO.md` / `backlog/` inboxes (the roadmap's
-Deferred table already does that job, with a recorded reason per item).
-
-No code, build, or version change, so no README dependency statements move.
-
----
-
-### Documentation: agent-facing `specs/` folder
-
-Added `specs/mission.md`, `specs/tech-stack.md`, and `specs/roadmap.md`, following the
-`specs/` convention from the DeepLearning.AI *AI Coding Workflows* course. `AGENTS.md`
-remains the command reference and now links to them; the specs carry intent, pinned
-versions with the file that owns each pin, and the phased work queue.
-
-| File | Change |
-|------|--------|
-| `specs/mission.md` | New. Purpose, the architectural commitments (one backend at a time, backends behind `InferenceBackend`, CPU/GPU postprocessing parity, mock-injected tests), component map, out-of-scope list. |
-| `specs/tech-stack.md` | New. Versions with their pin locations, backend and media/GPU tables, every CMake option and default, configure-time constraints, CI coverage, and the known pin duplications (TensorRT in two places; `project()` declares no version). |
-| `specs/roadmap.md` | New. Five phases with verification criteria, the deferred list with reasons, and the GPU pipeline design reference. |
-| `docs/GPU_PIPELINE_ROADMAP.md` | **Removed**, folded into `specs/roadmap.md`. Completed phases 1–3 collapse into the design reference (architecture, the 8-rule model contract, the packed output contract, correctness rules, risks); the unbuilt phases 0.3/0.4, 4.3, and 5 become roadmap phases 2–4 with their tolerances intact. |
-| `AGENTS.md`, `README.md` | Link to `specs/` instead of the removed doc. |
-
-No code, build, or version change, so no README dependency statements move.
-
-Noted while writing: the `.gitignore` known issue below is partly stale — `*.pte` is
-now ignored, and `output_video.mp4` has no leading slash so it already matches at any
-depth. Tracked in `specs/roadmap.md` Phase 1.
-
----
-
-### Fixed: ONNX Runtime download ignored the target platform
-
-`cmake/deps/packages/OnnxRuntime.cmake` hard-coded the `onnxruntime-linux-x64`
-archive URL, extracted directory, and `.so` path, so a provided-download build on
-any non-x86-64 host fetched the x86-64 archive: every source file compiled and the
-link then failed on incompatible objects. The catalog entry now derives the
-archive from `CMAKE_SYSTEM_NAME` and `CMAKE_SYSTEM_PROCESSOR`, covering the
-official CPU packages for Linux (`x64`, `aarch64`) and Windows (`x64`, `arm64`)
-with the right extension (`.tgz`/`.zip`) and link/runtime library names
-(`libonnxruntime.so.<ver>` vs `onnxruntime.lib` + `onnxruntime.dll`).
-Because the selection follows the *target* processor, cross-compilation resolves
-the target's archive rather than the host's. An unsupported target now fails at
-configure time with a message pointing at `ONNXRUNTIME_ROOTDIR`, conan, or vcpkg,
-instead of producing a link error at the end of a full build.
-
-| File | Change |
-|------|--------|
-| `cmake/deps/packages/OnnxRuntime.cmake` | OS/architecture-derived archive, extension, and library paths; `FATAL_ERROR` on unsupported targets. |
-| `Dockerfile` | ONNX Runtime staging glob is architecture-neutral (`onnxruntime-linux-*`), so the `onnx` image builds on arm64. |
-| `README.md` | Documents the per-target archive table and the supported-platform behaviour. |
-| `docs/package-manager-architecture.md` | Catalog example matches the computed declaration and notes that entries may compute values from the target platform. |
-
----
-
-### RF-DETR 1.9.2 alignment
-
-**Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.9.2
-
-RF-DETR 1.9.2 is a fix-and-performance release with no new public APIs and no
-changes to exported model inputs, outputs, preprocessing, or runtime operator
-requirements. The C++ inference implementation therefore needs no compatibility
-change; the export package pins and current release guidance move to 1.9.2.
-
-#### Breaking upstream dataset change
-
-Hierarchical COCO datasets now share one label mapping derived from the training
-split, and unannotated grouping/root categories no longer consume a class slot.
-This fixes Roboflow COCO exports that previously produced an N+1-class head or
-split-dependent label indices. Checkpoints trained before 1.9.2 retain their old
-head width and label ordering; evaluating them against a dataset re-filtered by
-1.9.2 can misalign per-class metrics. Retrain those checkpoints when adopting the
-new label space. This affects Python training and dataset evaluation, not C++
-postprocessing of an already-exported model.
-
-#### Changed
-
-| File | Change |
-|------|--------|
-| `deploy/requirements.txt` | `rfdetr[onnx]` 1.9.1 → 1.9.2. |
-| `deploy/export_executorch.py` | Current ExecuTorch exporter install guidance moved to `rfdetr[executorch]==1.9.2`; the 1.9.1 `aten::linear.out` compatibility explanation remains applicable. |
-| `README.md`, `docs/export.md` | Current ONNX, ExecuTorch, and TensorRT export pins moved to 1.9.2; historical 1.9.1 behaviour and runtime requirements remain documented. |
-| `tests/integration/integration_test_rfdetr_inference.cpp` | Missing-model guidance now names rfdetr 1.9.2. |
-| `AGENTS.md` | Added a mandatory rule to inspect repository documentation and verify official upstream release information before acting on version-alignment requests. |
-
-The upstream matcher memory/time improvements, checkpoint-resume fixes, training
-determinism changes, and Python-side prediction optimizations do not map to code
-paths implemented by this repository.
-
----
-
 ### RF-DETR 1.9.3 / 1.9.4 alignment
 
 **Upstream releases**: [1.9.3](https://github.com/roboflow/rf-detr/releases/tag/1.9.3),
 [1.9.4](https://github.com/roboflow/rf-detr/releases/tag/1.9.4)
 
-Continues from the 1.9.2 alignment above, which correctly found nothing for C++ to do.
+Continues from the 1.9.2 alignment below, which correctly found nothing for C++ to do.
 1.9.3 and 1.9.4 are different: two changes land on the decode path, and both were wrong
 here in the same way they were wrong upstream:
 
@@ -250,7 +80,43 @@ Albumentations `TimeReverse`/`SquareSymmetry` augmentation fixes, non-square tra
 resize, and the TFLite conversion fixes. One is worth knowing about anyway and is
 written up in `docs/export.md`: 1.9.3's `SegmentationHead.skip_blocks` fix is
 training-only — the export path already applied the projection, so no re-export is
-needed. (1.9.2's label-space change is covered in its own entry above.)
+needed. (1.9.2's label-space change is covered in its own entry below.)
+
+---
+
+### RF-DETR 1.9.2 alignment
+
+**Upstream release**: https://github.com/roboflow/rf-detr/releases/tag/1.9.2
+
+RF-DETR 1.9.2 is a fix-and-performance release with no new public APIs and no
+changes to exported model inputs, outputs, preprocessing, or runtime operator
+requirements. The C++ inference implementation therefore needs no compatibility
+change; the export package pins and current release guidance move to 1.9.2.
+
+#### Breaking upstream dataset change
+
+Hierarchical COCO datasets now share one label mapping derived from the training
+split, and unannotated grouping/root categories no longer consume a class slot.
+This fixes Roboflow COCO exports that previously produced an N+1-class head or
+split-dependent label indices. Checkpoints trained before 1.9.2 retain their old
+head width and label ordering; evaluating them against a dataset re-filtered by
+1.9.2 can misalign per-class metrics. Retrain those checkpoints when adopting the
+new label space. This affects Python training and dataset evaluation, not C++
+postprocessing of an already-exported model.
+
+#### Changed
+
+| File | Change |
+|------|--------|
+| `deploy/requirements.txt` | `rfdetr[onnx]` 1.9.1 → 1.9.2. |
+| `deploy/export_executorch.py` | Current ExecuTorch exporter install guidance moved to `rfdetr[executorch]==1.9.2`; the 1.9.1 `aten::linear.out` compatibility explanation remains applicable. |
+| `README.md`, `docs/export.md` | Current ONNX, ExecuTorch, and TensorRT export pins moved to 1.9.2; historical 1.9.1 behaviour and runtime requirements remain documented. |
+| `tests/integration/integration_test_rfdetr_inference.cpp` | Missing-model guidance now names rfdetr 1.9.2. |
+| `AGENTS.md` | Added a mandatory rule to inspect repository documentation and verify official upstream release information before acting on version-alignment requests. |
+
+The upstream matcher memory/time improvements, checkpoint-resume fixes, training
+determinism changes, and Python-side prediction optimizations do not map to code
+paths implemented by this repository.
 
 ---
 
@@ -330,6 +196,99 @@ documents, which is what the border fix above brings this project in line with.
 
 ---
 
+### Upstream releases with no dedicated entry
+
+Seven `roboflow/rf-detr` releases have no alignment entry above. Six needed none; **1.8.2
+did**, and the gap is still open — see the keypoint row in Known Issues below.
+
+| Upstream | Why no entry |
+|----------|--------------|
+| [1.5.0](https://github.com/roboflow/rf-detr/releases/tag/1.5.0), [1.5.1](https://github.com/roboflow/rf-detr/releases/tag/1.5.1), [1.5.2](https://github.com/roboflow/rf-detr/releases/tag/1.5.2), [1.6.1](https://github.com/roboflow/rf-detr/releases/tag/1.6.1) | Custom augmentations, nested transforms, GPU-memory reporting, checkpointing — training-side, no export or runtime contract change. Predate the per-release habit; `v0.1.2` jumped 1.4.3 → 1.6.5.post0 in one hop and summarized 1.6.0–1.6.5 as bullets. |
+| [1.7.1](https://github.com/roboflow/rf-detr/releases/tag/1.7.1) | BF16 segmentation training crash, `from_checkpoint` on starter weights, a NumPy 2.x import shim. Python-side only. Landed 2026-05-28, one day before `v0.1.3` shipped against 1.7.0. |
+| [1.8.1](https://github.com/roboflow/rf-detr/releases/tag/1.8.1) | Albumentations/TensorBoard compatibility, metric plotting, checkpoint selection — training-side. One caveat for this project: [#1135](https://github.com/roboflow/rf-detr/pull/1135) fixed keypoint query routing *in eval mode*, and export traces the eval graph, so a keypoint ONNX exported with 1.8.0 can carry the bug. Re-export keypoint models with 1.8.1 or later. |
+| [1.8.2](https://github.com/roboflow/rf-detr/releases/tag/1.8.2) | **Not benign.** Default `num_keypoints_per_class` changed from background-first `[0, 17]` to active-first `[17]` ([#1160](https://github.com/roboflow/rf-detr/pull/1160)), shifting person from `class_id=1` to `class_id=0`. `Config::keypoint_counts` still defaults to `{0, 17}`. Also [#1155](https://github.com/roboflow/rf-detr/pull/1155): `spatial_shapes` is now built from symbolic Shape ops, removing the `ScatterND` node that made `trtexec` fail with `IScatterLayer cannot be used to compute a shape tensor` — ONNX files exported before 1.8.2 may not build a TensorRT engine, and re-exporting is the fix. |
+
+The 1.8.2 keypoint schema change was missed because 1.8.1 and 1.8.2 were skipped between
+`v0.2.0` (1.8.0) and `v0.2.1`/`v0.2.2` (1.8.3), which backported the box-clamping fix without
+re-reading the two releases in between. The `rfdetr-alignment` skill now requires saying
+explicitly when a release needs no C++ change, so from 1.9.2 onward "considered and dismissed"
+is on the record; these predate it.
+
+---
+
+### Tooling: `scripts/run_gate.sh`, an unattended driver for the gpu-verify gate
+
+The [gpu-verify](.claude/skills/gpu-verify/SKILL.md) checklist is the only thing standing between
+the TensorRT, DALI and CUDA paths and an unverified release, and running it means renting a GPU by
+the hour. Two things made that awkward in practice: the checklist is a document, so every run was
+hand-driven from an SSH session that dies when the laptop closes, and a hung or finished run keeps
+billing until someone notices. This turns the executable part into one script.
+
+What it does not do is the point. `tests/data/gpu_parity/` does not exist and `src/main.cpp` has no
+output-path flag — roadmap Phases 2 and 1 respectively — so the numeric tolerances the gate is
+actually built around (preprocessed tensor `max |Δ| ≤ 2e-2`, scores within `1e-3`, box centres
+within 1 px, mask IoU ≥ 0.999) have nothing to run against. The script reports those as `UNRUN`
+rather than skipping them silently, and the four combinations it *can* run are labelled smoke
+tests, not parity checks. That follows the skill's own rule: an unrun check is reported as unrun,
+never implied to have passed. Running this script is not passing the gate; Phase 2 still gates
+Phase 4.
+
+| File | Change |
+|------|--------|
+| `scripts/run_gate.sh` | New. Drives step 1 (full TensorRT+DALI+CUDA build, both halves independently, and the two `USE_DALI`/`USE_CUDA_POSTPROCESS` + ONNX Runtime configure guards that must `FATAL_ERROR`), step 2 as smoke runs, step 4 (`compute-sanitizer` memcheck over a long video), step 5 (benchmarks), and step 6 (default ONNX Runtime build + UnitTests). Writes a `PASS`/`FAIL`/`UNRUN` summary plus per-check output into `~/gate-results/` for the CHANGELOG entry step 7 asks for. Not `set -e`: a failing check is data, so the remaining checks still run. |
+| `scripts/run_gate.sh` | Cost control, because the gate runs on metered hardware. A `systemd-run` deadline watchdog fires `brev stop` after `DEADLINE_HOURS` whether the run finished, crashed, or hung — the self-stop at the end only covers the clean path. `SKIP_DEFAULT_PATH=1` moves step 6, which needs no GPU, back to a local machine and off the metered clock. `CUDA_ARCH` defaults to `89` (L4/L40S/RTX-Ada) rather than the CMake default `86`, since the arch is a property of the rented box, not the project. |
+| `docs/rented-gpu-runbook.md` | New. The operational half the skill deliberately leaves out: how to choose an instance, what to prepare at home before the meter starts, the provisioning setup script, running under `tmux`, and collecting results. Leads with what a rented hour actually buys today — steps 1, 2 (smoke), 4 and 5 — so nobody reads a green summary as a passed gate. Records the selection rule the hard way round: this workload is build-bound, so rank instances by CPU count and provisioning time, not VRAM, and avoid `highcpu`-class families whose ~0.9 GB per vCPU will OOM-kill a parallel C++ build on a swapless cloud VM. |
+| `AGENTS.md`, `.claude/skills/gpu-verify/SKILL.md` | Pointers to the script and the runbook, alongside the existing `fetch_dali.sh` and `generate_dali_pipelines.sh` entries. |
+
+The version probes behind step 7 are the part most likely to be quietly useless, so they were
+written against how this project actually resolves its dependencies rather than against convention.
+TensorRT is normally *not* a system package here — `cmake/deps/packages/TensorRT.cmake` downloads
+the pinned tarball into `${CMAKE_BINARY_DIR}/_deps` — so a probe reading `/usr/include` finds
+nothing on a correct build. `probe_tensorrt` searches the build trees, then `TENSORRT_ROOTDIR`,
+then the system paths, and reads the version from the `NV_TENSORRT_*` macros rather than parsing
+the extracted directory name, which can drift from the pin. It runs *after* step 1, since that
+configure is what performs the download. DALI ships no version header in the extracted wheel, so
+`probe_dali` records the provenance that does identify it: the Triton image pinned in
+`fetch_dali.sh`, read out of that script so the two cannot disagree. Both probes were exercised
+against a synthetic tree, present and absent.
+
+Two checks are untestable from the script by construction and say so: the `GTEST_SKIP()`-without-a-
+device behaviour needs a machine with no CUDA device, and the guest-shutdown watchdog fallback
+needs one manual confirmation on the provider console that a halted VM bills as *stopped* rather
+than billed-but-off.
+
+No `specs/features/` directory: per [AGENTS.md](AGENTS.md), a spec is required for a roadmap phase,
+a release, an rfdetr alignment, or a change to a path CI cannot execute. This adds a helper script
+and touches none of `src/`, so it is CHANGELOG-only. No README change either — it alters no code,
+build option, backend version, Docker image, or export package; `docs/rented-gpu-runbook.md` is
+reached from `AGENTS.md` and the skill, which is where someone running the gate is already looking.
+
+---
+
+### Fixed: ONNX Runtime download ignored the target platform
+
+`cmake/deps/packages/OnnxRuntime.cmake` hard-coded the `onnxruntime-linux-x64`
+archive URL, extracted directory, and `.so` path, so a provided-download build on
+any non-x86-64 host fetched the x86-64 archive: every source file compiled and the
+link then failed on incompatible objects. The catalog entry now derives the
+archive from `CMAKE_SYSTEM_NAME` and `CMAKE_SYSTEM_PROCESSOR`, covering the
+official CPU packages for Linux (`x64`, `aarch64`) and Windows (`x64`, `arm64`)
+with the right extension (`.tgz`/`.zip`) and link/runtime library names
+(`libonnxruntime.so.<ver>` vs `onnxruntime.lib` + `onnxruntime.dll`).
+Because the selection follows the *target* processor, cross-compilation resolves
+the target's archive rather than the host's. An unsupported target now fails at
+configure time with a message pointing at `ONNXRUNTIME_ROOTDIR`, conan, or vcpkg,
+instead of producing a link error at the end of a full build.
+
+| File | Change |
+|------|--------|
+| `cmake/deps/packages/OnnxRuntime.cmake` | OS/architecture-derived archive, extension, and library paths; `FATAL_ERROR` on unsupported targets. |
+| `Dockerfile` | ONNX Runtime staging glob is architecture-neutral (`onnxruntime-linux-*`), so the `onnx` image builds on arm64. |
+| `README.md` | Documents the per-target archive table and the supported-platform behaviour. |
+| `docs/package-manager-architecture.md` | Catalog example matches the computed declaration and notes that entries may compute values from the target platform. |
+
+---
+
 ### GPU pipeline: DALI preprocessing + CUDA segmentation postprocessing
 
 Opt-in GPU pipeline on the TensorRT backend, hosting DALI in-process through the
@@ -383,16 +342,21 @@ compressed bytes) and frees the video pipeline's preprocess thread.
 | `src/main.cpp` | Added `--resolution <px>`, `--max-detections <n>`, and `--mask-threshold <val>` alongside the existing `--threshold`. Options are held as `std::optional` and applied only when passed, so unset fields keep their `Config` defaults instead of being overwritten. Numeric arguments are parsed through `parse_int_option()`/`parse_float_option()`, which report the offending flag and value; previously a typo'd `--threshold` value let `std::stof` throw outside the `try` block and terminate the process. Values are range-checked (`--threshold` in `[0, 1]`, `--resolution`/`--max-detections` positive). |
 | `README.md` | New "Tuning Flags" table under Usage; the Configuration section now maps each `Config` field to its CLI override (or notes that it has none) instead of describing CLI-settable fields as source-edit only. |
 
+---
+
 ### Documentation
 
 | File | Change |
 |------|--------|
 | `docs/backend-parity-segmentation-video.md` | Record of a manual cross-backend instance-segmentation video test (ONNX Runtime, TensorRT, ExecuTorch) over a 320-frame 1080p clip. All three run the same `RFDETRSegMedium` at 432×432 and agree on detections; ExecuTorch and ONNX Runtime match exactly, TensorRT is ~0.01 lower on four of seven scores from engine precision. Covers the manual gap left by CI, which tests neither TensorRT nor ExecuTorch. |
 
+---
+
 ### Known Issues
 
 | Area | Issue |
 |------|-------|
+| `src/rfdetr_inference.hpp`, `src/main.cpp` | **Keypoint models exported with `rfdetr` 1.8.2 or later do not decode.** Upstream 1.8.2 changed the default keypoint schema from background-first `[0, 17]` to active-first `[17]` ([#1160](https://github.com/roboflow/rf-detr/pull/1160)); `Config::keypoint_counts` still defaults to `{0, 17}` and there is no CLI override, so the schema can only be changed by editing `Config` and rebuilding. `deploy/requirements.txt` pins `rfdetr[onnx]==1.9.4`, so `deploy/export_keypoint.py` as documented produces the new schema. Expected effect, derived from the release notes and the code rather than observed against an export: the `keypoints` tensor carries one class instead of two, so `postprocess_keypoint_outputs()` raises `Keypoint tensor channels (17) not divisible by number of keypoint classes (2)`; if the `labels` tensor also drops to a single column, `background_class_id`'s default `0` leaves no foreground column and every frame yields zero detections (guarded, not undefined — `build_foreground_scores()` returns empty for a non-positive foreground count). Not yet verified against a real 1.8.2+ keypoint export, and not yet fixed: the choice between a `--keypoint-counts` flag and auto-detecting the schema from the tensor shape needs a model to test against. Pre-1.8.2 exports are unaffected. |
 | `deploy/export_executorch.py` | Cannot export segmentation models: `--model_type` offers only the detection classes and the script instantiates `RFDETRNano`…`RFDETR2XLarge`, never `RFDETRSeg*`. Not an upstream or runtime limitation — `rfdetr` 1.9.0 exports `RFDETRSegMedium` to `.pte` without error, `ExecuTorchBackend::validate_output_order()` inspects only outputs 0 and 1 so a third `masks` output passes, and `postprocess_segmentation_outputs()` addresses outputs positionally. Segmentation `.pte` files must currently be exported by hand; see [docs/backend-parity-segmentation-video.md](docs/backend-parity-segmentation-video.md). |
 | `src/main.cpp` | Video output is hard-coded to `output_video.mp4` in the current working directory with no override flag, so comparing backends requires running each from its own directory. |
 | `.gitignore` | `*.pte` is not ignored (unlike `*.onnx` and `*.engine`), and `*.mp4` is ignored only as the exact root-level `output_video.mp4`. Exported ExecuTorch models and result videos appear as untracked files. |
