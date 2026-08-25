@@ -7,6 +7,40 @@ upstream `rfdetr` releases it is kept in step with.
 
 ## [Unreleased]
 
+### Tooling: `scripts/run_gate.sh`, an unattended driver for the gpu-verify gate
+
+The [gpu-verify](.claude/skills/gpu-verify/SKILL.md) checklist is the only thing standing between
+the TensorRT, DALI and CUDA paths and an unverified release, and running it means renting a GPU by
+the hour. Two things made that awkward in practice: the checklist is a document, so every run was
+hand-driven from an SSH session that dies when the laptop closes, and a hung or finished run keeps
+billing until someone notices. This turns the executable part into one script.
+
+What it does not do is the point. `tests/data/gpu_parity/` does not exist and `src/main.cpp` has no
+output-path flag — roadmap Phases 2 and 1 respectively — so the numeric tolerances the gate is
+actually built around (preprocessed tensor `max |Δ| ≤ 2e-2`, scores within `1e-3`, box centres
+within 1 px, mask IoU ≥ 0.999) have nothing to run against. The script reports those as `UNRUN`
+rather than skipping them silently, and the four combinations it *can* run are labelled smoke
+tests, not parity checks. That follows the skill's own rule: an unrun check is reported as unrun,
+never implied to have passed. Running this script is not passing the gate; Phase 2 still gates
+Phase 4.
+
+| File | Change |
+|------|--------|
+| `scripts/run_gate.sh` | New. Drives step 1 (full TensorRT+DALI+CUDA build, both halves independently, and the two `USE_DALI`/`USE_CUDA_POSTPROCESS` + ONNX Runtime configure guards that must `FATAL_ERROR`), step 2 as smoke runs, step 4 (`compute-sanitizer` memcheck over a long video), step 5 (benchmarks), and step 6 (default ONNX Runtime build + UnitTests). Writes a `PASS`/`FAIL`/`UNRUN` summary plus per-check output into `~/gate-results/` for the CHANGELOG entry step 7 asks for. Not `set -e`: a failing check is data, so the remaining checks still run. |
+| `scripts/run_gate.sh` | Cost control, because the gate runs on metered hardware. A `systemd-run` deadline watchdog fires `brev stop` after `DEADLINE_HOURS` whether the run finished, crashed, or hung — the self-stop at the end only covers the clean path. `SKIP_DEFAULT_PATH=1` moves step 6, which needs no GPU, back to a local machine and off the metered clock. `CUDA_ARCH` defaults to `89` (L4/L40S/RTX-Ada) rather than the CMake default `86`, since the arch is a property of the rented box, not the project. |
+| `AGENTS.md` | One line under "GPU Pipeline" pointing at the script and its env knobs, alongside the existing `fetch_dali.sh` and `generate_dali_pipelines.sh` entries. |
+
+Two checks are untestable from the script by construction and say so: the `GTEST_SKIP()`-without-a-
+device behaviour needs a machine with no CUDA device, and the guest-shutdown watchdog fallback
+needs one manual confirmation on the provider console that a halted VM bills as *stopped* rather
+than billed-but-off.
+
+No `specs/features/` directory: per [AGENTS.md](AGENTS.md), a spec is required for a roadmap phase,
+a release, an rfdetr alignment, or a change to a path CI cannot execute. This adds a helper script
+and touches none of `src/`, so it is CHANGELOG-only. No README change either — it alters no code,
+build option, backend version, Docker image, or export package.
+
+
 ### Workflow: spec-driven development loop, four skills, roadmap split
 
 Second pass over the agent workflow, reviewing the previous `specs/` change against the reference
