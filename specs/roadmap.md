@@ -18,6 +18,11 @@ Before starting any phase, run the [`feature-spec`](../.claude/skills/feature-sp
 
 From the Known Issues table in [CHANGELOG.md](../CHANGELOG.md). Independent of each other and of everything below.
 
+- [ ] Make `src/backends/tensorrt_backend.cpp` compile under `-DWERROR=ON`
+  - The gpu-verify gate builds with `-DWERROR=ON`, so this fails gate step 1 and skips every later step
+  - Mechanical: `-Wsign-conversion` at 148, 161, 257, 267, 271; `-Wunused-parameter` on `input_shape` at 171
+  - A decision, not mechanical: `kEXPLICIT_BATCH` (180) is a no-op in TensorRT 10, and `platformHasFastFp16()` (223) / `BuilderFlag::kFP16` (224) are superseded by strongly-typed networks
+  - Touches a CI-unexecutable path, so it needs a spec directory per [AGENTS.md](../AGENTS.md)
 - [ ] Support the active-first keypoint schema (`rfdetr` 1.8.2+)
   - Upstream 1.8.2 changed the default `num_keypoints_per_class` from background-first `[0, 17]` to active-first `[17]` ([#1160](https://github.com/roboflow/rf-detr/pull/1160)); `Config::keypoint_counts` still defaults to `{0, 17}` and has no CLI override
   - `deploy/requirements.txt` pins 1.9.4, so the documented export path produces a schema the default build cannot decode — expected to throw `Keypoint tensor channels (17) not divisible by number of keypoint classes (2)`
@@ -42,6 +47,8 @@ From the Known Issues table in [CHANGELOG.md](../CHANGELOG.md). Independent of e
 The parity gate the GPU work was supposed to be measured against was never built. Everything in Phases 3 and 4 depends on it.
 
 Spec: [`features/2026-08-15-gpu-parity-fixtures/`](features/2026-08-15-gpu-parity-fixtures/) — acceptance criteria and tolerances live in its `validation.md`.
+
+**Evidence from the first real gate run (2026-08-26).** The four combinations split by *preprocessing*, not postprocessing: `cpu-cpu` and `cpupre-gpupost` agree to the last digit, as do `gpupre-cpupost` and `gpu-gpu` — CUDA postprocessing is bit-identical to CPU. DALI preprocessing is not: max score delta 0.0163 on one image, 16× the 1e-3 score tolerance. One image and final scores rather than the preprocessed tensor, so not conclusive — but write these fixtures expecting to find a discrepancy, not to confirm its absence. Details in [CHANGELOG.md](../CHANGELOG.md).
 
 - [ ] Add golden CPU fixtures under `tests/data/gpu_parity/` (directory does not exist)
   - A small, a wide, and a tall image; save the CPU-produced preprocessed tensor and the final detections/masks with explicit tolerances
