@@ -1,0 +1,73 @@
+# Compile gate for the paths CI cannot execute.
+#
+# GitHub runners have no GPU, so TensorRT, DALI and the CUDA kernels can never be
+# *run* here — but they can be *compiled*, and until this workflow existed they
+# were not: src/backends/tensorrt_backend.cpp and src/gpu/ were built for the
+# first time on a rented GPU box, where a -Werror wall of sign-conversion and
+# TensorRT 10 deprecation errors burned gate time that was paid for by the hour.
+#
+# The job stages headers-only TensorRT and DALI prefixes (see
+# scripts/ci/stage_gpu_headers.sh) and builds the static library target with
+# -DWERROR=ON. It does not link and does not run: manual verification of the GPU
+# path is still the gate, per .claude/skills/gpu-verify/SKILL.md.
+name: GPU Backend Compile
+
+on:
+  push:
+    branches: [master, develop]
+  pull_request:
+    branches: [master, develop]
+
+jobs:
+  compile:
+    # Pinned: scripts/ci/stage_gpu_headers.sh pulls from the ubuntu2404 CUDA repo.
+    runs-on: ubuntu-24.04
+    name: ${{ matrix.name }} (compile, -DWERROR=ON)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The two GPU halves are independent options, so each combination is a
+          # distinct set of #if branches. Build all four.
+          - name: TensorRT
+            options: -DUSE_DALI=OFF -DUSE_CUDA_POSTPROCESS=OFF
+          - name: TensorRT + DALI
+            options: -DUSE_DALI=ON -DUSE_CUDA_POSTPROCESS=OFF
+          - name: TensorRT + CUDA postprocess
+            options: -DUSE_DALI=OFF -DUSE_CUDA_POSTPROCESS=ON
+          - name: TensorRT + full GPU pipeline
+            options: -DUSE_GPU_PIPELINE=ON
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-deps
+
+      - name: Restore staged GPU headers
+        uses: actions/cache@v4
+        with:
+          path: ~/dependencies
+          key: gpu-headers-${{ hashFiles('scripts/ci/stage_gpu_headers.sh') }}
+
+      - name: Stage TensorRT and DALI headers
+        run: ./scripts/ci/stage_gpu_headers.sh
+
+      - name: Install nvcc and the CUDA runtime headers
+        run: |
+          curl -fsSLO https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cuda-nvcc-13-0 cuda-cudart-dev-13-0
+          echo "/usr/local/cuda-13.0/bin" >> "$GITHUB_PATH"
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON ${{ matrix.options }} \
+            -DTENSORRT_ROOTDIR="$HOME/dependencies/tensorrt-headers" \
+            -DDALI_ROOT="$HOME/dependencies/dali-headers" \
+            -DCMAKE_BUILD_TYPE=Release -DWERROR=ON \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Compile
+        # The static library only. The staged TensorRT/DALI shared objects are
+        # stubs with no symbols, so any target that links is out of reach here.
+        run: cmake --build build --parallel --target rfdetr_inference_lib

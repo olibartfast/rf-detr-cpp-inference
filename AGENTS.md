@@ -50,7 +50,7 @@ The `executorch` variant builds the ExecuTorch runtime from source into `/opt/ex
 - Either option with the ONNX Runtime backend is a configure-time `FATAL_ERROR`
 - Runtime flags (default off): `--gpu-preprocess`, `--gpu-postprocess` (segmentation only), `--dali-pipeline-dir <dir>` (default `data/dali`)
 - Regenerate `.dali` pipelines for a new resolution: `./scripts/generate_dali_pipelines.sh <res>` (needs `--gpus all` Docker); 432 and 576 are checked in
-- GPU unit tests (`test_gpu_postprocess.cpp`) `GTEST_SKIP()` without a CUDA device; like TensorRT, CI compiles but does not execute GPU paths — test manually with [gpu-verify](.claude/skills/gpu-verify/SKILL.md)
+- GPU unit tests (`test_gpu_postprocess.cpp`) `GTEST_SKIP()` without a CUDA device; like TensorRT, CI compiles but does not execute GPU paths — `gpu-compile.yml` builds all four `USE_DALI`/`USE_CUDA_POSTPROCESS` combinations with `-DWERROR=ON` against headers staged by `scripts/ci/stage_gpu_headers.sh`, so a compile break is a red PR, not a surprise on metered hardware. Behaviour still has to be tested manually with [gpu-verify](.claude/skills/gpu-verify/SKILL.md)
 - On a rented GPU box, `./scripts/run_gate.sh` drives the executable part of that checklist unattended and reports the rest as `UNRUN`; it arms a deadline watchdog and stops the instance when done. Env knobs: `CUDA_ARCH` (default `89`), `DEADLINE_HOURS`, `SKIP_DEFAULT_PATH`, `SELF_STOP`, `MODEL`, `VIDEO`. End-to-end procedure — choosing an instance, export prep, setup script, collecting results: [docs/rented-gpu-runbook.md](docs/rented-gpu-runbook.md)
 - Design constraints: [specs/gpu-pipeline.md](specs/gpu-pipeline.md) — remaining phases: [specs/roadmap.md](specs/roadmap.md)
 
@@ -128,4 +128,4 @@ Requires a plain Debug build (no sanitizers — ASan/TSan conflict with Valgrind
 - Only one backend (ONNX Runtime, TensorRT, or ExecuTorch) can be enabled at compile time.
 - TensorRT requires manually installed CUDA toolkit.
 - Data directory is auto-created by CMake.
-- CI does not test the TensorRT or ExecuTorch backends; test those manually.
+- CI compiles the TensorRT backend and the GPU pipeline (`gpu-compile.yml`) but cannot run them; ExecuTorch is neither compiled nor run by CI. Test the behaviour of all three manually.

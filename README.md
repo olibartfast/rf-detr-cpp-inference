@@ -885,7 +885,8 @@ scheme with `rfdetr-keypoint` / `rfdetr-keypoint-preview` and `RFDETR_KEYPOINT_M
 
 ### Manual Cross-Backend Checks
 
-CI exercises neither TensorRT nor ExecuTorch, so backend agreement is verified by hand.
+CI compiles the TensorRT backend but has no GPU to run it on, and does not build ExecuTorch at
+all, so backend agreement is verified by hand.
 [docs/backend-parity-segmentation-video.md](docs/backend-parity-segmentation-video.md) records a
 segmentation video run across all three backends — commands, results, and the parity comparison.
 
@@ -911,12 +912,19 @@ cmake --build build --target benchmarks --parallel
 
 ### CI
 
-Two GitHub Actions workflows run on every push/PR to `master` and `develop`:
+Three GitHub Actions workflows run on every push/PR to `master` and `develop`:
 
 | Workflow | File | What it does |
 |----------|------|-------------|
 | **C++ Lint & Build** | `lint.yml` | Format check, clang-tidy, cppcheck, build with `-DWERROR=ON` |
 | **Build & Test** | `ci.yml` | Build with benchmarks, run unit tests, run benchmarks, run unit tests under ASan+UBSan |
+| **GPU Backend Compile** | `gpu-compile.yml` | Compiles the TensorRT backend and both GPU halves with `-DWERROR=ON`, across all four `USE_DALI`/`USE_CUDA_POSTPROCESS` combinations |
+
+`gpu-compile.yml` runs on GPU-less runners, so it compiles but never links or executes. It stages
+headers-only TensorRT and DALI prefixes with `scripts/ci/stage_gpu_headers.sh` — the full TensorRT
+tarball is 6.2 GB and the DALI wheel 380 MB, against ~130 KB of TensorRT header debs and a few MB
+of DALI headers — and builds only the `rfdetr_inference_lib` static target. Runtime behaviour of
+the GPU path is still gated on manual verification, on real hardware.
 
 ---
 
