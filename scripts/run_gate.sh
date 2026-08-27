@@ -49,8 +49,10 @@ WATCHDOG="${WATCHDOG:-1}"
 # -DTENSORRT_ROOTDIR=<prefix>, which is read as a CMake variable, not an env var.
 read -r -a EXTRA_CMAKE <<< "${EXTRA_CMAKE_ARGS:-}"
 
-# Step 6 needs no GPU. On a rented box that is paid time for nothing — run it at
-# home first and set this to 1 to keep the metered clock on GPU-only work.
+# Step 6's default ONNX Runtime build needs no GPU. On a rented box that is paid
+# time for nothing — run it at home first and set this to 1 to keep the metered
+# clock on GPU-only work. It skips only that CPU build: step 6's UnitTests on the
+# GPU build still run, since test_gpu_postprocess needs the device.
 SKIP_DEFAULT_PATH="${SKIP_DEFAULT_PATH:-0}"
 
 MODEL="${MODEL:-}"                                   # .onnx or .engine — required for steps 2-5
@@ -226,6 +228,10 @@ step_build() {
         fi
         rm -rf "$REPO/build-guard-$opt"
     done
+
+    # Explicit: main() reads this to decide whether steps 2-5 have a binary to
+    # run. Without it the status is whatever the guard loop's rm left behind.
+    return 0
 }
 
 # --- Step 2/3: the four combinations ------------------------------------------
@@ -261,8 +267,8 @@ step_combinations() {
 # --- Step 4: memory and long-run safety ---------------------------------------
 step_sanitizer() {
     note "=== step 4: compute-sanitizer 1000-frame run ==="
-    if [[ -z "$MODEL" || -z "$VIDEO" || ! -f "$VIDEO" ]]; then
-        unrun "compute-sanitizer long run — needs MODEL and a >=1000 frame VIDEO"
+    if [[ -z "$MODEL" || ! -f "$MODEL" || -z "$VIDEO" || ! -f "$VIDEO" ]]; then
+        unrun "compute-sanitizer long run — needs an existing MODEL and a >=1000 frame VIDEO"
         return
     fi
     if ! command -v compute-sanitizer >/dev/null 2>&1; then
@@ -275,15 +281,31 @@ step_sanitizer() {
     compute-sanitizer --tool memcheck "$REPO/build-gpu/inference_app" \
         "$MODEL" "$VIDEO" "$LABELS" --segmentation --gpu-preprocess --gpu-postprocess \
         > "${RESULTS}/compute-sanitizer.txt" 2>&1
+    local rc=$?
+
+    # Two things have to hold, and the exit status is the half that is easy to
+    # drop: an app that dies in the first second still makes the sanitizer print
+    # "ERROR SUMMARY: 0 errors", so the summary line alone would record a clean
+    # 1000-frame run that never happened.
+    #
+    # The count is anchored for the same reason: 'ERROR SUMMARY: 10 errors'
+    # contains the substring '0 errors'.
+    local clean=1
+    grep -qE 'ERROR SUMMARY: 0 errors' "${RESULTS}/compute-sanitizer.txt" || clean=0
+
     # "no ERROR SUMMARY line" is ambiguous: it means either a clean run that was
     # cut short or a sanitizer that never attached. Reporting the second as FAIL
-    # puts a tooling problem in the same column as a real memory error.
-    if grep -qE '0 errors|ERROR SUMMARY: 0' "${RESULTS}/compute-sanitizer.txt"; then
-        pass "compute-sanitizer: no findings on the long run"
-    elif grep -qE 'Unable to find injection library|terminated before first instrumented API call' \
+    # puts a tooling problem in the same column as a real memory error. Checked
+    # first, because a sanitizer that never attached also exits non-zero.
+    if grep -qE 'Unable to find injection library|terminated before first instrumented API call' \
              "${RESULTS}/compute-sanitizer.txt"; then
         unrun "compute-sanitizer could not instrument the app (toolkit/driver mismatch)
           — see compute-sanitizer.txt; NOT a clean run"
+    elif [[ "$rc" -ne 0 ]]; then
+        fail "compute-sanitizer: the run exited $rc — the 1000-frame run did not
+          complete, so zero findings prove nothing. See compute-sanitizer.txt"
+    elif [[ "$clean" -eq 1 ]]; then
+        pass "compute-sanitizer: no findings on the long run"
     else
         fail "compute-sanitizer: findings present — see compute-sanitizer.txt"
     fi
@@ -310,11 +332,15 @@ step_benchmarks() {
 # --- Step 6: the default path is unchanged ------------------------------------
 step_default_path() {
     note "=== step 6: default ONNX Runtime path ==="
+
+    # SKIP_DEFAULT_PATH moves the *CPU* build off the metered clock. It must not
+    # touch the GPU-build UnitTests below: test_gpu_postprocess needs the rented
+    # device to run rather than GTEST_SKIP(), which is the whole reason this
+    # script is on a GPU box at all.
     if [[ "$SKIP_DEFAULT_PATH" == "1" ]]; then
-        unrun "step 6 skipped on this box — run it locally, it needs no GPU"
-        return
-    fi
-    if cmake -S "$REPO" -B "$REPO/build-default" -G Ninja \
+        unrun "default ONNX Runtime build + UnitTests skipped on this box
+          (SKIP_DEFAULT_PATH=1) — run it locally, it needs no GPU"
+    elif cmake -S "$REPO" -B "$REPO/build-default" -G Ninja \
              -DCMAKE_BUILD_TYPE=Release >> "$LOG" 2>&1 \
        && cmake --build "$REPO/build-default" --parallel >> "$LOG" 2>&1 \
        && ctest --test-dir "$REPO/build-default" --output-on-failure -R UnitTests \
@@ -323,6 +349,13 @@ step_default_path() {
     else
         fail "default ONNX Runtime build or UnitTests — see unit-tests-default.txt"
     fi
+
+    # A green build and green UnitTests are not the skill's first step-6 box:
+    # that one asks for output bit-identical to the pre-change baseline, which
+    # needs an inference run and something to diff it against. Neither exists
+    # here, so it is reported unrun rather than absorbed into the PASS above.
+    unrun "default path bit-identical to the pre-change baseline — no baseline
+          artefact and no output-path flag in src/main.cpp; roadmap Phase 1"
 
     if ctest --test-dir "$REPO/build-gpu" --output-on-failure -R UnitTests \
            > "${RESULTS}/unit-tests-gpu.txt" 2>&1; then

@@ -311,7 +311,7 @@ Phase 4.
 | File | Change |
 |------|--------|
 | `scripts/run_gate.sh` | New. Drives step 1 (full TensorRT+DALI+CUDA build, both halves independently, and the two `USE_DALI`/`USE_CUDA_POSTPROCESS` + ONNX Runtime configure guards that must `FATAL_ERROR`), step 2 as smoke runs, step 4 (`compute-sanitizer` memcheck over a long video), step 5 (benchmarks), and step 6 (default ONNX Runtime build + UnitTests). Writes a `PASS`/`FAIL`/`UNRUN` summary plus per-check output into `~/gate-results/` for the CHANGELOG entry step 7 asks for. Not `set -e`: a failing check is data, so the remaining checks still run. |
-| `scripts/run_gate.sh` | Cost control, because the gate runs on metered hardware. A `systemd-run` deadline watchdog fires `brev stop` after `DEADLINE_HOURS` whether the run finished, crashed, or hung — the self-stop at the end only covers the clean path. `SKIP_DEFAULT_PATH=1` moves step 6, which needs no GPU, back to a local machine and off the metered clock. `CUDA_ARCH` defaults to `89` (L4/L40S/RTX-Ada) rather than the CMake default `86`, since the arch is a property of the rented box, not the project. |
+| `scripts/run_gate.sh` | Cost control, because the gate runs on metered hardware. A `systemd-run` deadline watchdog fires `brev stop` after `DEADLINE_HOURS` whether the run finished, crashed, or hung — the self-stop at the end only covers the clean path. `SKIP_DEFAULT_PATH=1` moves step 6's default ONNX Runtime build, which needs no GPU, back to a local machine and off the metered clock. `CUDA_ARCH` defaults to `89` (L4/L40S/RTX-Ada) rather than the CMake default `86`, since the arch is a property of the rented box, not the project. |
 | `docs/rented-gpu-runbook.md` | New. The operational half the skill deliberately leaves out: how to choose an instance, what to prepare at home before the meter starts, the provisioning setup script, running under `tmux`, and collecting results. Leads with what a rented hour actually buys today — steps 1, 2 (smoke), 4 and 5 — so nobody reads a green summary as a passed gate. Records the selection rule the hard way round: this workload is build-bound, so rank instances by CPU count and provisioning time, not VRAM, and avoid `highcpu`-class families whose ~0.9 GB per vCPU will OOM-kill a parallel C++ build on a swapless cloud VM. |
 | `AGENTS.md`, `.claude/skills/gpu-verify/SKILL.md` | Pointers to the script and the runbook, alongside the existing `fetch_dali.sh` and `generate_dali_pipelines.sh` entries. |
 
@@ -331,6 +331,17 @@ Two checks are untestable from the script by construction and say so: the `GTEST
 device behaviour needs a machine with no CUDA device, and the guest-shutdown watchdog fallback
 needs one manual confirmation on the provider console that a halted VM bills as *stopped* rather
 than billed-but-off.
+
+Three review findings on the gate driver were fixed before it ran again; all three would have shown
+up as a green summary hiding an unrun check, which is the one failure mode a gate cannot have.
+
+| File | Change |
+|------|--------|
+| `scripts/run_gate.sh` | The `compute-sanitizer` step now requires the run to *finish*. It discarded the exit status and judged on the summary line alone, so an app that died in the first second — a `MODEL` path that does not exist, a video the decoder rejects — still printed `ERROR SUMMARY: 0 errors` and was recorded `PASS` for a 1000-frame run that never happened. `MODEL` is now `-f`-checked here as it already was in step 2, the exit status is captured, and the not-instrumented branch is tested first so a toolkit/driver mismatch stays `UNRUN` rather than being reclassified `FAIL` by its non-zero status. |
+| `scripts/run_gate.sh` | The zero-findings match is anchored to `ERROR SUMMARY: 0 errors`. The old pattern also matched `0 errors` as a substring, so `ERROR SUMMARY: 10 errors` — or 20, or 100 — passed. |
+| `scripts/run_gate.sh` | `SKIP_DEFAULT_PATH=1` no longer suppresses the GPU build's UnitTests. The early return sat above them, so the documented way to move the CPU build off the metered clock also skipped `test_gpu_postprocess` — the one test that needs the rented device to run rather than `GTEST_SKIP()`, and the reason the script is on a GPU box at all. |
+| `scripts/run_gate.sh` | Step 6 reports the bit-identical baseline comparison as `UNRUN`. A green default build and green UnitTests are not the checklist's first step-6 box, which asks for output bit-identical to the pre-change baseline; that needs an inference run and a baseline to diff against, and `src/main.cpp` still has no output-path flag (Phase 1). It was previously absorbed into the `PASS`. |
+| `scripts/run_gate.sh` | `step_build` returns explicitly. Its status on the success path was whatever the trailing guard loop's `rm -rf` left, and `main()` reads it to decide whether steps 2–5 have a binary to run. |
 
 No `specs/features/` directory: per [AGENTS.md](AGENTS.md), a spec is required for a roadmap phase,
 a release, an rfdetr alignment, or a change to a path CI cannot execute. This adds a helper script
