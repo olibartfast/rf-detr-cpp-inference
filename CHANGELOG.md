@@ -7,6 +7,38 @@ upstream `rfdetr` releases it is kept in step with.
 
 ## [Unreleased]
 
+### CI: compile the TensorRT and GPU paths, and fix what that immediately caught
+
+`src/backends/tensorrt_backend.cpp` and `src/gpu/` were never compiled by CI. The first build of
+them happened on a rented GPU box, on the metered clock, and it failed before it ran a single
+kernel: eight `-Werror` errors — `-Wsign-conversion` on the binding-volume and file-size
+arithmetic, `-Wdeprecated-declarations` on three TensorRT 10 APIs, and an unused parameter. None
+of that needs a GPU to catch. It needs headers.
+
+`gpu-compile.yml` stages headers-only TensorRT and DALI prefixes and builds the static library
+target with `-DWERROR=ON` across all four `USE_DALI`/`USE_CUDA_POSTPROCESS` combinations, since the
+two GPU halves are independent options and each combination is a distinct set of `#if` branches. It
+does not link and it does not run — the staged shared objects are empty stubs, present only because
+the dependency resolver checks that the files exist. This is a compile gate, not a verification
+gate: [gpu-verify](.claude/skills/gpu-verify/SKILL.md) still owns behaviour, and Phase 2 still
+gates Phase 4.
+
+#### Fixed
+
+| File | Change |
+|------|--------|
+| `src/backends/tensorrt_backend.cpp` | Binding and output volumes cast to `size_t` explicitly; `serialize_engine`/`deserialize_engine` cast to `std::streamsize`, and `deserialize_engine` now rejects a negative `tellg()` rather than converting it into a huge allocation. |
+| `src/backends/tensorrt_backend.cpp` | `kEXPLICIT_BATCH` is skipped on TensorRT 10, where explicit batch is the only mode and `createNetworkV2` takes no flag. `platformHasFastFp16()` is dropped there too — every GPU TensorRT 10 supports has fast FP16. `BuilderFlag::kFP16` keeps a localized deprecation suppression: it is deprecated in favour of strongly-typed networks, but this build is deliberately weakly typed so that an FP32 ONNX still gets FP16 kernels, and the flag is the only way to ask for that. Migrating would silently cost FP16. |
+| `src/backends/tensorrt_backend.cpp` | `build_engine_from_onnx` marks `input_shape` unused, matching the idiom already used elsewhere in the file. |
+
+#### Added
+
+| File | Change |
+|------|--------|
+| `.github/workflows/gpu-compile.yml` | New. Compile-only matrix — TensorRT alone, +DALI, +CUDA postprocess, +both — with `-DWERROR=ON`. Installs `cuda-nvcc-13-0` and `cuda-cudart-dev-13-0` from NVIDIA's apt repo, and caches the staged headers on the hash of the staging script so a pin change invalidates them. |
+| `scripts/ci/stage_gpu_headers.sh` | New. Assembles the two prefixes from the smallest artifacts carrying the pinned headers: the `libnvinfer-headers-dev` / `libnvonnxparsers-dev` debs (~130 KB, unpacked with `dpkg-deb -x` so the 2 GB `libnvinfer10` runtime is never pulled in), and `include/` out of the DALI wheel — the same tree `scripts/fetch_dali.sh` takes from the Triton container. The real distributions are 6.2 GB and 380 MB. |
+| `AGENTS.md`, `README.md`, `specs/tech-stack.md` | The claim that CI never builds these paths is no longer true. The CI coverage tables and the pin-duplication list record the new workflow and the versions `stage_gpu_headers.sh` has to keep in step with `cmake/deps/packages/TensorRT.cmake` and `scripts/fetch_dali.sh`. |
+
 ### RF-DETR 1.9.3 / 1.9.4 alignment
 
 **Upstream releases**: [1.9.3](https://github.com/roboflow/rf-detr/releases/tag/1.9.3),

@@ -71,7 +71,7 @@ These are enforced at configure time or by the runtime — not style preferences
 - The three sanitizer modes are mutually exclusive. Valgrind needs a plain Debug build — ASan and TSan conflict with it.
 - `USE_DALI` and `USE_CUDA_POSTPROCESS` require the TensorRT backend. Either with ONNX Runtime is a `FATAL_ERROR`.
 - `--gpu-postprocess` additionally requires `--segmentation`.
-- **CI runners are all `ubuntu-latest` with no GPU.** TensorRT, ExecuTorch, DALI, and CUDA paths are never built or run by CI. You **must** verify those manually — see [AGENTS.md](../AGENTS.md).
+- **CI runners have no GPU.** `gpu-compile.yml` *compiles* the TensorRT, DALI and CUDA paths under `-DWERROR=ON` against headers-only prefixes, but nothing links and nothing runs there; ExecuTorch is not built by CI at all. Behaviour — parity, sanitizers, benchmarks — you **must** verify manually: see [AGENTS.md](../AGENTS.md).
 
 ## CI coverage
 
@@ -79,6 +79,7 @@ These are enforced at configure time or by the runtime — not style preferences
 |----------|------|
 | `ci.yml` — Build & Test | Build & Unit Tests (+ benchmarks), Sanitizers (ASan+UBSan), ThreadSanitizer, Valgrind Memcheck |
 | `lint.yml` — C++ Lint & Build | Format Check, Clang-Tidy, Cppcheck, Build with Strict Warnings (`-DWERROR=ON`) |
+| `gpu-compile.yml` — GPU Backend Compile | Compile-only matrix, `-DWERROR=ON`: TensorRT alone, +DALI, +CUDA postprocess, +both. Builds `rfdetr_inference_lib` only — the staged shared objects are stubs, so no target that links is reachable |
 | `deps-modes.yml` — Dependency Modes | `workflow_dispatch` only; matrix over apt / conan / vcpkg |
 
 Both push/PR workflows trigger on `master` and `develop`. Integration tests are not run by CI.
@@ -89,4 +90,5 @@ Update both sides together:
 
 - TensorRT `10.13.3.9` is pinned in `cmake/deps/packages/TensorRT.cmake:9` **and** hardcoded as a path in `Dockerfile:148-150`.
 - The Triton container tag `25.12-py3` appears in `scripts/fetch_dali.sh:16`, `scripts/generate_dali_pipelines.sh:15`, and `export_trt.sh`.
+- `scripts/ci/stage_gpu_headers.sh` pins the same two components a third time, in the form the CI compile gate can fetch: `TENSORRT_DEB_VERSION` must track `cmake/deps/packages/TensorRT.cmake`, and `DALI_VERSION` must track the DALI build inside the Triton tag above.
 - `project()` declares **no version**. `vcpkg.json` says `0.1.0`; the README badge says `0.4.0`. They disagree.
