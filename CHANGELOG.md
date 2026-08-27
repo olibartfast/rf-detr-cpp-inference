@@ -7,6 +7,34 @@ upstream `rfdetr` releases it is kept in step with.
 
 ## [Unreleased]
 
+### Docs: split the 1012-line README into five subdocuments
+
+`README.md` had grown to 1012 lines, a third of it (`## Building`, 369 lines) step-by-step
+procedure that a reader evaluating the project never needs. The reference material and the
+procedure now live apart: the README keeps what has to be verifiable at a glance — supported
+versions, the pip packages for export tooling, backend constraints, and the full CMake option
+list — and everything procedural moved under `docs/`.
+
+That division is not cosmetic. `AGENTS.md` requires the README itself to carry the version,
+CMake-option, backend-constraint and pip-package statements, and `Spec Sync` requires them
+reconciled against `CMakeLists.txt`, `deploy/requirements.txt` and the Dockerfiles on every
+dependency-facing change. Keeping exactly those in the README means the rule still holds as
+written, with no amendment.
+
+| File | Change |
+|------|--------|
+| `README.md` | 1012 → 283 lines. Keeps the intro, a documentation index, Dependencies, Model Setup, a new Quick Start (one build and one run, plus a one-liner for each of the other three backends), Backend Selection, Build Options, five usage examples, the CI table, and Acknowledgements. |
+| `docs/building.md` | New, 256 lines. Toolchain install, dependency-resolution modes, and every build configuration: ONNX Runtime, TensorRT, ExecuTorch (including the install-prefix build), the GPU pipeline, and the OpenCV media backend. |
+| `docs/usage.md` | New, 167 lines. Every run mode, the tuning flags, how detections are ranked, the GPU pipeline flags, and the `Config` reference. |
+| `docs/architecture.md` | New, 153 lines. The GPU pipeline, the four-stage video ring buffer, model output shapes, C++ result types, and the processing stages. |
+| `docs/development.md` | New, 175 lines. clang-format, clang-tidy, cppcheck, the three sanitizer modes, Valgrind/profiling, pre-commit, strict compilation, unit and integration tests, cross-backend checks, and benchmarks. |
+| `docs/docker.md` | New, 62 lines. The parametric `Dockerfile` and its inference-backend × media-backend matrix. |
+| `docs/export.md` | Two links into README sections that no longer exist now point at `usage.md` and `building.md`. |
+
+No prose was dropped: the move was mechanical, and the only old lines without a home in the new
+tree are the nine replaced table-of-contents entries. All 83 relative links and heading anchors
+across the README and `docs/` resolve.
+
 ### CI: compile the TensorRT and GPU paths, and fix what that immediately caught
 
 `src/backends/tensorrt_backend.cpp` and `src/gpu/` were never compiled by CI. The first build of
