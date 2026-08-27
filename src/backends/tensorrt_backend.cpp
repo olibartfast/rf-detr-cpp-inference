@@ -145,7 +145,7 @@ std::vector<int64_t> TensorRTBackend::initialize(const std::filesystem::path &mo
         // Allocate CUDA device memory for this binding
         size_t binding_size = 1;
         for (int j = 0; j < dims.nbDims; ++j) {
-            binding_size *= dims.d[j];
+            binding_size *= static_cast<size_t>(dims.d[j]);
         }
         binding_size *= sizeof(float); // Assuming float32
 
@@ -157,8 +157,8 @@ std::vector<int64_t> TensorRTBackend::initialize(const std::filesystem::path &mo
     // Allocate host output buffers
     for (const auto &shape : output_shapes_) {
         size_t size = 1;
-        for (auto dim : shape) {
-            size *= dim;
+        for (const auto dim : shape) {
+            size *= static_cast<size_t>(dim);
         }
         host_output_buffers_.emplace_back(size);
     }
@@ -169,6 +169,9 @@ std::vector<int64_t> TensorRTBackend::initialize(const std::filesystem::path &mo
 
 bool TensorRTBackend::build_engine_from_onnx(const std::filesystem::path &model_path,
                                              const std::vector<int64_t> &input_shape) {
+    // The ONNX graph carries its own static input shape; no optimization profile is set here.
+    (void)input_shape;
+
     // Create builder
     auto builder = std::unique_ptr<nvinfer1::IBuilder, TensorRTDeleter>(nvinfer1::createInferBuilder(logger_));
     if (!builder) {
@@ -176,10 +179,17 @@ bool TensorRTBackend::build_engine_from_onnx(const std::filesystem::path &model_
         return false;
     }
 
-    // Create network with explicit batch flag
-    const auto explicit_batch = 1U << static_cast<uint32_t>(nvinfer1::NetworkDefinitionCreationFlag::kEXPLICIT_BATCH);
+// Create network with explicit batch semantics.
+// TensorRT 10 deprecated kEXPLICIT_BATCH: explicit batch is the only supported mode there,
+// so createNetworkV2 takes no flag.
+#if NV_TENSORRT_MAJOR >= 10
+    const uint32_t network_flags = 0U;
+#else
+    const uint32_t network_flags =
+        1U << static_cast<uint32_t>(nvinfer1::NetworkDefinitionCreationFlag::kEXPLICIT_BATCH);
+#endif
     auto network =
-        std::unique_ptr<nvinfer1::INetworkDefinition, TensorRTDeleter>(builder->createNetworkV2(explicit_batch));
+        std::unique_ptr<nvinfer1::INetworkDefinition, TensorRTDeleter>(builder->createNetworkV2(network_flags));
     if (!network) {
         std::cerr << "Failed to create TensorRT network" << std::endl;
         return false;
@@ -219,11 +229,15 @@ bool TensorRTBackend::build_engine_from_onnx(const std::filesystem::path &model_
 
     // Enable FP16 mode if supported
 #if NV_TENSORRT_MAJOR >= 10
-    // TensorRT 10+ deprecated platformHasFastFp16, use hardwareCompatibilityLevel instead
-    if (builder->platformHasFastFp16()) {
-        config->setFlag(nvinfer1::BuilderFlag::kFP16);
-        std::cout << "[TensorRT] FP16 mode enabled" << std::endl;
-    }
+    // TensorRT 10 deprecated platformHasFastFp16() (every GPU it supports has fast FP16) and
+    // BuilderFlag::kFP16 (superseded by strongly-typed networks). We keep the weakly-typed
+    // builder so an FP32 ONNX still gets FP16 kernels, and kFP16 is the only way to ask for
+    // that -- hence the localized suppression rather than a migration.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    config->setFlag(nvinfer1::BuilderFlag::kFP16);
+#pragma GCC diagnostic pop
+    std::cout << "[TensorRT] FP16 mode enabled" << std::endl;
 #else
     if (builder->platformHasFastFp16()) {
         config->setFlag(nvinfer1::BuilderFlag::kFP16);
@@ -254,7 +268,7 @@ void TensorRTBackend::serialize_engine(const std::filesystem::path &engine_path)
         throw std::runtime_error("Failed to open file for writing: " + engine_path.string());
     }
 
-    file.write(static_cast<const char *>(serialized->data()), serialized->size());
+    file.write(static_cast<const char *>(serialized->data()), static_cast<std::streamsize>(serialized->size()));
 }
 
 bool TensorRTBackend::deserialize_engine(const std::filesystem::path &engine_path) {
@@ -264,11 +278,16 @@ bool TensorRTBackend::deserialize_engine(const std::filesystem::path &engine_pat
         return false;
     }
 
-    const size_t size = file.tellg();
+    const std::streamoff end = file.tellg();
+    if (end < 0) {
+        std::cerr << "Failed to determine engine file size: " << engine_path << std::endl;
+        return false;
+    }
+    const size_t size = static_cast<size_t>(end);
     file.seekg(0, std::ios::beg);
 
     std::vector<char> buffer(size);
-    if (!file.read(buffer.data(), size)) {
+    if (!file.read(buffer.data(), static_cast<std::streamsize>(size))) {
         std::cerr << "Failed to read engine file" << std::endl;
         return false;
     }
