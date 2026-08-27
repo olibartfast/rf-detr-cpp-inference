@@ -23,10 +23,19 @@ the dependency resolver checks that the files exist. This is a compile gate, not
 gate: [gpu-verify](.claude/skills/gpu-verify/SKILL.md) still owns behaviour, and Phase 2 still
 gates Phase 4.
 
+Its first run on `develop` earned its keep immediately: three of the four combinations passed and
+the plain `-DUSE_TENSORRT=ON` one did not. TensorRT's own headers `#include <cuda_runtime_api.h>`,
+but the `PROVIDED_CUDA ON` branch of the dependency resolver contributed only the CUDA *library*
+and its rpath — never the CUDA include directory. That build therefore compiled only on machines
+where CUDA happens to sit on the default include path, which is why nobody had hit it: every
+configuration anyone actually builds also sets `USE_DALI` or `USE_CUDA_POSTPROCESS`, and those
+resolve `CUDAToolkit` separately and carry its includes along. The matrix is what separated them.
+
 #### Fixed
 
 | File | Change |
 |------|--------|
+| `cmake/deps/strategies/ProvidedPackageManager.cmake` | `PROVIDED_CUDA ON` now contributes the CUDA include directory alongside the library, from `CUDAToolkit_INCLUDE_DIRS` when `CUDAToolkit` resolves and otherwise from the directory holding the located `cudart`. Found by `gpu-compile.yml`'s plain-TensorRT job on its first run. |
 | `src/backends/tensorrt_backend.cpp` | Binding and output volumes cast to `size_t` explicitly; `serialize_engine`/`deserialize_engine` cast to `std::streamsize`, and `deserialize_engine` now rejects a negative `tellg()` rather than converting it into a huge allocation. |
 | `src/backends/tensorrt_backend.cpp` | `kEXPLICIT_BATCH` is skipped on TensorRT 10, where explicit batch is the only mode and `createNetworkV2` takes no flag. `platformHasFastFp16()` is dropped there too — every GPU TensorRT 10 supports has fast FP16. `BuilderFlag::kFP16` keeps a localized deprecation suppression: it is deprecated in favour of strongly-typed networks, but this build is deliberately weakly typed so that an FP32 ONNX still gets FP16 kernels, and the flag is the only way to ask for that. Migrating would silently cost FP16. |
 | `src/backends/tensorrt_backend.cpp` | `build_engine_from_onnx` marks `input_shape` unused, matching the idiom already used elsewhere in the file. |
