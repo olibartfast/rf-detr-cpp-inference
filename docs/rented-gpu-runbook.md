@@ -102,7 +102,8 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build -
 ctest --test-dir build --output-on-failure -R UnitTests
 ```
 
-Passing here lets you set `SKIP_DEFAULT_PATH=1` on the rented box.
+Passing here lets you set `SKIP_DEFAULT_PATH=1` on the rented box. That skips only this CPU build; the GPU build's UnitTests still run there, which is where `test_gpu_postprocess`
+actually executes instead of `GTEST_SKIP()`-ing.
 
 ### 4. Install your provider's CLI
 
@@ -175,7 +176,7 @@ VIDEO=~/long.mp4 \
 | `VIDEO` | *(unset)* | ≥ 1000 frames, for `compute-sanitizer` |
 | `CUDA_ARCH` | `89` | `CMAKE_CUDA_ARCHITECTURES` for the rented card |
 | `DEADLINE_HOURS` | `6` | Watchdog fires `brev stop` after this, run finished or not |
-| `SKIP_DEFAULT_PATH` | `0` | `1` skips step 6, which needs no GPU |
+| `SKIP_DEFAULT_PATH` | `0` | `1` skips step 6's default ONNX Runtime build, which needs no GPU. Step 6's UnitTests on the GPU build still run — `test_gpu_postprocess` needs the device |
 | `SELF_STOP` | `1` | `0` leaves the instance up after a clean finish |
 | `WATCHDOG` | `1` | `0` does not arm the watchdog at all. **Set this when running at home** — without a `brev` CLI the watchdog falls back to `sudo shutdown -h`, which halts your own machine |
 | `EXTRA_CMAKE_ARGS` | *(empty)* | Extra `-D` flags for the four TensorRT configures, e.g. `-DTENSORRT_ROOTDIR=<prefix>` on a box that already has TensorRT |
