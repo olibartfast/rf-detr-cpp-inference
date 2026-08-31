@@ -47,11 +47,37 @@ endfunction()
 # Publish one parsed key as a cache variable. Fails loudly rather than silently
 # expanding to the empty string, which would produce a plausible-looking but
 # wrong download URL.
+#
+# A plain `set(... CACHE STRING ...)` will not do here: it never overwrites an
+# existing cache entry, so editing versions.env in an *existing* build tree would
+# reconfigure (CMAKE_CONFIGURE_DEPENDS sees the file change) and still build the
+# old version — the source of truth defeated, silently, for everyone who does not
+# wipe their build directory.
+#
+# So each pin also records the versions.env value it was configured from, in an
+# INTERNAL stamp. On reconfigure:
+#   cache == stamp   the value is still the file-derived default and the file has
+#                    moved on -> adopt the new one.
+#   cache != stamp   somebody passed -D<name>=... -> never clobber it.
+# On a first configure there is no stamp, and the non-FORCE set already does the
+# right thing: honour -D if present, otherwise take the file value.
 macro(rfdetr_declare_version name doc)
     if(NOT DEFINED _RFDETR_ENV_${name})
         message(FATAL_ERROR "${name} is missing from ${RFDETR_VERSIONS_ENV}")
     endif()
-    set(${name} "${_RFDETR_ENV_${name}}" CACHE STRING "${doc}")
+    set(_rfdetr_default "${_RFDETR_ENV_${name}}")
+
+    if(DEFINED _RFDETR_STAMP_${name} AND DEFINED ${name}
+       AND "${${name}}" STREQUAL "${_RFDETR_STAMP_${name}}"
+       AND NOT "${${name}}" STREQUAL "${_rfdetr_default}")
+        set(${name} "${_rfdetr_default}" CACHE STRING "${doc}" FORCE)
+        message(STATUS "  ${name}: ${_RFDETR_STAMP_${name}} -> ${_rfdetr_default} (versions.env changed)")
+    else()
+        set(${name} "${_rfdetr_default}" CACHE STRING "${doc}")
+    endif()
+
+    set(_RFDETR_STAMP_${name} "${_rfdetr_default}" CACHE INTERNAL
+        "versions.env value ${name} was last configured from")
 endmacro()
 
 _rfdetr_read_versions_env("${RFDETR_VERSIONS_ENV}")
