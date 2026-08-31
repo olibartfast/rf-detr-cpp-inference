@@ -21,7 +21,7 @@ All of them now live in [`versions.env`](versions.env), and two loaders feed the
 | Loader | Consumers |
 |--------|-----------|
 | `cmake/versions.cmake` | Included by `CMakeLists.txt` before `cmake/deps/Deps.cmake`, so every `cmake/deps/packages/*.cmake` interpolates the values. Each pin is a `CACHE STRING` — `-DTENSORRT_VERSION=…` still overrides it |
-| `scripts/versions.sh` | `source`d by `fetch_dali.sh`, `generate_dali_pipelines.sh`, `ci/stage_gpu_headers.sh` and `export_trt.sh`. Never clobbers a value already in the environment, so the documented `TRITON_IMAGE=… ./scripts/fetch_dali.sh` overrides are unchanged |
+| `scripts/versions.sh` | `source`d by `fetch_dali.sh`, `generate_dali_pipelines.sh`, `ci/stage_gpu_headers.sh`, `run_gate.sh` and `export_trt.sh`. Never clobbers a value already in the environment, so the documented `TRITON_IMAGE=… ./scripts/fetch_dali.sh` overrides are unchanged |
 
 Coordinates that are truncations of another pin are *derived*, not stored, so a TensorRT
 bump stays one line. `TENSORRT_SHORT_VERSION` (`10.13.3`, the download-URL directory and
@@ -40,6 +40,13 @@ Dockerfile additionally gained `TENSORRT_VERSION`, `NGC_CONTAINER_TAG` and
 `gpu-compile.yml` keyed its staged-header cache on `hashFiles('scripts/ci/stage_gpu_headers.sh')`.
 With the versions moved out of that script, a bump would have silently reused stale
 headers, so the key now covers `versions.env` and `scripts/versions.sh` too.
+
+`scripts/run_gate.sh` was a consumer that the first pass missed. Its `probe_dali` scraped
+`fetch_dali.sh` with `sed` for the `${TRITON_IMAGE:-…}` assignment this change removed, so the
+GPU gate's `environment.txt` would have recorded an empty `extracted from:` field and lost the
+DALI provenance its verification record depends on. It now sources `versions.sh` like the
+staging scripts and reports `${TRITON_IMAGE}` directly — the same value `fetch_dali.sh`
+resolves, which is what the original `sed` was reaching for.
 
 No version changed. Both backends resolve to byte-identical download URLs and extraction
 directories — verified by configuring ONNX Runtime and TensorRT against the existing
