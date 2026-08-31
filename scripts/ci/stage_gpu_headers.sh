@@ -18,7 +18,7 @@
 # exist before declaring the package found, and the gate builds only the static
 # rfdetr_inference_lib target, so nothing ever links against them. A build that
 # has to *run* needs the real thing: scripts/fetch_dali.sh and the TensorRT
-# tarball pinned in cmake/deps/packages/TensorRT.cmake.
+# tarball, both resolved from the versions pinned in versions.env.
 #
 #   ./scripts/ci/stage_gpu_headers.sh [dest]   # default dest: ~/dependencies
 #
@@ -26,11 +26,12 @@
 #                     -DDALI_ROOT=<dest>/dali-headers
 set -euo pipefail
 
-# Must match cmake/deps/packages/TensorRT.cmake (PROVIDED_VERSION + the cuda tag
-# in PROVIDED_URL) and the DALI build inside the Triton image pinned in
-# scripts/fetch_dali.sh. See "Known pin duplications" in specs/tech-stack.md.
-TENSORRT_DEB_VERSION="${TENSORRT_DEB_VERSION:-10.13.3.9-1+cuda13.0}"
-DALI_VERSION="${DALI_VERSION:-1.51.2}"
+# TENSORRT_DEB_VERSION is derived as ${TENSORRT_VERSION}-1+cuda${CUDA_VERSION};
+# DALI_VERSION is read straight from versions.env, where it is documented to
+# track the DALI build inside the Triton image scripts/fetch_dali.sh pulls.
+# Either can still be overridden from the environment.
+# shellcheck source=scripts/versions.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../versions.sh"
 
 CUDA_REPO="https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64"
 DALI_INDEX="https://pypi.nvidia.com/nvidia-dali-cuda120"

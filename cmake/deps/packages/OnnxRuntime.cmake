@@ -1,4 +1,5 @@
-set(_onnxruntime_version "1.21.0")
+# Version comes from versions.env via cmake/versions.cmake.
+set(_onnxruntime_version "${ONNX_RUNTIME_VERSION}")
 string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" _onnxruntime_processor)
 
 if(_onnxruntime_processor MATCHES "^(x86_64|amd64)$")
@@ -42,7 +43,7 @@ deps_declare(OnnxRuntime
     REQUIRED              TRUE
     DEFINITIONS           USE_ONNX_RUNTIME
     APT                   OFF
-    CONAN                 "onnxruntime/1.21.0"
+    CONAN                 "onnxruntime/${_onnxruntime_version}"
     VCPKG                 "onnxruntime"
     PROVIDED_ACQUIRE      DOWNLOAD
     PROVIDED_URL          "https://github.com/microsoft/onnxruntime/releases/download/v${_onnxruntime_version}/${_onnxruntime_archive}.${_onnxruntime_extension}"

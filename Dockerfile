@@ -14,7 +14,15 @@
 # Build args:
 #   INFERENCE_BACKEND   onnx (default) | tensorrt | executorch
 #   MEDIA_BACKEND       ffmpeg (default) | opencv
-#   EXECUTORCH_VERSION  git tag of the ExecuTorch C++ runtime (default v1.4.0)
+#   EXECUTORCH_VERSION  git tag of the ExecuTorch C++ runtime
+#   TENSORRT_VERSION    TensorRT bundled in the NGC base image
+#   NGC_CONTAINER_TAG   NGC monthly tag for the TensorRT base image
+#   DOCKER_BASE_IMAGE   base image for the non-TensorRT stages
+#
+# The four version args default to the values in versions.env, the single source
+# of truth for this project's pins. A Dockerfile cannot read that file, so the
+# defaults below restate it and scripts/check_version_sync.sh (run by lint.yml)
+# fails when the two drift.
 #
 # Examples:
 #   docker build -t rfdetr-onnx-ffmpeg .
@@ -33,12 +41,16 @@
 
 ARG INFERENCE_BACKEND=onnx
 ARG MEDIA_BACKEND=ffmpeg
+# Keep in sync with versions.env — see scripts/check_version_sync.sh.
 ARG EXECUTORCH_VERSION=v1.4.0
+ARG TENSORRT_VERSION=10.13.3.9
+ARG NGC_CONTAINER_TAG=25.12
+ARG DOCKER_BASE_IMAGE=ubuntu:24.04
 
 # --- Base image selected by inference backend (all Ubuntu 24.04) ---
-FROM ubuntu:24.04 AS base-onnx
-FROM nvcr.io/nvidia/tensorrt:25.12-py3 AS base-tensorrt
-FROM ubuntu:24.04 AS base-executorch
+FROM ${DOCKER_BASE_IMAGE} AS base-onnx
+FROM nvcr.io/nvidia/tensorrt:${NGC_CONTAINER_TAG}-py3 AS base-tensorrt
+FROM ${DOCKER_BASE_IMAGE} AS base-executorch
 
 # =============================================================================
 # Build stage
@@ -141,13 +153,14 @@ COPY . .
 # For the TensorRT backend, reuse the TensorRT bundled in the NGC base image
 # instead of downloading the ~1GB tarball from developer.nvidia.com (which is
 # rate-limited and frequently times out). The CMake build looks for it at
-# build/_deps/TensorRT-<version>/ (see CMakeLists.txt TRT_VERSION pin);
-# symlink the system headers/libs into that layout so the download guard passes.
-# Keep this version in sync with the TRT_VERSION pin in CMakeLists.txt.
+# build/_deps/TensorRT-<version>/ (the layout cmake/deps/packages/TensorRT.cmake
+# builds from TENSORRT_VERSION in versions.env); symlink the system headers/libs
+# into that layout so the download guard passes.
+ARG TENSORRT_VERSION
 RUN if [ "$INFERENCE_BACKEND" = "tensorrt" ]; then \
-        mkdir -p build/_deps/TensorRT-10.13.3.9 && \
-        ln -s /usr/include/x86_64-linux-gnu build/_deps/TensorRT-10.13.3.9/include && \
-        ln -s /usr/lib/x86_64-linux-gnu build/_deps/TensorRT-10.13.3.9/lib ; \
+        mkdir -p "build/_deps/TensorRT-${TENSORRT_VERSION}" && \
+        ln -s /usr/include/x86_64-linux-gnu "build/_deps/TensorRT-${TENSORRT_VERSION}/include" && \
+        ln -s /usr/lib/x86_64-linux-gnu "build/_deps/TensorRT-${TENSORRT_VERSION}/lib" ; \
     fi
 
 

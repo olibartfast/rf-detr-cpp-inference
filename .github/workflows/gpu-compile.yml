@@ -45,7 +45,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/dependencies
-          key: gpu-headers-${{ hashFiles('scripts/ci/stage_gpu_headers.sh') }}
+          # versions.env and versions.sh determine the TensorRT/DALI versions the
+          # staging script resolves, so both must key the cache or a version bump
+          # would silently reuse the previously staged headers.
+          key: gpu-headers-${{ hashFiles('scripts/ci/stage_gpu_headers.sh', 'scripts/versions.sh', 'versions.env') }}
 
       - name: Stage TensorRT and DALI headers
         run: ./scripts/ci/stage_gpu_headers.sh
