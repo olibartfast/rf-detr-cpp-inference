@@ -28,6 +28,12 @@
 set -uo pipefail
 
 REPO="${REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+
+# Dependency pins, for the provenance record in environment.txt. Same loader the
+# staging scripts use, so what the gate reports is what fetch_dali.sh would pull.
+# shellcheck source=scripts/versions.sh
+source "$(dirname "${BASH_SOURCE[0]}")/versions.sh"
+
 DALI_ROOT="${DALI_ROOT:-$HOME/dependencies/dali}"
 RESULTS="${RESULTS:-$HOME/gate-results}"
 LOG="${RESULTS}/gate.log"
@@ -160,10 +166,10 @@ probe_dali() {
         return
     fi
     echo "staged at ${DALI_ROOT}"
-    # Reads the pin out of fetch_dali.sh's own `${TRITON_IMAGE:-<default>}`, so the
-    # recorded provenance follows the pin instead of duplicating it here.
-    echo "extracted from: ${TRITON_IMAGE:-$(sed -n 's/.*TRITON_IMAGE:-\([^}]*\)}.*/\1/p' \
-        "$REPO/scripts/fetch_dali.sh" 2>/dev/null)}"
+    # TRITON_IMAGE comes from scripts/versions.sh, sourced above — the same value
+    # fetch_dali.sh resolves, so the recorded provenance follows the pin in
+    # versions.env instead of duplicating it here.
+    echo "extracted from: ${TRITON_IMAGE}"
     find "$DALI_ROOT" -maxdepth 1 -name 'libdali*.so' -printf '%f %s bytes\n' 2>/dev/null
 }
 

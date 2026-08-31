@@ -1,13 +1,17 @@
+# Versions come from versions.env via cmake/versions.cmake: TENSORRT_VERSION is
+# the full four-component number, TENSORRT_SHORT_VERSION its major.minor.patch
+# truncation (NVIDIA uses that for the URL directory and the Conan recipe), and
+# CUDA_VERSION the `cuda-<v>` tag baked into the tarball name.
 deps_declare(TensorRT
     REQUIRED              TRUE
     DEFINITIONS           USE_TENSORRT
     APT                   OFF
-    CONAN                 "tensorrt/10.13.3"
+    CONAN                 "tensorrt/${TENSORRT_SHORT_VERSION}"
     VCPKG                 "tensorrt"
     PROVIDED_ACQUIRE      DOWNLOAD
-    PROVIDED_URL          "https://developer.nvidia.com/downloads/compute/machine-learning/tensorrt/10.13.3/tars/TensorRT-10.13.3.9.Linux.x86_64-gnu.cuda-13.0.tar.gz"
-    PROVIDED_VERSION      "10.13.3.9"
-    PROVIDED_SUBDIR       "TensorRT-10.13.3.9"
+    PROVIDED_URL          "https://developer.nvidia.com/downloads/compute/machine-learning/tensorrt/${TENSORRT_SHORT_VERSION}/tars/TensorRT-${TENSORRT_VERSION}.Linux.x86_64-gnu.cuda-${CUDA_VERSION}.tar.gz"
+    PROVIDED_VERSION      "${TENSORRT_VERSION}"
+    PROVIDED_SUBDIR       "TensorRT-${TENSORRT_VERSION}"
     PROVIDED_INCLUDE      "include"
     PROVIDED_LIBRARIES    "lib/libnvinfer.so;lib/libnvonnxparser.so"
     PROVIDED_LIBRARY      "lib/libnvinfer.so"
