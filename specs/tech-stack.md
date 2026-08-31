@@ -9,7 +9,7 @@ Two loaders read that file:
 | Loader | Consumers |
 |--------|-----------|
 | `cmake/versions.cmake` | Included by `CMakeLists.txt` before `cmake/deps/Deps.cmake`, so every `cmake/deps/packages/*.cmake` interpolates the values. Each pin is a `CACHE STRING`, so `-DTENSORRT_VERSION=…` overrides it |
-| `scripts/versions.sh` | `source`d by `scripts/fetch_dali.sh`, `scripts/generate_dali_pipelines.sh`, `scripts/ci/stage_gpu_headers.sh`, `export_trt.sh`. Never clobbers a value already in the environment, so `TRITON_IMAGE=… ./scripts/fetch_dali.sh` still works |
+| `scripts/versions.sh` | `source`d by `scripts/fetch_dali.sh`, `scripts/generate_dali_pipelines.sh`, `scripts/ci/stage_gpu_headers.sh`, `scripts/run_gate.sh` (for the `environment.txt` provenance record) and `export_trt.sh`. Never clobbers a value already in the environment, so `TRITON_IMAGE=… ./scripts/fetch_dali.sh` still works |
 
 Four formats cannot read a file — the Dockerfile's `ARG` defaults, `conanfile.txt`,
 `deploy/requirements.txt`, and the argparse defaults in `deploy/export_*.py`. They restate the
