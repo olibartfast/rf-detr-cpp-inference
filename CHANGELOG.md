@@ -7,6 +7,51 @@ upstream `rfdetr` releases it is kept in step with.
 
 ## [Unreleased]
 
+### Build: `versions.env` as the single source of truth for dependency pins
+
+Third-party versions were spread across the tree, several of them written down more than
+once. `specs/tech-stack.md` had a standing "Known pin duplications" section listing the
+worst of it: TensorRT `10.13.3.9` in both `TensorRT.cmake` and a hardcoded path in the
+`Dockerfile`; the NGC tag `25.12` in three scripts; `scripts/ci/stage_gpu_headers.sh`
+restating TensorRT and DALI a third time, in the form the CI compile gate fetches. Each
+was a comment asking the next person to remember.
+
+All of them now live in [`versions.env`](versions.env), and two loaders feed the consumers:
+
+| Loader | Consumers |
+|--------|-----------|
+| `cmake/versions.cmake` | Included by `CMakeLists.txt` before `cmake/deps/Deps.cmake`, so every `cmake/deps/packages/*.cmake` interpolates the values. Each pin is a `CACHE STRING` — `-DTENSORRT_VERSION=…` still overrides it |
+| `scripts/versions.sh` | `source`d by `fetch_dali.sh`, `generate_dali_pipelines.sh`, `ci/stage_gpu_headers.sh`, `run_gate.sh` and `export_trt.sh`. Never clobbers a value already in the environment, so the documented `TRITON_IMAGE=… ./scripts/fetch_dali.sh` overrides are unchanged |
+
+Coordinates that are truncations of another pin are *derived*, not stored, so a TensorRT
+bump stays one line. `TENSORRT_SHORT_VERSION` (`10.13.3`, the download-URL directory and
+the Conan recipe) is derived by both loaders; `TENSORRT_DEB_VERSION`
+(`10.13.3.9-1+cuda13.0`, the apt packages CI stages headers from) and the two NGC image
+names are derived in `scripts/versions.sh` only, having no CMake consumer.
+
+Four formats cannot read a file: the Dockerfile's `ARG` defaults, `conanfile.txt`,
+`deploy/requirements.txt` and the argparse defaults in `deploy/export_*.py`. They restate
+the values, and `scripts/check_version_sync.sh` — the new `Version Sync` job in
+`lint.yml` — fails with the offending file, the expected line and the line found. The
+Dockerfile additionally gained `TENSORRT_VERSION`, `NGC_CONTAINER_TAG` and
+`DOCKER_BASE_IMAGE` args, replacing three hardcoded TensorRT paths and two literal
+`FROM` images.
+
+`gpu-compile.yml` keyed its staged-header cache on `hashFiles('scripts/ci/stage_gpu_headers.sh')`.
+With the versions moved out of that script, a bump would have silently reused stale
+headers, so the key now covers `versions.env` and `scripts/versions.sh` too.
+
+`scripts/run_gate.sh` was a consumer that the first pass missed. Its `probe_dali` scraped
+`fetch_dali.sh` with `sed` for the `${TRITON_IMAGE:-…}` assignment this change removed, so the
+GPU gate's `environment.txt` would have recorded an empty `extracted from:` field and lost the
+DALI provenance its verification record depends on. It now sources `versions.sh` like the
+staging scripts and reports `${TRITON_IMAGE}` directly — the same value `fetch_dali.sh`
+resolves, which is what the original `sed` was reaching for.
+
+No version changed. Both backends resolve to byte-identical download URLs and extraction
+directories — verified by configuring ONNX Runtime and TensorRT against the existing
+`build/_deps` cache, where each was found in place rather than re-downloaded.
+
 ### Docs: split the 1012-line README into five subdocuments
 
 `README.md` had grown to 1012 lines, a third of it (`## Building`, 369 lines) step-by-step

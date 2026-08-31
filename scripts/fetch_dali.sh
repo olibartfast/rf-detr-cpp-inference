@@ -13,7 +13,10 @@
 # Then configure with -DDALI_ROOT=<dest>.
 set -euo pipefail
 
-TRITON_IMAGE="${TRITON_IMAGE:-nvcr.io/nvidia/tritonserver:25.12-py3}"
+# TRITON_IMAGE defaults to nvcr.io/nvidia/tritonserver:${NGC_CONTAINER_TAG}-py3,
+# derived from versions.env. Setting it in the environment still wins.
+# shellcheck source=scripts/versions.sh
+source "$(dirname "${BASH_SOURCE[0]}")/versions.sh"
 DEST="${1:-${HOME}/dependencies/dali}"
 WHEEL_DIR="/opt/tritonserver/backends/dali/wheel/dali/nvidia/dali"
 

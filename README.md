@@ -42,6 +42,16 @@ full CMake option list.
 
 ## Dependencies
 
+> **Every version on this page is pinned once, in [`versions.env`](versions.env).**
+> CMake reads it through `cmake/versions.cmake` and the shell scripts through
+> `scripts/versions.sh`, so a bump is a one-line edit. Any pin is overridable without
+> editing the file — `cmake -DTENSORRT_VERSION=… ` or `TRITON_IMAGE=… ./scripts/fetch_dali.sh`.
+>
+> The Dockerfile's `ARG` defaults, `conanfile.txt`, `deploy/requirements.txt` and the
+> `deploy/export_*.py` opset defaults cannot read a file, so they restate the values;
+> `./scripts/check_version_sync.sh` (CI job `Version Sync`) fails when they drift.
+> See [Bumping a version](specs/tech-stack.md#bumping-a-version).
+
 ### Required (All Backends)
 - **C++20 Compiler**: Clang 15+ or GCC 12+ (e.g., `clang++-15` or `g++-12`)
 - **CMake**: Version 3.12 or higher (**3.17+** if you let ExecuTorch fall back to the FetchContent source build, which fetches submodules recursively — supplying `-DEXECUTORCH_ROOTDIR` avoids that requirement)
