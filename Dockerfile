@@ -164,10 +164,15 @@ RUN if [ "$INFERENCE_BACKEND" = "tensorrt" ]; then \
     fi
 
 
+# -DTENSORRT_VERSION must match the shim directory created above: with a
+# --build-arg override the shim moves, and without this CMake would keep reading
+# the versions.env default, miss the shim, and try to download that version
+# instead — mixing it with the NGC image's actual runtime.
 RUN CUDA_INC=""; \
     if [ "$INFERENCE_BACKEND" = "tensorrt" ]; then CUDA_INC="-I/usr/local/cuda/include"; fi; \
     cmake -S . -B build -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
+        -DTENSORRT_VERSION="$TENSORRT_VERSION" \
         -DCMAKE_C_COMPILER=/usr/bin/clang-18 \
         -DCMAKE_CXX_COMPILER=/usr/bin/clang++-18 \
         -DCMAKE_C_FLAGS="$CUDA_INC" \
