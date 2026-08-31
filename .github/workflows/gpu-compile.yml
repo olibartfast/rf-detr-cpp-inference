@@ -53,13 +53,21 @@ jobs:
       - name: Stage TensorRT and DALI headers
         run: ./scripts/ci/stage_gpu_headers.sh
 
+      # The toolkit must be the one versions.env pins, since stage_gpu_headers.sh
+      # derives the TensorRT package coordinates (…-1+cuda<v>) from the same value.
+      # Hardcoding it here would let a CUDA_VERSION bump compile the newly pinned
+      # TensorRT headers against the old toolkit.
       - name: Install nvcc and the CUDA runtime headers
         run: |
+          source scripts/versions.sh
+          apt_suffix="${CUDA_VERSION//./-}"        # 13.0 -> 13-0
+          echo "Installing CUDA ${CUDA_VERSION} (apt suffix ${apt_suffix})"
           curl -fsSLO https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
           sudo dpkg -i cuda-keyring_1.1-1_all.deb
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cuda-nvcc-13-0 cuda-cudart-dev-13-0
-          echo "/usr/local/cuda-13.0/bin" >> "$GITHUB_PATH"
+          sudo apt-get install -y --no-install-recommends \
+            "cuda-nvcc-${apt_suffix}" "cuda-cudart-dev-${apt_suffix}"
+          echo "/usr/local/cuda-${CUDA_VERSION}/bin" >> "$GITHUB_PATH"
 
       - name: Configure
         run: |
