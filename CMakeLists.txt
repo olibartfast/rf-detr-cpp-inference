@@ -142,6 +142,12 @@ if(USE_EXECUTORCH)
     message(STATUS "  ET delegate:  ${EXECUTORCH_DELEGATE}")
 endif()
 
+# --- Dependency versions -----------------------------------------------------
+# Reads versions.env, the single source of truth for every third-party pin, into
+# cache variables. Must precede Deps.cmake: cmake/deps/packages/*.cmake
+# interpolate these.
+include("${CMAKE_SOURCE_DIR}/cmake/versions.cmake")
+
 # --- Dependency resolution (unified package-manager facade) ------------------
 # Encapsulates three resolution policies (apt+provided, conan+provided,
 # vcpkg+provided) behind find_dependency_unified(). Each dependency is declared
@@ -170,8 +176,9 @@ if(USE_CUDA_POSTPROCESS)
     set(CMAKE_CUDA_STANDARD 20)
     set(CMAKE_CUDA_STANDARD_REQUIRED ON)
     if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-        # 86 = RTX 30-series. Override with -DCMAKE_CUDA_ARCHITECTURES="86;89".
-        set(CMAKE_CUDA_ARCHITECTURES "86" CACHE STRING "CUDA architectures to build kernels for" FORCE)
+        # Default from versions.env (CUDA_ARCHITECTURES); 86 = RTX 30-series.
+        # Override per machine with -DCMAKE_CUDA_ARCHITECTURES="86;89".
+        set(CMAKE_CUDA_ARCHITECTURES "${CUDA_ARCHITECTURES}" CACHE STRING "CUDA architectures to build kernels for" FORCE)
     endif()
     message(STATUS "  CUDA architectures:      ${CMAKE_CUDA_ARCHITECTURES}")
 endif()

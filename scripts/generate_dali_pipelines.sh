@@ -12,7 +12,10 @@
 # explicit message if they disagree, so a stale file cannot go unnoticed.
 set -euo pipefail
 
-TRITON_IMAGE="${TRITON_IMAGE:-nvcr.io/nvidia/tritonserver:25.12-py3}"
+# TRITON_IMAGE defaults to nvcr.io/nvidia/tritonserver:${NGC_CONTAINER_TAG}-py3,
+# derived from versions.env. Setting it in the environment still wins.
+# shellcheck source=scripts/versions.sh
+source "$(dirname "${BASH_SOURCE[0]}")/versions.sh"
 RESOLUTION="${1:?usage: $0 <resolution> [output-dir]}"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUTPUT_DIR="${2:-${repo_root}/data/dali}"

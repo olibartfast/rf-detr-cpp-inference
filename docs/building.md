@@ -39,6 +39,29 @@ The comparison table and the model format each one accepts live in the
 [README](../README.md#backend-selection); the full CMake option list is in
 [Build Options](../README.md#build-options).
 
+## Dependency Versions
+Every third-party version is pinned once, in [`versions.env`](../versions.env) at the
+repo root. `cmake/versions.cmake` reads it into cache variables before the dependency
+declarations are loaded, and `scripts/versions.sh` reads it for the shell scripts.
+
+Override a single pin without editing the file — CMake takes `-D`, the scripts take
+the environment:
+
+```bash
+cmake -S . -B build -DONNX_RUNTIME_VERSION=1.22.0
+TRITON_IMAGE=nvcr.io/nvidia/tritonserver:26.01-py3 ./scripts/fetch_dali.sh
+```
+
+To bump a version for real, edit `versions.env` and then run:
+
+```bash
+./scripts/check_version_sync.sh
+```
+
+That reports the few places which cannot read the file — the Dockerfile's `ARG`
+defaults, `conanfile.txt`, `deploy/requirements.txt` and the `deploy/export_*.py`
+opset defaults — and fails until they match. CI runs it as the `Version Sync` job.
+
 ## Dependency Resolution
 All dependencies flow through a unified facade (`find_dependency_unified`) that
 picks the acquisition strategy per `-DDEPS_MODE`:

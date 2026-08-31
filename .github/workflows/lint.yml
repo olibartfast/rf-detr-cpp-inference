@@ -7,6 +7,19 @@ on:
     branches: [master, develop]
 
 jobs:
+  version-sync:
+    name: Version Sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # versions.env is the single source of truth for third-party pins. CMake and
+      # the shell scripts read it directly; the Dockerfile, conanfile.txt and the
+      # deploy/ Python tooling cannot, so they restate it and this check fails when
+      # the restatement drifts.
+      - name: Check pins against versions.env
+        run: ./scripts/check_version_sync.sh
+
   format-check:
     name: Format Check
     runs-on: ubuntu-latest

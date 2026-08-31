@@ -54,12 +54,22 @@ The `executorch` variant builds the ExecuTorch runtime from source into `/opt/ex
 - On a rented GPU box, `./scripts/run_gate.sh` drives the executable part of that checklist unattended and reports the rest as `UNRUN`; it arms a deadline watchdog and stops the instance when done. Env knobs: `CUDA_ARCH` (default `89`), `DEADLINE_HOURS`, `SKIP_DEFAULT_PATH`, `SELF_STOP`, `MODEL`, `VIDEO`. End-to-end procedure — choosing an instance, export prep, setup script, collecting results: [docs/rented-gpu-runbook.md](docs/rented-gpu-runbook.md)
 - Design constraints: [specs/gpu-pipeline.md](specs/gpu-pipeline.md) — remaining phases: [specs/roadmap.md](specs/roadmap.md)
 
+## Dependency Versions
+**[`versions.env`](versions.env) is the single source of truth for every third-party pin.** Never
+hardcode a version anywhere else.
+- CMake reads it via `cmake/versions.cmake` (included before `cmake/deps/Deps.cmake`); each pin is a `CACHE STRING`, so `-DTENSORRT_VERSION=…` overrides it.
+- Shell scripts read it via `source scripts/versions.sh`, which never clobbers a value already in the environment — `TRITON_IMAGE=… ./scripts/fetch_dali.sh` still works.
+- Some coordinates are derived, not stored — do not add variables for them. `cmake/versions.cmake` derives `TENSORRT_SHORT_VERSION` only (all CMake needs). `scripts/versions.sh` derives that plus `TENSORRT_DEB_VERSION`, `TRITON_IMAGE` and `TENSORRT_IMAGE`, which no CMake consumer uses.
+- Four formats cannot read a file — the `Dockerfile` `ARG` defaults, `conanfile.txt`, `deploy/requirements.txt`, and the argparse defaults in `deploy/export_*.py`. They restate the values; `./scripts/check_version_sync.sh` (the `Version Sync` job in `lint.yml`) fails when a restatement drifts.
+- **After editing `versions.env`, run `./scripts/check_version_sync.sh`**, then reconcile the prose in `README.md` and `docs/` — that text is required by Spec Sync but is not machine-checked.
+
 ## Dependency Resolution
 - Default (`-DDEPS_MODE=apt`): system packages + pinned downloads — no extra tooling
 - Conan/vcpkg: auto-activate via toolchain; see [docs/package-manager-architecture.md](docs/package-manager-architecture.md)
 - `-DDEPS_DEBUG=ON` logs which handler resolved each dependency
 
 ## Code Quality
+- Version pin sync: `./scripts/check_version_sync.sh`
 - Format check: `find src tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format-18 --dry-run --Werror`
 - Format apply: `find src tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format-18 -i`
 - Clang-tidy: 
@@ -73,7 +83,7 @@ The `executorch` variant builds the ExecuTorch runtime from source into `/opt/ex
 - Mandatory: before acting on any release, version-alignment, or dependency-sync request, read `AGENTS.md`, `README.md`, and `CHANGELOG.md`, then verify the named release against the official upstream project. Never assume that an upstream version is a local Git tag or infer the required scope from the version string alone; inspect the repository documentation and upstream release notes/diff first.
 - A change to `specs/mission.md` or `specs/tech-stack.md` must propagate in the **same commit** to `README.md`, `AGENTS.md`, and any open spec under `specs/features/`. The constitution and what it describes never diverge across commits.
 - Mandatory for every release or dependency-facing patch: update `README.md` in the same change when code, build options, backend versions, Docker images, or Python export packages change.
-- Verify README dependency/version statements against `CMakeLists.txt`, `CMakePresets.json`, `deploy/requirements.txt`, `Dockerfile*`, and `docs/export.md`.
+- Verify README dependency/version statements against `versions.env` (the source of truth), then `CMakeLists.txt`, `CMakePresets.json`, `deploy/requirements.txt`, `Dockerfile*`, and `docs/export.md`.
 - README must list current C++ library/runtime versions, CMake options, backend constraints, and pip packages used for export tooling.
 - If a release intentionally needs no README change, say why in `CHANGELOG.md` or the PR/release notes.
 

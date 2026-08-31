@@ -3,8 +3,9 @@
 #
 # ROOT-only on purpose. NVIDIA publishes no standalone C++ DALI distribution:
 # the headers and shared libraries ship inside a pip wheel whose filename carries
-# an opaque build number (nvidia_dali_cuda120-1.51.2-<build>-py3-none-...whl), so
-# a pinned PROVIDED_URL cannot be kept working. Acquire with
+# an opaque build number (nvidia_dali_cuda120-<DALI_VERSION>-<build>-py3-none-...whl),
+# so a pinned PROVIDED_URL cannot be kept working. The version lives in
+# versions.env (DALI_VERSION) for the CI header-staging path. Acquire with
 # `scripts/fetch_dali.sh` (extracts the libraries from a pinned Triton container)
 # and point the build at the result with -DDALI_ROOT=<dir>.
 #
