@@ -8,8 +8,8 @@ Two loaders read that file:
 
 | Loader | Consumers |
 |--------|-----------|
-| `cmake/versions.cmake` | Included by `CMakeLists.txt` before `cmake/deps/Deps.cmake`, so every `cmake/deps/packages/*.cmake` interpolates the values. Each pin is a `CACHE STRING`, so `-DTENSORRT_VERSION=…` overrides it |
-| `scripts/versions.sh` | `source`d by `scripts/fetch_dali.sh`, `scripts/generate_dali_pipelines.sh`, `scripts/ci/stage_gpu_headers.sh`, `scripts/run_gate.sh` (for the `environment.txt` provenance record) and `export_trt.sh`. Never clobbers a value already in the environment, so `TRITON_IMAGE=… ./scripts/fetch_dali.sh` still works |
+| `cmake/versions.cmake` | Included by `CMakeLists.txt` before `cmake/deps/Deps.cmake`, so every `cmake/deps/packages/*.cmake` interpolates the values. Each pin is a `CACHE STRING`, so `-DTENSORRT_VERSION=…` overrides it. Editing `versions.env` in an **existing** build tree updates the cache on reconfigure — an INTERNAL stamp per pin distinguishes "still the file default" from "overridden with `-D`", so no build directory wipe is needed and no `-D` is clobbered |
+| `scripts/versions.sh` | `source`d by `scripts/fetch_dali.sh`, `scripts/generate_dali_pipelines.sh`, `scripts/ci/stage_gpu_headers.sh`, `scripts/run_gate.sh` (for the `environment.txt` provenance record), `export_trt.sh`, and `gpu-compile.yml` (to derive the CUDA apt coordinates). Never clobbers a value already in the environment, so `TRITON_IMAGE=… ./scripts/fetch_dali.sh` still works |
 
 Four formats cannot read a file — the Dockerfile's `ARG` defaults, `conanfile.txt`,
 `deploy/requirements.txt`, and the argparse defaults in `deploy/export_*.py`. They restate the
@@ -124,6 +124,7 @@ Both push/PR workflows trigger on `master` and `develop`. Integration tests are 
   `docs/architecture.md` and `docs/package-manager-architecture.md` restate `versions.env` for
   readers. `AGENTS.md` requires them, and nothing verifies them — step 3 above is manual.
 - `project()` declares **no version**. `vcpkg.json` says `0.1.0`; the README badge says `0.4.0`. They disagree. This is a *project* version, not a dependency pin, so `versions.env` does not cover it.
+- The `Dockerfile` forwards `--build-arg TENSORRT_VERSION` to CMake as `-DTENSORRT_VERSION`, because the TensorRT shim directory it creates must match what CMake looks for. Any future build arg that names a pin needs the same forwarding.
 - `scripts/run_gate.sh` defaults `CUDA_ARCH=89` rather than the build default
   `CUDA_ARCHITECTURES=86`. Deliberate, and not a pin: the value is a property of whichever
   card the gate runs on, so it stays out of `versions.env`. `docs/rented-gpu-runbook.md`

@@ -21,7 +21,7 @@ All of them now live in [`versions.env`](versions.env), and two loaders feed the
 | Loader | Consumers |
 |--------|-----------|
 | `cmake/versions.cmake` | Included by `CMakeLists.txt` before `cmake/deps/Deps.cmake`, so every `cmake/deps/packages/*.cmake` interpolates the values. Each pin is a `CACHE STRING` — `-DTENSORRT_VERSION=…` still overrides it |
-| `scripts/versions.sh` | `source`d by `fetch_dali.sh`, `generate_dali_pipelines.sh`, `ci/stage_gpu_headers.sh`, `run_gate.sh` and `export_trt.sh`. Never clobbers a value already in the environment, so the documented `TRITON_IMAGE=… ./scripts/fetch_dali.sh` overrides are unchanged |
+| `scripts/versions.sh` | `source`d by `fetch_dali.sh`, `generate_dali_pipelines.sh`, `ci/stage_gpu_headers.sh`, `run_gate.sh`, `export_trt.sh` and `gpu-compile.yml`. Never clobbers a value already in the environment, so the documented `TRITON_IMAGE=… ./scripts/fetch_dali.sh` overrides are unchanged |
 
 Coordinates that are truncations of another pin are *derived*, not stored, so a TensorRT
 bump stays one line. `TENSORRT_SHORT_VERSION` (`10.13.3`, the download-URL directory and
@@ -41,7 +41,25 @@ Dockerfile additionally gained `TENSORRT_VERSION`, `NGC_CONTAINER_TAG` and
 With the versions moved out of that script, a bump would have silently reused stale
 headers, so the key now covers `versions.env` and `scripts/versions.sh` too.
 
-`scripts/run_gate.sh` was a consumer that the first pass missed. Its `probe_dali` scraped
+Four defects found in review, each a way the "single source of truth" could have been true
+on paper and false in practice:
+
+- **Stale CMake cache.** A plain `set(… CACHE STRING …)` never overwrites an existing entry,
+  so editing `versions.env` in an existing build tree reconfigured (`CMAKE_CONFIGURE_DEPENDS`
+  saw the change) and still built the *old* version. Every pin now also records the
+  `versions.env` value it was configured from in an INTERNAL stamp: cache equal to stamp means
+  the value is still the file default and the new one is adopted; cache different means someone
+  passed `-D` and it is left alone.
+- **Dockerfile build arg only half-wired.** `--build-arg TENSORRT_VERSION` moved the shim
+  directory but was never passed to CMake, which kept reading the `versions.env` default, missed
+  the shim, and would have downloaded a different TensorRT than the NGC image provides. The
+  `cmake` invocation now receives `-DTENSORRT_VERSION`.
+- **CI CUDA toolkit hardcoded.** `gpu-compile.yml` installed `cuda-nvcc-13-0` /
+  `cuda-cudart-dev-13-0` literally while `stage_gpu_headers.sh` derived the TensorRT package
+  coordinates from `CUDA_VERSION`, so a bump would have compiled the new TensorRT headers
+  against the old toolkit. The workflow now derives the apt suffix and the `PATH` entry from
+  the pin.
+- **GPU gate provenance.** `scripts/run_gate.sh` was a consumer that the first pass missed. Its `probe_dali` scraped
 `fetch_dali.sh` with `sed` for the `${TRITON_IMAGE:-…}` assignment this change removed, so the
 GPU gate's `environment.txt` would have recorded an empty `extracted from:` field and lost the
 DALI provenance its verification record depends on. It now sources `versions.sh` like the
