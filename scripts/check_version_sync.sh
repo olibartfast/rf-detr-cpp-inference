@@ -18,14 +18,14 @@ source "${repo_root}/scripts/versions.sh"
 
 failures=0
 
-# expect <file> <what> <expected-line-regex>
+# expect <file> <what> <value> <expected-line-regex>
 # Passes when at least one line of <file> matches the regex.
 expect() {
-    local file="$1" what="$2" pattern="$3"
+    local file="$1" what="$2" value="$3" pattern="$4"
     if grep -Eq -- "${pattern}" "${repo_root}/${file}"; then
-        printf '  ok    %-26s %s\n' "${what}" "${file}"
+        printf '  ok    %-26s %-28s %s\n' "${what}" "${value}" "${file}"
     else
-        printf '  DRIFT %-26s %s\n' "${what}" "${file}"
+        printf '  DRIFT %-26s %-28s %s\n' "${what}" "${value}" "${file}"
         printf '        versions.env implies a line matching: %s\n' "${pattern}"
         printf '        found instead:\n'
         # Show the nearest lines so the fix is obvious without opening the file.
@@ -41,22 +41,22 @@ lit() { printf '%s' "$1" | sed -e 's/[][\.*^$+?(){}|/]/\\&/g'; }
 echo "Checking pins that cannot read versions.env:"
 
 # --- Dockerfile ARG defaults and derived base images --------------------------
-expect Dockerfile "EXECUTORCH_VERSION"  "^ARG EXECUTORCH_VERSION=$(lit "${EXECUTORCH_VERSION}")$"
-expect Dockerfile "TENSORRT_VERSION"    "^ARG TENSORRT_VERSION=$(lit "${TENSORRT_VERSION}")$"
-expect Dockerfile "NGC_CONTAINER_TAG"   "^ARG NGC_CONTAINER_TAG=$(lit "${NGC_CONTAINER_TAG}")$"
-expect Dockerfile "DOCKER_BASE_IMAGE"   "^ARG DOCKER_BASE_IMAGE=$(lit "${DOCKER_BASE_IMAGE}")$"
+expect Dockerfile "EXECUTORCH_VERSION" "${EXECUTORCH_VERSION}" "^ARG EXECUTORCH_VERSION=$(lit "${EXECUTORCH_VERSION}")$"
+expect Dockerfile "TENSORRT_VERSION" "${TENSORRT_VERSION}" "^ARG TENSORRT_VERSION=$(lit "${TENSORRT_VERSION}")$"
+expect Dockerfile "NGC_CONTAINER_TAG" "${NGC_CONTAINER_TAG}" "^ARG NGC_CONTAINER_TAG=$(lit "${NGC_CONTAINER_TAG}")$"
+expect Dockerfile "DOCKER_BASE_IMAGE" "${DOCKER_BASE_IMAGE}" "^ARG DOCKER_BASE_IMAGE=$(lit "${DOCKER_BASE_IMAGE}")$"
 
 # --- Conan recipe references --------------------------------------------------
-expect conanfile.txt "FFMPEG_VERSION"   "^ffmpeg/$(lit "${FFMPEG_VERSION}")$"
-expect conanfile.txt "SDL_VERSION"      "^sdl/$(lit "${SDL_VERSION}")$"
-expect conanfile.txt "GTEST_VERSION"    "^gtest/$(lit "${GTEST_VERSION}")$"
-expect conanfile.txt "OPENCV_VERSION"   "opencv/$(lit "${OPENCV_VERSION}")"
+expect conanfile.txt "FFMPEG_VERSION" "${FFMPEG_VERSION}" "^ffmpeg/$(lit "${FFMPEG_VERSION}")$"
+expect conanfile.txt "SDL_VERSION" "${SDL_VERSION}" "^sdl/$(lit "${SDL_VERSION}")$"
+expect conanfile.txt "GTEST_VERSION" "${GTEST_VERSION}" "^gtest/$(lit "${GTEST_VERSION}")$"
+expect conanfile.txt "OPENCV_VERSION" "${OPENCV_VERSION}" "opencv/$(lit "${OPENCV_VERSION}")"
 
 # --- Python export tooling ----------------------------------------------------
-expect deploy/requirements.txt "RFDETR_VERSION" \
+expect deploy/requirements.txt "RFDETR_VERSION" "${RFDETR_VERSION}" \
     "^rfdetr\[onnx\]==$(lit "${RFDETR_VERSION}")$"
 for f in deploy/export_detection.py deploy/export_segmentation.py; do
-    expect "${f}" "ONNX_OPSET_VERSION" \
+    expect "${f}" "ONNX_OPSET_VERSION" "${ONNX_OPSET_VERSION}" \
         "--opset_version', default=$(lit "${ONNX_OPSET_VERSION}"),"
 done
 
