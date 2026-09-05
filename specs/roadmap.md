@@ -25,7 +25,7 @@ From the Known Issues table in [CHANGELOG.md](../CHANGELOG.md). Independent of e
   - Touches a CI-unexecutable path, so it needs a spec directory per [AGENTS.md](../AGENTS.md)
 - [ ] Support the active-first keypoint schema (`rfdetr` 1.8.2+)
   - Upstream 1.8.2 changed the default `num_keypoints_per_class` from background-first `[0, 17]` to active-first `[17]` ([#1160](https://github.com/roboflow/rf-detr/pull/1160)); `Config::keypoint_counts` still defaults to `{0, 17}` and has no CLI override
-  - `deploy/requirements.txt` pins 1.9.4, so the documented export path produces a schema the default build cannot decode — expected to throw `Keypoint tensor channels (17) not divisible by number of keypoint classes (2)`
+  - `deploy/requirements.txt` pins 1.10.0, so the documented export path produces a schema the default build cannot decode — expected to throw `Keypoint tensor channels (17) not divisible by number of keypoint classes (2)`
   - **Verify against a real 1.8.2+ keypoint export first.** The failure is derived from the release notes and the code, not observed; the `labels` column count under the new schema is unconfirmed and decides whether `background_class_id` also needs to change
   - Decide between a `--keypoint-counts` flag and auto-detecting the schema from the tensor shape. Either way, pre-1.8.2 exports must keep working
   - Also re-export keypoint models with 1.8.1+: [#1135](https://github.com/roboflow/rf-detr/pull/1135) fixed eval-mode query routing, which export traces
@@ -66,7 +66,7 @@ Spec: [`features/2026-08-15-gpu-parity-fixtures/`](features/2026-08-15-gpu-parit
 The one incomplete part of the GPU pipeline's build work; dependency declarations and CMake options are already done.
 
 - [ ] Add a `gpu-pipeline` configure preset to `CMakePresets.json` (none of the five existing presets covers TensorRT, ExecuTorch, OpenCV, or GPU)
-- [ ] Add DALI staging and the GPU options to `Dockerfile` — it contains **zero** DALI references today
+- [ ] Add DALI staging and the GPU options to `dockerfile.trt` — it contains **zero** DALI references today
   - Base the stage on `nvcr.io/nvidia/tensorrt:<tag>` with the DALI libraries staged in
 - [ ] Add a compile-only GPU job to CI
   - Compile the GPU targets and skip execution, matching the posture already taken for TensorRT. `nvcc` is available on runners; a GPU is not
@@ -100,7 +100,7 @@ The one incomplete part of the GPU pipeline's build work; dependency declaration
 The [`release`](../.claude/skills/release/SKILL.md) workflow. Gated on Phases 1–4.
 
 - [ ] Read `AGENTS.md`, `README.md`, and `CHANGELOG.md`, then verify the rfdetr release against upstream — the mandatory "Spec Sync" rule
-- [ ] Move `[Unreleased]` to `[v0.5.0]`, sync `README.md` version statements against `CMakeLists.txt`, `CMakePresets.json`, `deploy/requirements.txt`, `Dockerfile`, and `docs/export.md`
+- [ ] Move `[Unreleased]` to `[v0.5.0]`, sync `README.md` version statements against `CMakeLists.txt`, `CMakePresets.json`, `deploy/requirements.txt`, `dockerfile.*`, and `docs/export.md`
 - [ ] Resolve the version disagreement noted in [tech-stack.md](tech-stack.md#known-pin-duplications): `project()` declares none, `vcpkg.json` says `0.1.0`, the README badge says `0.4.0`
 - [ ] Cut `release/v0.5.0`, merge to `master`, tag, merge back to `develop`
 

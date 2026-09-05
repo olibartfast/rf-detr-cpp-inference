@@ -58,7 +58,7 @@ To bump a version for real, edit `versions.env` and then run:
 ./scripts/check_version_sync.sh
 ```
 
-That reports the few places which cannot read the file — the Dockerfile's `ARG`
+That reports the few places which cannot read the file — the backend Dockerfiles' `ARG`
 defaults, `conanfile.txt`, `deploy/requirements.txt` and the `deploy/export_*.py`
 opset defaults — and fails until they match. CI runs it as the `Version Sync` job.
 
@@ -160,7 +160,7 @@ cmake --build build --parallel
 
 ### Building the ExecuTorch install prefix
 
-ExecuTorch **v1.4.0** is the pinned C++ runtime. The `rfdetr[executorch]==1.9.4`
+ExecuTorch **v1.4.0** is the pinned C++ runtime. The `rfdetr[executorch]==1.10.0`
 extra allows ExecuTorch `>=1.3,<2.0` and does not guarantee that version; `.pte` schema
 compatibility across ExecuTorch versions is not guaranteed.
 

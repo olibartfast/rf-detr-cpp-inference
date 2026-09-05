@@ -61,7 +61,7 @@ Per the Spec Sync rule in `AGENTS.md`:
 - [ ] `README.md` updated in the **same change** whenever code, build options, backend versions,
       Docker images, or export packages move
 - [ ] README statements verified against `CMakeLists.txt`, `CMakePresets.json`,
-      `deploy/requirements.txt`, `Dockerfile`, `docs/export.md`
+      `deploy/requirements.txt`, `dockerfile.*`, `docs/export.md`
 - [ ] `CHANGELOG.md` entry under `[Unreleased]`: a heading naming the release, a link to the
       upstream release tag, prose on what changed upstream and why it does or does not reach C++,
       and a per-file change table

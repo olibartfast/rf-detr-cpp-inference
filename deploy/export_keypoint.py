@@ -19,6 +19,11 @@ import argparse
 import shutil
 from pathlib import Path
 
+try:
+    from .export_common import resolve_exported_path
+except ImportError:  # Running the file directly from the deploy directory.
+    from export_common import resolve_exported_path
+
 DEFAULT_KEYPOINT_RESOLUTION = 576
 KEYPOINT_SHAPE_BLOCK_SIZE = 24
 
@@ -31,20 +36,8 @@ def compat_onnx_filename() -> str:
     return "rfdetr-keypoint.onnx"
 
 
-def resolve_exported_path(export_result, output_dir: Path) -> Path:
-    if export_result is not None:
-        exported_path = Path(export_result)
-        if exported_path.exists():
-            return exported_path
-
-    expected_path = output_dir / upstream_onnx_filename()
-    if expected_path.exists():
-        return expected_path
-
-    raise RuntimeError(
-        "RF-DETR export completed but the ONNX file was not found. "
-        f"Expected {expected_path}"
-    )
+def default_output_name() -> str:
+    return Path(upstream_onnx_filename()).stem
 
 
 def main():
@@ -54,6 +47,8 @@ def main():
     # Export options that will be passed to the model's export() method
     parser.add_argument('--output_dir', default=None, type=str,
                         help='Path to save exported model (default: output)')
+    parser.add_argument('--output_name', default=None, type=str,
+                        help='Output filename stem without extension')
     parser.add_argument('--opset_version', default=17, type=int,
                         help='ONNX opset version (default: 17)')
     parser.add_argument('--batch_size', default=1, type=int,
@@ -93,6 +88,7 @@ def main():
         'output_dir': str(output_dir),
         'opset_version': args.opset_version,
         'batch_size': args.batch_size,
+        'output_name': args.output_name or default_output_name(),
     }
 
     if args.input_size is not None:
@@ -104,7 +100,7 @@ def main():
     print(f"  - Input size: {input_size}x{input_size}")
     print(f"  - ONNX opset: {args.opset_version}")
 
-    exported_path = resolve_exported_path(model.export(**export_kwargs), output_dir)
+    exported_path = resolve_exported_path(model.export(**export_kwargs), "ONNX")
 
     compat_path = output_dir / compat_onnx_filename()
     if exported_path.name != compat_onnx_filename() and exported_path != compat_path:

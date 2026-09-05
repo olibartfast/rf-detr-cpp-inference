@@ -38,9 +38,24 @@ Exactly one backend is compiled in; enabling two is a configure-time error.
   - The `extension/evalue_util` install-path patch is only needed on v1.3.1 and older; v1.4.0 fixed it upstream.
 
 ## Docker
-`Dockerfile` builds an inference-backend × media-backend matrix:
-`--build-arg INFERENCE_BACKEND=onnx|tensorrt|executorch` and `--build-arg MEDIA_BACKEND=ffmpeg|opencv`.
-The `executorch` variant builds the ExecuTorch runtime from source into `/opt/executorch` (override the tag with `--build-arg EXECUTORCH_VERSION=<tag>`) and applies the upstream install fix automatically.
+Three backend Dockerfiles build the inference-backend × media-backend matrix; the backend is
+chosen by which file you pass to `-f` (there is no bare `Dockerfile`):
+- `dockerfile.onnxrt` — ONNX Runtime (CPU), `--build-arg MEDIA_BACKEND=ffmpeg|opencv`
+- `dockerfile.executorch` — ExecuTorch (CPU, `.pte`), `--build-arg MEDIA_BACKEND=ffmpeg|opencv`;
+  builds the ExecuTorch runtime from source into `/opt/executorch` (override the tag with
+  `--build-arg EXECUTORCH_VERSION=<tag>`) and applies the upstream install fix automatically
+- `dockerfile.trt` — TensorRT (GPU), `--build-arg MEDIA_BACKEND=ffmpeg|opencv` and
+  `--build-arg GPU_PIPELINE=off|dali|cuda|on` (GPU pipeline)
+- The blocks shared across all three are wrapped in `# === shared:<name> ===` markers and
+  guarded by `./scripts/check_dockerfile_parity.sh` (the `Dockerfile shared blocks` step in `lint.yml`).
+- **Pre-commit Docker gate:** before committing a change to `dockerfile.*` or a Docker-coupled
+  build option, dependency pin, or script, build every affected Dockerfile/argument combination
+  that the current machine and environment can support. A TensorRT image build does not itself
+  require a GPU, so run it whenever Docker, NGC access, network, architecture, disk, and memory
+  are available; when suitable NVIDIA hardware is present, also run the affected image with
+  `--gpus all` using [gpu-verify](.claude/skills/gpu-verify/SKILL.md). Record unavailable cases
+  as `UNRUN` with the exact reason, never as passing, and do not commit while any locally runnable
+  affected build fails.
 
 ## GPU Pipeline (TensorRT only)
 - Stage DALI first (one-time, extracts from pinned Triton container): `./scripts/fetch_dali.sh` → `~/dependencies/dali`
@@ -60,7 +75,7 @@ hardcode a version anywhere else.
 - CMake reads it via `cmake/versions.cmake` (included before `cmake/deps/Deps.cmake`); each pin is a `CACHE STRING`, so `-DTENSORRT_VERSION=…` overrides it.
 - Shell scripts read it via `source scripts/versions.sh`, which never clobbers a value already in the environment — `TRITON_IMAGE=… ./scripts/fetch_dali.sh` still works.
 - Some coordinates are derived, not stored — do not add variables for them. `cmake/versions.cmake` derives `TENSORRT_SHORT_VERSION` only (all CMake needs). `scripts/versions.sh` derives that plus `TENSORRT_DEB_VERSION`, `TRITON_IMAGE` and `TENSORRT_IMAGE`, which no CMake consumer uses.
-- Four formats cannot read a file — the `Dockerfile` `ARG` defaults, `conanfile.txt`, `deploy/requirements.txt`, and the argparse defaults in `deploy/export_*.py`. They restate the values; `./scripts/check_version_sync.sh` (the `Version Sync` job in `lint.yml`) fails when a restatement drifts.
+- Four formats cannot read a file — the backend Dockerfiles' `ARG` defaults, `conanfile.txt`, `deploy/requirements.txt`, and the argparse defaults in `deploy/export_*.py`. They restate the values; `./scripts/check_version_sync.sh` (the `Version Sync` job in `lint.yml`) fails when a restatement drifts.
 - **After editing `versions.env`, run `./scripts/check_version_sync.sh`**, then reconcile the prose in `README.md` and `docs/` — that text is required by Spec Sync but is not machine-checked.
 
 ## Dependency Resolution
@@ -83,7 +98,7 @@ hardcode a version anywhere else.
 - Mandatory: before acting on any release, version-alignment, or dependency-sync request, read `AGENTS.md`, `README.md`, and `CHANGELOG.md`, then verify the named release against the official upstream project. Never assume that an upstream version is a local Git tag or infer the required scope from the version string alone; inspect the repository documentation and upstream release notes/diff first.
 - A change to `specs/mission.md` or `specs/tech-stack.md` must propagate in the **same commit** to `README.md`, `AGENTS.md`, and any open spec under `specs/features/`. The constitution and what it describes never diverge across commits.
 - Mandatory for every release or dependency-facing patch: update `README.md` in the same change when code, build options, backend versions, Docker images, or Python export packages change.
-- Verify README dependency/version statements against `versions.env` (the source of truth), then `CMakeLists.txt`, `CMakePresets.json`, `deploy/requirements.txt`, `Dockerfile*`, and `docs/export.md`.
+- Verify README dependency/version statements against `versions.env` (the source of truth), then `CMakeLists.txt`, `CMakePresets.json`, `deploy/requirements.txt`, `dockerfile.*`, and `docs/export.md`.
 - README must list current C++ library/runtime versions, CMake options, backend constraints, and pip packages used for export tooling.
 - If a release intentionally needs no README change, say why in `CHANGELOG.md` or the PR/release notes.
 

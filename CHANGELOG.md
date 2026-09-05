@@ -7,6 +7,80 @@ upstream `rfdetr` releases it is kept in step with.
 
 ## [Unreleased]
 
+### RF-DETR 1.10.0 alignment
+
+**Upstream release:** [1.10.0](https://github.com/roboflow/rf-detr/releases/tag/1.10.0)
+
+1.10.0 is primarily a training and Python-inference performance release. Its optimizer,
+matcher, validation, DataLoader, dataset, metric, and segmentation-loss changes do not execute in
+this native runtime. Python `predict()` moves fewer bytes and performs less host work, while the
+release explicitly preserves detections. The exported input/output names, order, shapes, dtypes,
+and decode semantics are unchanged, so no C++, CUDA, backend validation, or DALI pipeline changed.
+The default ONNX opset remains 17 (`opset_version: int = 17` in `detr.py` and the ONNX exporter,
+and the export CLI forwards it), so the pinned `ONNX_OPSET_VERSION=17` is unchanged.
+
+The deploy-facing change is artifact naming. `RFDETR.export()` now accepts `output_name`; without
+it, ExecuTorch names include the delegate (`*_xnnpack.pte`) and TensorRT names include resolved
+precision (`*_fp16.trt` or `*_fp32.trt`). The repository export scripts pass stable explicit stems,
+validate the returned path exists, and print that authoritative path instead of guessing it.
+
+| File | Change |
+|------|--------|
+| `versions.env`, `deploy/requirements.txt` | Export tooling pin 1.9.4 → 1.10.0; no runtime pin moved. |
+| `deploy/export_*.py`, `deploy/export_common.py` | Forward stable `output_name` values and validate/report the returned artifact. |
+| `tests/python/test_export_scripts.py` | Hermetic coverage for default/custom names, missing returns, and the keypoint compatibility copy. |
+| `specs/features/2026-09-04-rfdetr-1.10.0-alignment/` | Required classification, implementation plan, and validation record. |
+| `README.md`, `specs/{mission,tech-stack,roadmap}.md`, `docs/` | Live package references and export naming guidance synchronized. |
+
+Validation status is recorded in the alignment spec. ExecuTorch re-export/runtime validation and
+native Python TensorRT export remain `UNRUN` unless their matching optional environments are
+available; no backend parity is inferred from the unchanged contract.
+
+### Build: split the parametric `Dockerfile` into three backend Dockerfiles
+
+The single parametric `Dockerfile` (driven by `INFERENCE_BACKEND=onnx|tensorrt|executorch`
+plus `MEDIA_BACKEND` and the TensorRT-only `GPU_PIPELINE`) is split into three files, one per
+backend, chosen by which file you pass to `-f`. There is no bare `Dockerfile`, so a build never
+silently defaults to a backend. This reverses the v0.3.0 consolidation that merged
+`Dockerfile.onnx` + `Dockerfile.tensorrt` into one file, and folds in the ExecuTorch backend and
+the GPU pipeline that arrived after it.
+
+Docker has no usable include mechanism at this project's toolchain floor, so the blocks that
+must stay identical across the three files are triplicated under `# === shared:<name> ===`
+markers and guarded by a new `scripts/check_dockerfile_parity.sh` (the `Dockerfile shared
+blocks` step in `lint.yml`). `scripts/check_version_sync.sh` now checks each pin against the
+specific file that restates it.
+
+| File | Change |
+|------|--------|
+| `dockerfile.onnxrt` | New. ONNX Runtime (CPU) + `MEDIA_BACKEND`; the `INFERENCE_BACKEND` conditionals collapse to literal `-DUSE_ONNX_RUNTIME=ON` etc. |
+| `dockerfile.executorch` | New. ExecuTorch (CPU, `.pte`) + `MEDIA_BACKEND`; the from-source build is now unconditional and stays above `COPY . .` (the ~11-min cache rule). |
+| `dockerfile.trt` | New. TensorRT (GPU) + `MEDIA_BACKEND` + `GPU_PIPELINE`; carries the DALI staging stages and the `dali-selected` forwarding (still required — `GPU_PIPELINE` remains an ARG). |
+| `Dockerfile` | Deleted. |
+| `scripts/check_version_sync.sh` | Rewritten: an `expect_all` wrapper checks each pin against the file(s) that restate it, with a missing-file guard. |
+| `scripts/check_dockerfile_parity.sh` | New. Extracts and diffs the `shared:` blocks across the three Dockerfiles. |
+| `.github/workflows/lint.yml` | `version-sync` job gained the `Dockerfile shared blocks` step. |
+| `docs/docker.md`, `README.md`, `AGENTS.md`, `specs/tech-stack.md`, `specs/roadmap.md`, `docs/building.md`, `.claude/skills/{release,rfdetr-alignment}/SKILL.md` | Updated to the three-file layout and lowercase names. |
+| `.gitignore` | Ignores `third_party/googletest/`, the offline gtest pre-seed. |
+
+The builds also gained an offline gtest path. `find_dependency_unified(GTest)` resolves via
+`FetchContent` unconditionally, so every image's configure `git clone`s googletest from
+github.com — the *only* GitHub dependency `dockerfile.trt` has left (TensorRT is shimmed from
+the NGC image, DALI staged from the Triton image, stb/font8x8 vendored). When the gitignored
+`third_party/googletest/` (the pinned `release-1.12.1` source, e.g. copied from an existing
+`build/_deps/gtest-src`) is present in the build context, each Dockerfile passes
+`FETCHCONTENT_SOURCE_DIR_GTEST` and configure skips the clone; found when a sandboxed GPU
+build could not reach github.com and died at configure.
+
+The first build of each image is a full rebuild (new file content has no layer cache to reuse);
+`docker build -f dockerfile.<backend> .` is the new invocation, and both base images must stay
+Ubuntu 24.04 (the FFmpeg runtime library names are the 24.04 set). GPU/DALI/ExecuTorch image
+behaviour is unchanged and still needs manual verification — CI builds no Docker images.
+
+The TensorRT builder invokes Ubuntu `/usr/bin/cmake` explicitly because the pinned NGC 25.12
+image puts CMake 3.24 first on `PATH`; that older copy cannot enable CUDA C++20 for the image's CUDA
+13.1 compiler and otherwise fails during CMake generation.
+
 ### Build: `versions.env` as the single source of truth for dependency pins
 
 Third-party versions were spread across the tree, several of them written down more than
@@ -575,7 +649,7 @@ compressed bytes) and frees the video pipeline's preprocess thread.
 | Area | Issue |
 |------|-------|
 | `src/backends/tensorrt_backend.cpp` | **Does not compile under `-DWERROR=ON`**, which is what the gpu-verify gate builds with — so gate step 1 fails outright and every later step is skipped. Nine errors on TensorRT 10.13.3.9: `-Wsign-conversion` at lines 148, 161, 257, 267 and 271; `-Wunused-parameter` on `input_shape` at 171; and `-Wdeprecated-declarations` for `NetworkDefinitionCreationFlag::kEXPLICIT_BATCH` (180), `IBuilder::platformHasFastFp16()` (223) and `BuilderFlag::kFP16` (224). The conversions and the unused parameter are mechanical; the deprecations are a real API migration — `kEXPLICIT_BATCH` is a no-op in TensorRT 10 and the FP16 flags are superseded by strongly-typed networks — so per `AGENTS.md` this needs a spec directory before it is touched. CI compiles only the ONNX Runtime lane, which is why strict warnings never reached this file. The gate results above were obtained with `-DWERROR=OFF`. |
-| `src/rfdetr_inference.hpp`, `src/main.cpp` | **Keypoint models exported with `rfdetr` 1.8.2 or later do not decode.** Upstream 1.8.2 changed the default keypoint schema from background-first `[0, 17]` to active-first `[17]` ([#1160](https://github.com/roboflow/rf-detr/pull/1160)); `Config::keypoint_counts` still defaults to `{0, 17}` and there is no CLI override, so the schema can only be changed by editing `Config` and rebuilding. `deploy/requirements.txt` pins `rfdetr[onnx]==1.9.4`, so `deploy/export_keypoint.py` as documented produces the new schema. Expected effect, derived from the release notes and the code rather than observed against an export: the `keypoints` tensor carries one class instead of two, so `postprocess_keypoint_outputs()` raises `Keypoint tensor channels (17) not divisible by number of keypoint classes (2)`; if the `labels` tensor also drops to a single column, `background_class_id`'s default `0` leaves no foreground column and every frame yields zero detections (guarded, not undefined — `build_foreground_scores()` returns empty for a non-positive foreground count). Not yet verified against a real 1.8.2+ keypoint export, and not yet fixed: the choice between a `--keypoint-counts` flag and auto-detecting the schema from the tensor shape needs a model to test against. Pre-1.8.2 exports are unaffected. |
+| `src/rfdetr_inference.hpp`, `src/main.cpp` | **Keypoint models exported with `rfdetr` 1.8.2 or later do not decode.** Upstream 1.8.2 changed the default keypoint schema from background-first `[0, 17]` to active-first `[17]` ([#1160](https://github.com/roboflow/rf-detr/pull/1160)); `Config::keypoint_counts` still defaults to `{0, 17}` and there is no CLI override, so the schema can only be changed by editing `Config` and rebuilding. `deploy/requirements.txt` pins `rfdetr[onnx]==1.10.0`, so `deploy/export_keypoint.py` as documented produces the new schema. Expected effect, derived from the release notes and the code rather than observed against an export: the `keypoints` tensor carries one class instead of two, so `postprocess_keypoint_outputs()` raises `Keypoint tensor channels (17) not divisible by number of keypoint classes (2)`; if the `labels` tensor also drops to a single column, `background_class_id`'s default `0` leaves no foreground column and every frame yields zero detections (guarded, not undefined — `build_foreground_scores()` returns empty for a non-positive foreground count). Not yet verified against a real 1.8.2+ keypoint export, and not yet fixed: the choice between a `--keypoint-counts` flag and auto-detecting the schema from the tensor shape needs a model to test against. Pre-1.8.2 exports are unaffected. |
 | `deploy/export_executorch.py` | Cannot export segmentation models: `--model_type` offers only the detection classes and the script instantiates `RFDETRNano`…`RFDETR2XLarge`, never `RFDETRSeg*`. Not an upstream or runtime limitation — `rfdetr` 1.9.0 exports `RFDETRSegMedium` to `.pte` without error, `ExecuTorchBackend::validate_output_order()` inspects only outputs 0 and 1 so a third `masks` output passes, and `postprocess_segmentation_outputs()` addresses outputs positionally. Segmentation `.pte` files must currently be exported by hand; see [docs/backend-parity-segmentation-video.md](docs/backend-parity-segmentation-video.md). |
 | `src/main.cpp` | Video output is hard-coded to `output_video.mp4` in the current working directory with no override flag, so comparing backends requires running each from its own directory. |
 | `.gitignore` | `*.pte` is not ignored (unlike `*.onnx` and `*.engine`), and `*.mp4` is ignored only as the exact root-level `output_video.mp4`. Exported ExecuTorch models and result videos appear as untracked files. |

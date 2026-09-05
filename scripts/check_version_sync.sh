@@ -2,10 +2,10 @@
 # scripts/check_version_sync.sh — guards the pins that cannot read versions.env.
 #
 # CMake and the shell scripts consume versions.env directly (cmake/versions.cmake,
-# scripts/versions.sh). Four formats cannot: a Dockerfile's ARG defaults must be
-# literals, and conanfile.txt, deploy/requirements.txt and the argparse defaults
-# in deploy/export_*.py are plain data files with no include mechanism. They
-# restate the values; this script fails when the restatement drifts.
+# scripts/versions.sh). Four formats cannot: the three backend Dockerfiles' ARG
+# defaults must be literals, and conanfile.txt, deploy/requirements.txt and the
+# argparse defaults in deploy/export_*.py are plain data files with no include
+# mechanism. They restate the values; this script fails when the restatement drifts.
 #
 #   ./scripts/check_version_sync.sh
 #
@@ -22,12 +22,17 @@ failures=0
 # Passes when at least one line of <file> matches the regex.
 expect() {
     local file="$1" what="$2" value="$3" pattern="$4"
+    if [[ ! -f "${repo_root}/${file}" ]]; then
+        printf '  MISSING %-26s %-28s %s\n' "${what}" "${value}" "${file}"
+        failures=$((failures + 1))
+        return
+    fi
     if grep -Eq -- "${pattern}" "${repo_root}/${file}"; then
-        printf '  ok    %-26s %-28s %s\n' "${what}" "${value}" "${file}"
+        printf '  ok      %-26s %-28s %s\n' "${what}" "${value}" "${file}"
     else
-        printf '  DRIFT %-26s %-28s %s\n' "${what}" "${value}" "${file}"
-        printf '        versions.env implies a line matching: %s\n' "${pattern}"
-        printf '        found instead:\n'
+        printf '  DRIFT   %-26s %-28s %s\n' "${what}" "${value}" "${file}"
+        printf '          versions.env implies a line matching: %s\n' "${pattern}"
+        printf '          found instead:\n'
         # Show the nearest lines so the fix is obvious without opening the file.
         grep -nE -- "$(printf '%s' "${pattern}" | sed -E 's/=.*/=/; s/\^//')" \
             "${repo_root}/${file}" | sed 's/^/          /' || true
@@ -35,16 +40,36 @@ expect() {
     fi
 }
 
+# expect_all <what> <value> <expected-line-regex> <file> [<file> ...]
+# The same pin restated in several files (e.g. a build arg in each backend Dockerfile).
+expect_all() {
+    local what="$1" value="$2" pattern="$3"
+    shift 3
+    local f
+    for f in "$@"; do expect "$f" "$what" "$value" "$pattern"; done
+}
+
 # Escape a version so it is a literal inside an extended regex.
 lit() { printf '%s' "$1" | sed -e 's/[][\.*^$+?(){}|/]/\\&/g'; }
 
 echo "Checking pins that cannot read versions.env:"
 
-# --- Dockerfile ARG defaults and derived base images --------------------------
-expect Dockerfile "EXECUTORCH_VERSION" "${EXECUTORCH_VERSION}" "^ARG EXECUTORCH_VERSION=$(lit "${EXECUTORCH_VERSION}")$"
-expect Dockerfile "TENSORRT_VERSION" "${TENSORRT_VERSION}" "^ARG TENSORRT_VERSION=$(lit "${TENSORRT_VERSION}")$"
-expect Dockerfile "NGC_CONTAINER_TAG" "${NGC_CONTAINER_TAG}" "^ARG NGC_CONTAINER_TAG=$(lit "${NGC_CONTAINER_TAG}")$"
-expect Dockerfile "DOCKER_BASE_IMAGE" "${DOCKER_BASE_IMAGE}" "^ARG DOCKER_BASE_IMAGE=$(lit "${DOCKER_BASE_IMAGE}")$"
+# --- Backend Dockerfile ARG defaults and derived base images ------------------
+expect_all "EXECUTORCH_VERSION" "${EXECUTORCH_VERSION}" \
+    "^ARG EXECUTORCH_VERSION=$(lit "${EXECUTORCH_VERSION}")$" \
+    dockerfile.executorch
+expect_all "TENSORRT_VERSION" "${TENSORRT_VERSION}" \
+    "^ARG TENSORRT_VERSION=$(lit "${TENSORRT_VERSION}")$" \
+    dockerfile.trt
+expect_all "NGC_CONTAINER_TAG" "${NGC_CONTAINER_TAG}" \
+    "^ARG NGC_CONTAINER_TAG=$(lit "${NGC_CONTAINER_TAG}")$" \
+    dockerfile.trt
+expect_all "CUDA_ARCHITECTURES" "${CUDA_ARCHITECTURES}" \
+    "^ARG CUDA_ARCHITECTURES=$(lit "${CUDA_ARCHITECTURES}")$" \
+    dockerfile.trt
+expect_all "DOCKER_BASE_IMAGE" "${DOCKER_BASE_IMAGE}" \
+    "^ARG DOCKER_BASE_IMAGE=$(lit "${DOCKER_BASE_IMAGE}")$" \
+    dockerfile.onnxrt dockerfile.executorch dockerfile.trt
 
 # --- Conan recipe references --------------------------------------------------
 expect conanfile.txt "FFMPEG_VERSION" "${FFMPEG_VERSION}" "^ffmpeg/$(lit "${FFMPEG_VERSION}")$"

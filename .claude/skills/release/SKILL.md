@@ -38,7 +38,7 @@ These disagree today and must be made to agree as part of the release:
 
 Pick the release version, set all three, and note the reconciliation in the CHANGELOG. Also check
 the known pin duplications in `specs/tech-stack.md`: TensorRT is pinned in
-`cmake/deps/packages/TensorRT.cmake:9` **and** hardcoded in `Dockerfile`; the Triton container tag
+`cmake/deps/packages/TensorRT.cmake:9` **and** hardcoded in `dockerfile.trt`; the Triton container tag
 appears in `scripts/fetch_dali.sh`, `scripts/generate_dali_pipelines.sh`, and `export_trt.sh`.
 
 ## Step 3 — Spec Sync checklist
@@ -48,7 +48,7 @@ From `AGENTS.md`. Every box is mandatory:
 - [ ] `README.md` updated in the same change as any code, build-option, backend-version, Docker, or
       export-package move
 - [ ] README dependency and version statements verified against `CMakeLists.txt`,
-      `CMakePresets.json`, `deploy/requirements.txt`, `Dockerfile*`, `docs/export.md`
+      `CMakePresets.json`, `deploy/requirements.txt`, `dockerfile.*`, `docs/export.md`
 - [ ] README lists current C++ library/runtime versions, CMake options, backend constraints, and
       the pip packages used for export tooling
 - [ ] `specs/tech-stack.md` matches the files that own each pin
