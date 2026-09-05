@@ -4,9 +4,9 @@ Follow the procedure listed at https://rfdetr.roboflow.com/learn/deploy/
 ## Requirements
 
 > [!IMPORTANT]
-> - Python version: **3.10+** (upstream `rfdetr` 1.9.4; Python 3.11 venv still recommended here)
+> - Python version: **3.10+** (upstream `rfdetr` 1.10.0; Python 3.11 venv still recommended here)
 > - Starting with RF-DETR 1.6.0, the export extra was renamed: use `pip install rfdetr[onnx]`
-> - **Tested version**: `rfdetr[onnx]==1.9.4`
+> - **Tested version**: `rfdetr[onnx]==1.10.0`
 > - Starting with RF-DETR 1.7.0, ONNX exports use variant filenames (e.g. `rfdetr-medium.onnx`, `rfdetr-seg-medium.onnx`) instead of the generic `inference_model.onnx`
 > - The `--simplify` flag was removed in 1.8.0 (already deprecated in 1.7.0). Export scripts no longer accept it.
 > - RF-DETR 1.8.x adds keypoint model export support via `RFDETRKeypointPreview`.
@@ -22,6 +22,8 @@ Follow the procedure listed at https://rfdetr.roboflow.com/learn/deploy/
 > - 1.9.3 also fixes `SegmentationHead`'s `skip_blocks` branch to apply the learned `spatial_features_proj`. That is a training-loss fix only: the export path already applied the projection unconditionally, so exported models are byte-identical and no re-export is needed.
 > - 1.9.4 makes the background logit slot explicit, via a `background_class_id` argument on the same reference decoders (`-1` default, `None` to keep every slot, `0` for background-first checkpoints). Mirrored here as `--background-class-id`. Note upstream's `-1` default mis-decodes the official pretrained COCO weights — a real foreground category occupies their final slot — which is why the C++ default is `0`; see the flag's README entry.
 > - 1.9.4 also stops the TFLite helper from treating any lone rank-4 output as a segmentation mask (a keypoint export's `pred_keypoints` could be upsampled into `Detections.mask`). Not reachable here: this project selects output tensors by position under an explicit `--segmentation` / `--keypoint` mode, never by guessing from rank.
+> - 1.10.0 is primarily training and Python `predict()` performance work. Exported input/output names, order, shapes, dtypes, and decode semantics are unchanged. It adds `output_name` to `RFDETR.export()`; this repository's scripts pass it explicitly and report the returned path so their documented filenames stay stable.
+> - Without `output_name`, 1.10.0 encodes load-bearing details in generated names: ExecuTorch adds its delegate (for example `_xnnpack.pte`) and TensorRT adds its resolved precision (`_fp16.trt` or `_fp32.trt`).
 > - The remaining 1.9.2–1.9.4 fixes are training, augmentation, dataset, and TFLite-conversion changes with no bearing on an exported detection/segmentation/keypoint model.
 
 ### Setup Virtual Environment
@@ -39,7 +41,7 @@ python3.11 -m venv rfdetr_venv
 source rfdetr_venv/bin/activate
 
 # Install RF-DETR with export dependencies (tested version)
-pip install rfdetr[onnx]==1.9.4
+pip install rfdetr[onnx]==1.10.0
 ```
 
 ---
@@ -159,7 +161,7 @@ This command saves the ONNX keypoint model to the `output` directory as `rfdetr-
 > Upstream 1.8.2 changed the default keypoint schema from background-first `[0, 17]` to
 > active-first `[17]` ([#1160](https://github.com/roboflow/rf-detr/pull/1160)), moving person from
 > `class_id=1` to `class_id=0`. `Config::keypoint_counts` still defaults to `{0, 17}` and has no CLI
-> override, so a default export from the pinned 1.9.4 is expected to fail postprocessing with
+> override, so a default export from the pinned 1.10.0 is expected to fail postprocessing with
 > `Keypoint tensor channels (17) not divisible by number of keypoint classes (2)`. Until this is
 > fixed (roadmap Phase 1), export with the legacy schema —
 > `RFDETRKeypointPreviewConfig(num_keypoints_per_class=[0, 17])` — or edit `keypoint_counts` in
@@ -178,9 +180,13 @@ RF-DETR 1.9.0 adds ExecuTorch (`.pte`) export for on-device inference. The C++ s
 through the ExecuTorch backend (`-DUSE_EXECUTORCH=ON`).
 
 ```bash
-pip install 'rfdetr[executorch]==1.9.4'
+pip install 'rfdetr[executorch]==1.10.0'
 pip show executorch   # confirm the runtime version it resolved
 ```
+
+`deploy/export_executorch.py` passes an explicit `output_name`, preserving names such as
+`rfdetr-medium.pte`. Calling upstream 1.10.0 directly without that argument produces
+`rfdetr-medium_xnnpack.pte` for the default delegate.
 
 > [!IMPORTANT]
 > Pinning `rfdetr` is not enough. The extra only constrains ExecuTorch to `>=1.3,<2.0`, so the
@@ -293,7 +299,11 @@ model = RFDETRMedium(pretrain_weights=<CHECKPOINT_PATH>)
 model.export(format="tensorrt", fp16=True)  # alias: format="trt"
 ```
 
-Requires `pip install 'rfdetr[tensorrt]==1.9.4'`, which provides `tensorrt` + `polygraphy`. The engine is built in-process through the polygraphy API rather than by shelling out to `trtexec`, so no `trtexec` binary is needed, and it is built for the local GPU architecture. Pass `fp16=False` on TensorRT builds that do not expose the FP16 builder flag.
+Requires `pip install 'rfdetr[tensorrt]==1.10.0'`, which provides `tensorrt` + `polygraphy`. The engine is built in-process through the polygraphy API rather than by shelling out to `trtexec`, so no `trtexec` binary is needed, and it is built for the local GPU architecture. Pass `fp16=False` on TensorRT builds that do not expose the FP16 builder flag.
+
+In 1.10.0 the default filename records the resolved precision, for example
+`rfdetr-medium_fp16.trt`. Pass `output_name="model"` when an exact `model.trt` path is required.
+The repository's `export_trt.sh` remains explicit through `trtexec --saveEngine`.
 
 Note that `[tensorrt]` no longer installs `pycuda` as of 1.9.0 — that moved to the separate `[tensorrt-bench]` extra and is only needed for `TRTInference`'s async benchmarking mode. The standard export-to-engine path is unaffected.
 

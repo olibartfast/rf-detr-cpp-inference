@@ -77,7 +77,7 @@ have checked-in `.dali` pipelines. Anything else needs
 
 ```bash
 python3.11 -m venv rfdetr_venv && source rfdetr_venv/bin/activate
-pip install rfdetr[onnx]==1.9.4
+pip install rfdetr[onnx]==1.10.0
 python deploy/export_segmentation.py --model_type medium --input_size 432
 ```
 

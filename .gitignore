@@ -14,6 +14,11 @@ output_video.mp4
 hermes_review.md
 Testing/
 
+# Offline googletest pre-seed for the Docker builds (FETCHCONTENT_SOURCE_DIR_GTEST).
+# Clone the pinned release-1.12.1 here, or copy it from an existing build/_deps/gtest-src.
+# See docs/docker.md "Network access during the build".
+third_party/googletest/
+
 # Per-backend video results collected by manual cross-backend runs.
 # See docs/backend-parity-segmentation-video.md.
 output_seg_video/

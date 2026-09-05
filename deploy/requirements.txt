@@ -1,1 +1,1 @@
-rfdetr[onnx]==1.9.4
+rfdetr[onnx]==1.10.0

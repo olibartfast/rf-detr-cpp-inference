@@ -32,7 +32,7 @@ and the CPU-produced final detections (and masks, where segmentation applies).
 ### Out
 
 - No `integration_test_gpu_parity.cpp` — that is Phase 4, and it consumes these fixtures.
-- No CI job, no `CMakePresets.json` preset, no `Dockerfile` change — that is Phase 3.
+- No CI job, no `CMakePresets.json` preset, no `dockerfile.trt` change — that is Phase 3.
 - No production code under `src/`. If a parity gap is found while building the fixtures, record it
   and raise it; do not fix it inside this phase.
 - No new dependency. GoogleTest and Google Benchmark are already resolved

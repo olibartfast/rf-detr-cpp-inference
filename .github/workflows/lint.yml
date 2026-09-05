@@ -14,11 +14,17 @@ jobs:
       - uses: actions/checkout@v4
 
       # versions.env is the single source of truth for third-party pins. CMake and
-      # the shell scripts read it directly; the Dockerfile, conanfile.txt and the
-      # deploy/ Python tooling cannot, so they restate it and this check fails when
+      # the shell scripts read it directly; the backend Dockerfiles, conanfile.txt and
+      # the deploy/ Python tooling cannot, so they restate it and this check fails when
       # the restatement drifts.
       - name: Check pins against versions.env
         run: ./scripts/check_version_sync.sh
+
+      # The three backend Dockerfiles triplicate the blocks that must stay identical
+      # (toolchain, media packages, source COPY, runtime tail) under shared: markers;
+      # this fails when a shared block drifts between them.
+      - name: Check Dockerfile shared blocks
+        run: ./scripts/check_dockerfile_parity.sh
 
   format-check:
     name: Format Check

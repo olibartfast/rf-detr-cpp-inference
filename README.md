@@ -17,7 +17,7 @@ C++ project for performing object detection, instance segmentation, and keypoint
 | **[docs/usage.md](docs/usage.md)** | Every run mode and command-line flag, tuning, `Config` reference |
 | **[docs/architecture.md](docs/architecture.md)** | GPU pipeline, video ring buffer, model output shapes, processing stages |
 | **[docs/development.md](docs/development.md)** | Formatting, static analysis, sanitizers, Valgrind, tests, benchmarks |
-| **[docs/docker.md](docs/docker.md)** | The parametric `Dockerfile` and its image matrix |
+| **[docs/docker.md](docs/docker.md)** | The three backend Dockerfiles and their image matrix |
 | **[docs/export.md](docs/export.md)** | Exporting `.onnx` / `.engine` / `.pte` models from `rfdetr` |
 | **[docs/glossary.md](docs/glossary.md)** | Terms used across the codebase |
 | **[docs/package-manager-architecture.md](docs/package-manager-architecture.md)** | How `find_dependency_unified` resolves each dependency |
@@ -47,7 +47,7 @@ full CMake option list.
 > `scripts/versions.sh`, so a bump is a one-line edit. Any pin is overridable without
 > editing the file — `cmake -DTENSORRT_VERSION=… ` or `TRITON_IMAGE=… ./scripts/fetch_dali.sh`.
 >
-> The Dockerfile's `ARG` defaults, `conanfile.txt`, `deploy/requirements.txt` and the
+> The backend Dockerfiles' `ARG` defaults, `conanfile.txt`, `deploy/requirements.txt` and the
 > `deploy/export_*.py` opset defaults cannot read a file, so they restate the values;
 > `./scripts/check_version_sync.sh` (CI job `Version Sync`) fails when they drift.
 > See [Bumping a version](specs/tech-stack.md#bumping-a-version).
@@ -79,9 +79,9 @@ one is compiled in via `-DUSE_OPENCV=ON/OFF`.
 - Replaces FFmpeg, SDL2, **and** stb entirely — none of those are required when OpenCV is enabled
 
 ### Python / Pip Packages (Export Tooling)
-- **RF-DETR export package**: `rfdetr[onnx]==1.9.4` from `deploy/requirements.txt`
-- **ExecuTorch export (optional)**: `rfdetr[executorch]==1.9.4` — only needed to produce `.pte` models for the ExecuTorch backend. Pin it: the extra constrains ExecuTorch only to `>=1.3,<2.0`. Check what pip actually installed (`pip show executorch`) and ensure it matches the C++ runtime this project pins to v1.4.0
-- **TensorRT export (optional)**: `rfdetr[tensorrt]==1.9.4` — provides `tensorrt` + `polygraphy` for in-process engine builds (1.9.0+); `pycuda` moved to the separate `rfdetr[tensorrt-bench]` extra
+- **RF-DETR export package**: `rfdetr[onnx]==1.10.0` from `deploy/requirements.txt`
+- **ExecuTorch export (optional)**: `rfdetr[executorch]==1.10.0` — only needed to produce `.pte` models for the ExecuTorch backend. Pin it: the extra constrains ExecuTorch only to `>=1.3,<2.0`. Check what pip actually installed (`pip show executorch`) and ensure it matches the C++ runtime this project pins to v1.4.0
+- **TensorRT export (optional)**: `rfdetr[tensorrt]==1.10.0` — provides `tensorrt` + `polygraphy` for in-process engine builds (1.9.0+); `pycuda` moved to the separate `rfdetr[tensorrt-bench]` extra
 - **Python**: 3.10+ (Python 3.11 virtual environment recommended)
 - **pre-commit**: Optional for local hooks; install with `pip install pre-commit`
 
@@ -130,7 +130,7 @@ This project supports both RF-DETR detection and segmentation models from Robofl
 
 2. **Download the ONNX Model**:
    - Follow instructions in the [export documentation](docs/export.md) to export models in ONNX format.
-   - **Tested with**: `rfdetr[onnx]==1.9.4` (Python 3.10+; 3.11 venv recommended)
+   - **Tested with**: `rfdetr[onnx]==1.10.0` (Python 3.10+; 3.11 venv recommended)
    - **Detection models**: Export with standard configuration (outputs: `dets`, `labels`)
    - **Segmentation models**: Export with segmentation configuration (outputs: `dets`, `labels`, `masks`)
    - **Keypoint models**: Export with keypoint configuration (outputs: `dets`, `labels`, `keypoints`)
