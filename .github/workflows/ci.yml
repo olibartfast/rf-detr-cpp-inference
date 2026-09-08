@@ -21,7 +21,7 @@ jobs:
         run: cmake --build build --parallel
 
       - name: Run unit tests
-        run: ctest --test-dir build --output-on-failure -R UnitTests
+        run: ctest --test-dir build --output-on-failure -R "UnitTests|OnnxRuntimeCatalog"
 
       - name: Run benchmarks
         run: ./build/benchmarks --benchmark_min_time=0.1s

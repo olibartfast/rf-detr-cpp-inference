@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.12)
-project(rfdetr_inference CXX C)
+project(rfdetr_inference VERSION 0.5.0 LANGUAGES CXX C)
 
 # Set C++ standard to C++20
 set(CMAKE_CXX_STANDARD 20)
@@ -461,6 +461,13 @@ endif()
 
 # Enable testing
 enable_testing()
+foreach(_catalog_case linux-x64 linux-arm64 windows-x64 windows-arm64
+                      darwin-disabled darwin-root unknown-arch unknown-arch-root)
+    add_test(NAME OnnxRuntimeCatalog-${_catalog_case}
+        COMMAND ${CMAKE_COMMAND} -DREPO=${CMAKE_SOURCE_DIR}
+            -DCASE=${_catalog_case} -DSCRATCH=${CMAKE_BINARY_DIR}/catalog-tests/${_catalog_case}
+            -P ${CMAKE_SOURCE_DIR}/tests/cmake/test_onnxruntime_catalog.cmake)
+endforeach()
 add_test(NAME UnitTests COMMAND unit_tests)
 add_test(NAME IntegrationTests COMMAND integration_tests
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"  # Ensure tests run from the project root

@@ -3,7 +3,7 @@
 [![C++](https://img.shields.io/badge/language-C++20-blue.svg)](https://en.cppreference.com/w/cpp)
 [![CMake](https://img.shields.io/badge/build%20system-CMake-blue.svg)](https://cmake.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)](https://github.com/olibartfast/rf-detr-cpp-inference/releases/tag/v0.4.0)
+[![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)](https://github.com/olibartfast/rf-detr-cpp-inference/releases/tag/v0.5.0)
 
 C++ project for performing object detection, instance segmentation, and keypoint inference using the RF-DETR model with **multiple inference backends** (ONNX Runtime, TensorRT, and ExecuTorch) and a swappable **media/display backend** (FFmpeg + SDL2 + stb by default, or OpenCV). Supports both single-image and **multi-threaded video processing** via a zero-copy ring buffer pipeline, plus an opt-in **GPU pipeline** (DALI preprocessing + CUDA segmentation postprocessing) on the TensorRT backend.
 
@@ -97,7 +97,7 @@ one is compiled in via `-DUSE_OPENCV=ON/OFF`.
   | Windows x86_64 / amd64 | `onnxruntime-win-x64-1.21.0.zip` |
   | Windows arm64 | `onnxruntime-win-arm64-1.21.0.zip` |
 
-- **Platform**: Any combination in the table above works out of the box. Anything else (macOS, 32-bit Windows, other processors) is a configure-time `FATAL_ERROR` telling you to supply your own build — point `-DONNXRUNTIME_ROOTDIR=<prefix>` at it, or use the conan/vcpkg coordinates (`onnxruntime/1.21.0` / `onnxruntime`)
+- **Platform**: The table lists automatic downloads. Other targets require a compatible build through `-DONNXRUNTIME_ROOTDIR=<prefix>` or Conan/vcpkg (`onnxruntime/1.21.0` / `onnxruntime`). Catalog loading does not reject those targets when ONNX Runtime is disabled; an enabled backend fails resolution only when no provider can supply it.
 - **Acceleration**: CPU only. `OnnxRuntimeBackend` creates its session without appending an execution provider, so even a CUDA or DirectML build of ONNX Runtime runs on CPU here until the backend is extended to register one
 
 #### TensorRT Backend (Optional)
@@ -198,6 +198,9 @@ This project uses **compile-time backend selection**. Choose your backend when b
 ---
 
 ## Build Options
+
+`CMakePresets.json` includes the default and four diagnostic CPU presets plus
+`gpu-pipeline` for TensorRT + DALI + CUDA; ExecuTorch and OpenCV use explicit options.
 
 - `-DUSE_ONNX_RUNTIME=ON/OFF` - Enable ONNX Runtime backend (default: ON)
 - `-DUSE_TENSORRT=ON/OFF` - Enable TensorRT backend (default: OFF)

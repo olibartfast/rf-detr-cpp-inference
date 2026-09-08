@@ -49,7 +49,7 @@ artefact, so the loaders *derive* the rest rather than pinning them separately:
 | `TENSORRT_DEB_VERSION` | `10.13.3.9-1+cuda13.0` | `versions.sh` only | apt packages CI stages headers from |
 | `TRITON_IMAGE`, `TENSORRT_IMAGE` | `…:25.12-py3` | `versions.sh` only | container-based staging and export |
 
-- **ONNX Runtime** downloads the official CPU archive selected from the *target* platform (`CMAKE_SYSTEM_NAME` / `CMAKE_SYSTEM_PROCESSOR`), covering Linux x64/aarch64 and Windows x64/arm64. Anything else is a configure-time `FATAL_ERROR`. It registers no execution provider, so even a CUDA build runs on CPU.
+- **ONNX Runtime** downloads the official CPU archive selected from the *target* platform (`CMAKE_SYSTEM_NAME` / `CMAKE_SYSTEM_PROCESSOR`), covering Linux x64/aarch64 and Windows x64/arm64. Other targets require a compatible provided prefix or package-manager build; catalog loading permits them when ONNX Runtime is disabled. It registers no execution provider, so even a CUDA build runs on CPU.
 - **TensorRT** implies CUDA Toolkit **13.x**, which must be installed manually.
 - **ExecuTorch** requires a prefix built with `EXECUTORCH_BUILD_KERNELS_OPTIMIZED=ON` (it defaults `OFF`): `.pte` files from rfdetr 1.9.1+ call `aten::linear.out`, registered only by `optimized_native_cpu_ops_lib`. The linked delegate must match the one baked into the `.pte`.
 
@@ -85,7 +85,7 @@ Only resolutions **432** and **576** have checked-in `.dali` pipelines (`data/da
 | `DEPS_DEBUG` | OFF | `cmake/deps/Deps.cmake` |
 | `RFDETR_VERSIONS_ENV` | `<repo>/versions.env` | `cmake/versions.cmake` |
 
-`CMakePresets.json` provides five presets: `default`, `debug-sanitizers`, `debug-tsan`, `debug-strict-ubsan`, `debug-valgrind`. **None** covers TensorRT, ExecuTorch, OpenCV, or the GPU pipeline.
+`CMakePresets.json` provides six presets: `default`, `debug-sanitizers`, `debug-tsan`, `debug-strict-ubsan`, `debug-valgrind`, and `gpu-pipeline` (TensorRT + DALI + CUDA). ExecuTorch and OpenCV require explicit options.
 
 ## Constraints
 
@@ -123,7 +123,8 @@ Both push/PR workflows trigger on `master` and `develop`. Integration tests are 
 - Prose version statements in `README.md`, `docs/building.md`, `docs/docker.md`,
   `docs/architecture.md` and `docs/package-manager-architecture.md` restate `versions.env` for
   readers. `AGENTS.md` requires them, and nothing verifies them — step 3 above is manual.
-- `project()` declares **no version**. `vcpkg.json` says `0.1.0`; the README badge says `0.4.0`. They disagree. This is a *project* version, not a dependency pin, so `versions.env` does not cover it.
+- `project()` declares `VERSION 0.5.0`; `vcpkg.json` and the README badge agree. This is a *project*
+  version, not a dependency pin, so `versions.env` does not cover it.
 - `dockerfile.trt` forwards `--build-arg TENSORRT_VERSION` to CMake as `-DTENSORRT_VERSION`, because the TensorRT shim directory it creates must match what CMake looks for. Any future build arg that names a pin needs the same forwarding.
 - `scripts/run_gate.sh` defaults `CUDA_ARCH=89` rather than the build default
   `CUDA_ARCHITECTURES=86`. Deliberate, and not a pin: the value is a property of whichever

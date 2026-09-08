@@ -5,6 +5,8 @@ Notable user-visible changes to this project and compatibility updates for upstr
 
 ## [Unreleased]
 
+## [v0.5.0] - 2026-09-08
+
 ### Added
 
 - TensorRT-only GPU pipeline with independently selectable DALI preprocessing and CUDA
@@ -21,6 +23,8 @@ Notable user-visible changes to this project and compatibility updates for upstr
   end-to-end regression), and the per-stage `bench_gpu_pipeline.cpp`.
 
 ### Changed
+
+- Reconciled the CMake project version, vcpkg manifest and README badge to 0.5.0.
 
 - Aligned export tooling with [rfdetr 1.10.1](https://github.com/roboflow/rf-detr/releases/tag/1.10.1): CUDA/XLA training fixes; exported tensors, runtime operators and C++ decoding are unchanged. See the [validation record](specs/features/2026-09-08-rfdetr-1.10.1-alignment/validation.md).
 
@@ -41,6 +45,9 @@ Notable user-visible changes to this project and compatibility updates for upstr
 
 ### Fixed
 
+- Loading the dependency catalog no longer rejects targets without a bundled ONNX Runtime
+  download when ONNX Runtime is disabled or supplied through a compatible prefix/package manager.
+  Eight CMake regression cases cover archive selection and offline prefix resolution.
 - ONNX Runtime downloads now select archives from the target OS and architecture.
 - TensorRT builds now carry the CUDA include path, use the valid NVIDIA archive URL, and compile
   cleanly under strict warnings.
@@ -68,10 +75,14 @@ Notable user-visible changes to this project and compatibility updates for upstr
   (nvJPEG vs stb) — the frame path isolates resize and shows it is not the source. This remains the
   open "DALI preprocessing parity" item; its end-to-end effect is bounded (one final score shifted
   by up to 0.0163).
-- Still unrun: the 1000-frame `compute-sanitizer` run (the local sanitizer/toolkit pairing cannot
-  instrument the app — `Unable to find injection library`/`terminated before first instrumented API
-  call`), and the four-path per-stage benchmark with a real engine. See
-  [`specs/roadmap.md`](specs/roadmap.md).
+- The 1000-frame `compute-sanitizer` run completes with **no findings** and no leak: run inside the
+  NGC 25.12 (CUDA 13.1) container, whose `compute-sanitizer` 2025.4 pairs with the app; the locally
+  installed sanitizer/toolkit pairing could not instrument it (`Unable to find injection library`).
+  1000 frames produced, 0 error/leak findings, exit via the `--error-exitcode 99` gate.
+- Per-stage benchmarks recorded with a real engine (RTX 3060 Laptop, TensorRT 10.13.3): CPU
+  preprocess 6.75 ms (432) / 11.53 ms (560), DALI preprocess 4.51 ms (432) / 4.59 ms (576), H2D
+  0.64 ms, GPU compute 11.61 ms, D2H 1.30 ms, segmentation postprocess 3483 ms CPU vs 570 ms GPU
+  (1080p dense fixture). See [`specs/roadmap.md`](specs/roadmap.md).
 - TensorRT, DALI, CUDA, ExecuTorch, and Docker runtime behavior is not fully exercised by CI.
 
 ### Known issues
@@ -79,8 +90,6 @@ Notable user-visible changes to this project and compatibility updates for upstr
 - DALI's encoded preprocess does not bit-match the CPU tensor (up to `0.069` max |Δ|): nvJPEG and
   stb decode JPEG differently. Resize itself is within tolerance; closing this fully would require
   the CPU path to decode with the same JPEG decoder.
-- Four-path per-stage benchmarks with a real engine, and the long `compute-sanitizer` run, are
-  incomplete.
 
 ## [v0.4.0] - 2026-08-04
 
@@ -136,7 +145,8 @@ Notable user-visible changes to this project and compatibility updates for upstr
 - Added sized detection and segmentation exports, ONNX Runtime output-count validation, and the
   initial native inference workflow.
 
-[Unreleased]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.4.0...develop
+[Unreleased]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.5.0...develop
+[v0.5.0]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.4.0...v0.5.0
 [v0.4.0]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.3.0...v0.4.0
 [v0.3.0]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.2.2...v0.3.0
 [v0.2.2]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.2.1...v0.2.2
