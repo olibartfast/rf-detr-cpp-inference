@@ -56,17 +56,22 @@ Notable user-visible changes to this project and compatibility updates for upstr
 
 ### Validation status
 
+- The four pre/post combinations (`CPU/CPU`, `GPU-pre/CPU-post`, `CPU-pre/GPU-post`, `GPU/GPU`) pass
+  end-to-end through a real TensorRT engine: CUDA postprocess matches CPU to the tight tolerance
+  (scores `1e-3`, mask IoU ≥ 0.999) and DALI preprocess to the decode-aware bound
+  (`integration_test_gpu_parity.cpp`).
+- The parity fixtures pass: CPU determinism bit-identical, DALI resize within `8.8e-3`, no
+  letterbox, and the dense fixture (200 detections) regresses correctly.
 - A real RTX 3060 gate run completed with 9 passes, 0 failures, and 5 explicitly unrun checks.
-- CUDA segmentation postprocessing matched the CPU path on the tested image, and the new parity
-  fixtures confirm it: end-to-end regression passes on all four fixtures, and the dense fixture
-  (200 detections) saturates the cap correctly.
 - DALI resize + normalise matches the CPU path within `8.8e-3` on all three natural fixtures. The
   encoded path diverges by up to `0.069` on the tensor, but the delta is entirely the JPEG decode
   (nvJPEG vs stb) — the frame path isolates resize and shows it is not the source. This remains the
   open "DALI preprocessing parity" item; its end-to-end effect is bounded (one final score shifted
   by up to 0.0163).
-- Still unrun: four-path per-stage benchmarks with a real engine, and a 1000-frame
-  `compute-sanitizer` run. See [`specs/roadmap.md`](specs/roadmap.md).
+- Still unrun: the 1000-frame `compute-sanitizer` run (the local sanitizer/toolkit pairing cannot
+  instrument the app — `Unable to find injection library`/`terminated before first instrumented API
+  call`), and the four-path per-stage benchmark with a real engine. See
+  [`specs/roadmap.md`](specs/roadmap.md).
 - TensorRT, DALI, CUDA, ExecuTorch, and Docker runtime behavior is not fully exercised by CI.
 
 ### Known issues
