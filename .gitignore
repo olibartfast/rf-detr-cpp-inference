@@ -11,6 +11,7 @@ rfdetr_venv
 build-*
 CMakeUserPresets.json
 output_video.mp4
+output_image.jpg
 hermes_review.md
 Testing/
 

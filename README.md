@@ -251,10 +251,10 @@ Tuning flags (`--threshold`, `--resolution`, `--max-detections`, `--mask-thresho
 `--background-class-id`), how detections are ranked, and the full `Config` reference are in
 **[docs/usage.md](docs/usage.md)**.
 
-> [!WARNING]
-> Keypoint models exported with `rfdetr` 1.8.2 or later use the active-first schema (`[17]`) and are
-> not decodable by the default build, which still expects background-first `{0, 17}`. See the
-> keypoint warning in [docs/export.md](docs/export.md#keypoint-model-export).
+> [!NOTE]
+> The official keypoint checkpoint is background-first and decodes with the default config. An
+> active-first (`[17]`) export needs `--keypoint-counts 17 --background-class-id none`. See the
+> keypoint note in [docs/export.md](docs/export.md#keypoint-model-export).
 
 ---
 

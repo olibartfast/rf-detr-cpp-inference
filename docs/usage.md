@@ -34,10 +34,10 @@ After building the project, run the inference application:
 ./build/inference_app /path/to/model.onnx /path/to/image.jpg /path/to/coco-labels-91.txt --keypoint
 ```
 
-> [!WARNING]
-> Keypoint models exported with `rfdetr` 1.8.2 or later use the active-first schema (`[17]`) and are
-> not decodable by the default build, which still expects background-first `{0, 17}`. See the
-> keypoint warning in [export.md](export.md#keypoint-model-export).
+> [!NOTE]
+> The official keypoint checkpoint is background-first and decodes with the default config. An
+> active-first (`[17]`) export needs `--keypoint-counts 17 --background-class-id none`. See the
+> keypoint note in [export.md](export.md#keypoint-model-export).
 
 ### Video Processing
 
@@ -70,6 +70,8 @@ The inference parameters can be overridden without recompiling:
 | `--max-detections <n>` | `300` | Top-k cap on the number of query/class pairs ranked before thresholding (upstream's `num_select`) |
 | `--mask-threshold <val>` | `0.0` | Mask logit cutoff for binary mask generation (segmentation only); may be negative |
 | `--background-class-id <n\|none>` | `0` | Exported logit slot holding background, excluded before ranking; negative counts from the end, `none` keeps every slot |
+| `--keypoint-counts <n[,n...]>` | `0,17` | `num_keypoints_per_class`; use `17` for an active-first `[17]` keypoint export (pair with `--background-class-id none`) |
+| `--output <path>` | `output_image.jpg` / `output_video.mp4` | Output path for the saved image or video |
 
 ```bash
 ./build/inference_app /path/to/model.onnx /path/to/image.jpg /path/to/coco-labels-91.txt \
@@ -124,7 +126,7 @@ If you have a pre-built TensorRT engine file (`.engine` or `.trt`), use it direc
 Both flags default off — the CPU paths remain the default even in a GPU-pipeline build. See [GPU Pipeline](architecture.md#gpu-pipeline).
 
 **Features:**
-- The output image is saved as `output_image.jpg`; video output is saved as `output_video.mp4`
+- The output image is saved as `output_image.jpg`; video output is saved as `output_video.mp4` (override either with `--output <path>`)
 - Detection/segmentation results (bounding boxes, labels, scores, and mask pixels) are printed to the console
 - Input resolution is automatically detected from the model (supports 432x432, 560x560, etc.)
 - Segmentation mode draws colored masks with transparency overlays
@@ -143,6 +145,7 @@ command line — see [Tuning Flags](#tuning-flags) — and the rest require edit
 | `max_detections` | `300` (top-k selection) | `--max-detections <n>` |
 | `mask_threshold` | `0.0` (binary mask generation) | `--mask-threshold <val>` |
 | `background_class_id` | `0` (background-first exports) | `--background-class-id <n\|none>` |
+| `keypoint_counts` | `{0, 17}` | `--keypoint-counts <n[,n...]>` |
 | `gpu_preprocess` / `gpu_postprocess` | `false` | `--gpu-preprocess` / `--gpu-postprocess` |
 | `dali_pipeline_dir` | `data/dali` | `--dali-pipeline-dir <dir>` |
 | `gpu_device_id` | `0` | — (edit `src/main.cpp`) |
