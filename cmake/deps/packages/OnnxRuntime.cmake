@@ -7,13 +7,10 @@ if(_onnxruntime_processor MATCHES "^(x86_64|amd64)$")
 elseif(_onnxruntime_processor MATCHES "^(aarch64|arm64)$")
     set(_onnxruntime_arch "arm64")
 else()
-    message(FATAL_ERROR
-        "The bundled ONNX Runtime ${_onnxruntime_version} download does not support "
-        "CMAKE_SYSTEM_PROCESSOR='${CMAKE_SYSTEM_PROCESSOR}'. Supply ONNXRUNTIME_ROOTDIR "
-        "or use Conan/vcpkg."
-    )
+    set(_onnxruntime_arch "")
 endif()
 
+set(_onnxruntime_platform "")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     if(_onnxruntime_arch STREQUAL "arm64")
         set(_onnxruntime_asset_arch "aarch64")
@@ -30,14 +27,25 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     set(_onnxruntime_extension "zip")
     set(_onnxruntime_library "lib/onnxruntime.lib")
     set(_onnxruntime_runtime "lib/onnxruntime.dll")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(_onnxruntime_library "lib/libonnxruntime.dylib")
+    set(_onnxruntime_runtime "lib/libonnxruntime.dylib")
 else()
-    message(FATAL_ERROR
-        "The bundled ONNX Runtime download supports Linux and Windows; target system "
-        "'${CMAKE_SYSTEM_NAME}' must supply ONNXRUNTIME_ROOTDIR or use Conan/vcpkg."
-    )
+    set(_onnxruntime_library "lib/libonnxruntime${CMAKE_SHARED_LIBRARY_SUFFIX}")
+    set(_onnxruntime_runtime "${_onnxruntime_library}")
 endif()
 
-set(_onnxruntime_archive "onnxruntime-${_onnxruntime_platform}-${_onnxruntime_asset_arch}-${_onnxruntime_version}")
+# Catalog loading must not require support for a bundled download. ROOT and
+# package-manager providers remain available; the resolver reports failure
+# only when the dependency is requested and no provider can resolve it.
+set(_onnxruntime_acquire ROOT)
+set(_onnxruntime_archive "")
+set(_onnxruntime_url "")
+if(_onnxruntime_platform AND _onnxruntime_arch)
+    set(_onnxruntime_acquire DOWNLOAD)
+    set(_onnxruntime_archive "onnxruntime-${_onnxruntime_platform}-${_onnxruntime_asset_arch}-${_onnxruntime_version}")
+    set(_onnxruntime_url "https://github.com/microsoft/onnxruntime/releases/download/v${_onnxruntime_version}/${_onnxruntime_archive}.${_onnxruntime_extension}")
+endif()
 
 deps_declare(OnnxRuntime
     REQUIRED              TRUE
@@ -45,8 +53,8 @@ deps_declare(OnnxRuntime
     APT                   OFF
     CONAN                 "onnxruntime/${_onnxruntime_version}"
     VCPKG                 "onnxruntime"
-    PROVIDED_ACQUIRE      DOWNLOAD
-    PROVIDED_URL          "https://github.com/microsoft/onnxruntime/releases/download/v${_onnxruntime_version}/${_onnxruntime_archive}.${_onnxruntime_extension}"
+    PROVIDED_ACQUIRE      "${_onnxruntime_acquire}"
+    PROVIDED_URL          "${_onnxruntime_url}"
     PROVIDED_VERSION      "${_onnxruntime_version}"
     PROVIDED_SUBDIR       "${_onnxruntime_archive}"
     PROVIDED_INCLUDE      "include"

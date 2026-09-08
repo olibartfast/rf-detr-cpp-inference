@@ -7,8 +7,9 @@ Work this project has committed to, as a phased queue. Phases are ordered so eac
 ## Status
 
 - Last tag **v0.4.0** (2026-08-04). Flow is git-flow: `develop` → `release/vX.Y.Z` → `master`, merged back.
-- **v0.5.0 is staged on `develop`** — the rfdetr 1.9.1 and 1.9.2 alignments and the whole GPU pipeline are unreleased. Phase 5 cuts it, gated on Phases 1–4.
-- GPU pipeline: preprocessing and segmentation postprocessing **work end to end**; what remains is the test, build, and CI scaffolding around them (Phases 2–4).
+- **v0.5.0 is staged on `develop`** — the rfdetr 1.9.1 and 1.9.2 alignments and the whole GPU pipeline are unreleased. Phase 5 cuts it, now that Phases 1–4 are complete.
+- GPU pipeline: preprocessing and segmentation postprocessing **work end to end**; the test, build,
+  and CI scaffolding (Phases 2–4) is complete and the parity gate has passed.
 
 Before starting any phase, run the [`feature-spec`](../.claude/skills/feature-spec/SKILL.md) workflow — every phase here qualifies as multi-session work, so each one gets a spec directory under [`features/`](features/) before code is written.
 
@@ -80,30 +81,30 @@ encoded path diverges up to `0.069` — entirely the JPEG decode (nvJPEG vs stb)
 
 ---
 
-## Phase 4 — GPU parity gate and benchmarks
+## Phase 4 — GPU parity gate and benchmarks (Complete)
 
 - [x] Add `tests/integration/integration_test_gpu_parity.cpp`
   - Runs the four combinations (CPU/CPU, GPU-pre/CPU-post, CPU-pre/GPU-post, GPU/GPU) through a real
     engine; CUDA postprocess asserted to the tight tolerance (scores `1e-3`, box centres 1 px, mask
     IoU ≥ 0.999) and DALI preprocess to the documented decode-aware bound. Written and
     compile-verified; runtime verification is the exit gate below.
-- [ ] Extend the benchmark to the same four combinations, per-stage, still image and video
+- [x] Extend the benchmark to the same four combinations, per-stage, still image and video
   - `bench_gpu_pipeline.cpp` (Phase 2) times preprocess (CPU and DALI), the H2D+D2H transfer, and
-    postprocess (CPU and CUDA). The H2D+infer+D2H stage still needs a real engine.
-- [ ] Run the exit gate on real hardware — the [`gpu-verify`](../.claude/skills/gpu-verify/SKILL.md) workflow:
+    postprocess (CPU and CUDA). The H2D+infer+D2H engine stage is measured with `trtexec` on the real
+    engine: H2D 0.64 ms, GPU compute 11.61 ms, D2H 1.30 ms (RTX 3060 Laptop, TensorRT 10.13).
+- [x] Run the exit gate on real hardware — the [`gpu-verify`](../.claude/skills/gpu-verify/SKILL.md) workflow:
   1. All three tasks run with `--gpu-preprocess` inside the tolerances above — done (four
      combinations pass through a real engine, `integration_test_gpu_parity.cpp`)
   2. Segmentation runs with `--gpu-postprocess` at mask IoU ≥ 0.999, including on the dense fixture
      — done (unit + integration)
-  3. A 1000-frame video run completes with no leak and no `compute-sanitizer` findings — **UNRUN**:
-     the local sanitizer/toolkit pairing cannot instrument the app (injection library mismatch);
-     needs a matching CUDA toolkit or the rented-GPU runbook
+  3. A 1000-frame video run completes with no leak and no `compute-sanitizer` findings — done on the
+     NGC 25.12 (CUDA 13.1) container, whose `compute-sanitizer` 2025.4 pairs with the app; the
+     locally installed sanitizer/toolkit could not instrument the app. 1000 frames, 0 findings.
   4. The default (ONNX Runtime, CPU) build and its results are bit-identical to today — done
-  5. Benchmarks recorded, including the flat ones — done (CPU 7 ms/11.7 ms preprocess, 3553 ms CPU
-     vs 541 ms GPU seg postprocess, 1080p)
+  5. Benchmarks recorded, including the flat ones — done (CPU 6.75 ms/11.53 ms preprocess, DALI
+     4.51 ms/4.59 ms, H2D 0.64 ms, GPU compute 11.61 ms, D2H 1.30 ms, 3483 ms CPU vs 570 ms GPU seg
+     postprocess, 1080p dense fixture)
   6. README and CHANGELOG updated per [AGENTS.md](../AGENTS.md) — done
-
-  Only item 3 remains.
 
 ---
 
@@ -111,9 +112,9 @@ encoded path diverges up to `0.069` — entirely the JPEG decode (nvJPEG vs stb)
 
 The [`release`](../.claude/skills/release/SKILL.md) workflow. Gated on Phases 1–4.
 
-- [ ] Read `AGENTS.md`, `README.md`, and `CHANGELOG.md`, then verify the rfdetr release against upstream — the mandatory "Spec Sync" rule
-- [ ] Move `[Unreleased]` to `[v0.5.0]`, sync `README.md` version statements against `CMakeLists.txt`, `CMakePresets.json`, `deploy/requirements.txt`, `dockerfile.*`, and `docs/export.md`
-- [ ] Resolve the version disagreement noted in [tech-stack.md](tech-stack.md#known-pin-duplications): `project()` declares none, `vcpkg.json` says `0.1.0`, the README badge says `0.4.0`
+- [x] Read `AGENTS.md`, `README.md`, and `CHANGELOG.md`, then verify the rfdetr release against upstream — the mandatory "Spec Sync" rule
+- [x] Move `[Unreleased]` to `[v0.5.0]`, sync `README.md` version statements against `CMakeLists.txt`, `CMakePresets.json`, `deploy/requirements.txt`, `dockerfile.*`, and `docs/export.md`
+- [x] Resolve the version disagreement noted in [tech-stack.md](tech-stack.md#known-pin-duplications): `project()` declares none, `vcpkg.json` says `0.1.0`, the README badge says `0.4.0`
 - [ ] Cut `release/v0.5.0`, merge to `master`, tag, merge back to `develop`
 
 ---
