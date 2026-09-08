@@ -8,10 +8,39 @@
 #include <iostream>
 #include <numeric>
 #include <stdexcept>
+#include <string>
+
+namespace {
+
+/// rfdetr 1.9.3 made `PostProcess(num_select=<negative>)` a construction-time
+/// error rather than a silently accepted no-op; the cap is validated here for
+/// the same reason.
+void validate_config(const Config &config) {
+    if (config.max_detections < 0) {
+        throw std::invalid_argument("max_detections must be non-negative, got " +
+                                    std::to_string(config.max_detections));
+    }
+    bool has_active_keypoint_class = false;
+    for (const int count : config.keypoint_counts) {
+        if (count < 0) {
+            throw std::invalid_argument("keypoint_counts entries must be non-negative, got " + std::to_string(count));
+        }
+        if (count > 0) {
+            has_active_keypoint_class = true;
+        }
+    }
+    if (!config.keypoint_counts.empty() && !has_active_keypoint_class) {
+        throw std::invalid_argument("keypoint_counts must include at least one class with keypoints");
+    }
+}
+
+} // namespace
 
 RFDETRInference::RFDETRInference(const std::filesystem::path &model_path, const std::filesystem::path &label_file_path,
                                  const Config &config)
     : backend_(create_backend()), config_(config), input_shape_({1, 3, config_.resolution, config_.resolution}) {
+
+    validate_config(config_);
 
     std::cout << "Using backend: " << backend_->get_backend_name() << std::endl;
 
@@ -46,6 +75,7 @@ RFDETRInference::RFDETRInference(const std::filesystem::path &model_path, const 
 RFDETRInference::RFDETRInference(std::unique_ptr<InferenceBackend> backend,
                                  const std::filesystem::path &label_file_path, const Config &config)
     : backend_(std::move(backend)), config_(config), input_shape_({1, 3, config_.resolution, config_.resolution}) {
+    validate_config(config_);
     load_coco_labels(label_file_path);
 }
 
@@ -125,46 +155,54 @@ void RFDETRInference::postprocess_outputs(float scale_w, float scale_h, std::vec
     const auto &labels_data = output_data_cache_[1];
     const auto &labels_shape = output_shapes_cache_[1];
 
-    const auto num_detections = static_cast<size_t>(dets_shape[1]);
-    const auto num_classes = static_cast<size_t>(labels_shape[2]);
+    const auto num_queries = static_cast<int>(dets_shape[1]);
+    const auto num_classes = static_cast<int>(labels_shape[2]);
     const auto res = static_cast<float>(config_.resolution);
     const auto max_w = scale_w * res;
     const auto max_h = scale_h * res;
 
-    for (size_t i = 0; i < num_detections; ++i) {
-        const size_t det_offset = i * static_cast<size_t>(dets_shape[2]);
-        const size_t label_offset = i * num_classes;
+    // Rank the flattened query/class grid rather than taking a per-query argmax:
+    // RF-DETR's class scores are independent sigmoids, so one query can clear the
+    // threshold on several classes and an argmax would drop all but the strongest
+    // (rfdetr 1.9.3, PR #1320). Results come out in descending-score order.
+    const int background_slot = rfdetr::processing::resolve_background_slot(config_.background_class_id, num_classes);
+    const auto num_foreground =
+        static_cast<size_t>(rfdetr::processing::foreground_class_count(num_classes, background_slot));
 
-        float max_score = -1.0f;
-        int max_class_idx = -1;
-        for (size_t j = 0; j < num_classes; ++j) {
-            const float logit = labels_data[label_offset + j];
-            const float score = rfdetr::processing::sigmoid(logit);
-            if (score > max_score) {
-                max_score = score;
-                max_class_idx = static_cast<int>(j);
-            }
+    rfdetr::processing::build_foreground_scores(labels_data, num_queries, num_classes, background_slot, score_grid_);
+    const auto ranked =
+        rfdetr::processing::select_topk_multiclass(score_grid_, static_cast<size_t>(config_.max_detections));
+
+    for (const size_t flat : ranked) {
+        const float score = score_grid_[flat];
+        // Negated so a NaN score is dropped rather than kept, matching upstream's
+        // `scores > threshold` filter. The cap applies to the candidates ranked,
+        // the threshold to the ones kept.
+        if (!(score > config_.threshold)) {
+            continue;
         }
 
-        max_class_idx -= 1; // Fix the +1 offset
-
-        if (max_score > config_.threshold && max_class_idx >= 0 &&
-            static_cast<size_t>(max_class_idx) < coco_labels_.size()) {
-            const float cx = dets_data[det_offset + 0] * res;
-            const float cy = dets_data[det_offset + 1] * res;
-            const float w = dets_data[det_offset + 2] * res;
-            const float h = dets_data[det_offset + 3] * res;
-
-            auto xyxy = rfdetr::processing::cxcywh_to_xyxy(cx, cy, w, h);
-            auto scaled = rfdetr::processing::scale_box(xyxy, scale_w, scale_h);
-            auto clamped = rfdetr::processing::clamp_box(scaled, max_w, max_h);
-
-            BoundingBox box{clamped.x_min, clamped.y_min, clamped.x_max, clamped.y_max};
-
-            scores.push_back(max_score);
-            class_ids.push_back(max_class_idx);
-            boxes.push_back(std::move(box));
+        const size_t query = flat / num_foreground;
+        const auto class_id = static_cast<int>(flat % num_foreground);
+        if (static_cast<size_t>(class_id) >= coco_labels_.size()) {
+            continue;
         }
+
+        const size_t det_offset = query * static_cast<size_t>(dets_shape[2]);
+        const float cx = dets_data[det_offset + 0] * res;
+        const float cy = dets_data[det_offset + 1] * res;
+        const float w = dets_data[det_offset + 2] * res;
+        const float h = dets_data[det_offset + 3] * res;
+
+        auto xyxy = rfdetr::processing::cxcywh_to_xyxy(cx, cy, w, h);
+        auto scaled = rfdetr::processing::scale_box(xyxy, scale_w, scale_h);
+        auto clamped = rfdetr::processing::clamp_box(scaled, max_w, max_h);
+
+        BoundingBox box{clamped.x_min, clamped.y_min, clamped.x_max, clamped.y_max};
+
+        scores.push_back(score);
+        class_ids.push_back(class_id);
+        boxes.push_back(std::move(box));
     }
 }
 
@@ -189,47 +227,32 @@ void RFDETRInference::postprocess_segmentation_outputs(float scale_w, float scal
     const auto &masks_data = output_data_cache_[2];
     const auto &masks_shape = output_shapes_cache_[2];
 
-    const auto num_detections = static_cast<size_t>(dets_shape[1]);
-    const auto num_classes = static_cast<size_t>(labels_shape[2]);
+    const auto num_queries = static_cast<int>(dets_shape[1]);
+    const auto num_classes = static_cast<int>(labels_shape[2]);
     const auto mask_h = static_cast<size_t>(masks_shape[2]);
     const auto mask_w = static_cast<size_t>(masks_shape[3]);
 
-    // Compute scores and apply sigmoid
-    std::vector<float> all_scores;
-    std::vector<size_t> all_indices;
+    // Same flattened query/class ranking the detection path uses — see
+    // postprocess_outputs() — so a query whose mask covers two classes yields
+    // both, and ties resolve deterministically.
+    const int background_slot = rfdetr::processing::resolve_background_slot(config_.background_class_id, num_classes);
+    const auto num_foreground =
+        static_cast<size_t>(rfdetr::processing::foreground_class_count(num_classes, background_slot));
 
-    for (size_t i = 0; i < num_detections; ++i) {
-        for (size_t j = 0; j < num_classes; ++j) {
-            const size_t label_offset = i * num_classes;
-            const float logit = labels_data[label_offset + j];
-            const float score = rfdetr::processing::sigmoid(logit);
-            all_scores.push_back(score);
-            all_indices.push_back(i * num_classes + j);
-        }
-    }
+    rfdetr::processing::build_foreground_scores(labels_data, num_queries, num_classes, background_slot, score_grid_);
+    const auto ranked =
+        rfdetr::processing::select_topk_multiclass(score_grid_, static_cast<size_t>(config_.max_detections));
 
-    // Top-k selection
-    const size_t num_select = std::min(static_cast<size_t>(config_.max_detections), all_scores.size());
-    std::vector<size_t> topk_indices(all_scores.size());
-    std::iota(topk_indices.begin(), topk_indices.end(), 0);
-    std::partial_sort(topk_indices.begin(), topk_indices.begin() + static_cast<ptrdiff_t>(num_select),
-                      topk_indices.end(),
-                      [&all_scores](size_t i1, size_t i2) { return all_scores[i1] > all_scores[i2]; });
-
-    // Process top-k detections
-    for (size_t k = 0; k < num_select; ++k) {
-        const size_t idx = topk_indices[k];
-        const float score = all_scores[idx];
-
-        if (score <= config_.threshold) {
+    for (const size_t flat : ranked) {
+        const float score = score_grid_[flat];
+        if (!(score > config_.threshold)) {
             continue;
         }
 
-        const size_t detection_idx = all_indices[idx] / num_classes;
-        const size_t class_idx = all_indices[idx] % num_classes;
-        const int class_id = static_cast<int>(class_idx) - 1; // Fix the +1 offset
+        const size_t detection_idx = flat / num_foreground;
+        const auto class_id = static_cast<int>(flat % num_foreground);
 
-        if (class_id < 0 || static_cast<size_t>(class_id) >= coco_labels_.size()) {
+        if (static_cast<size_t>(class_id) >= coco_labels_.size()) {
             continue;
         }
 
@@ -345,6 +368,20 @@ void RFDETRInference::postprocess_keypoint_outputs(float scale_w, float scale_h,
                                  ") not divisible by number of keypoint classes (" + std::to_string(num_kp_classes) +
                                  ")");
     }
+    // Reject a configured per-class count larger than the tensor's per-class stride.
+    // Each keypoint class is padded to the same number of slots, so a count that
+    // overruns the stride would read into the next class's keypoints.
+    if (num_kp_classes > 0) {
+        const size_t per_class_slots = num_keypoints / num_kp_classes;
+        for (size_t c = 0; c < kp_counts.size(); ++c) {
+            const auto count = static_cast<size_t>(kp_counts[c] >= 0 ? kp_counts[c] : 0);
+            if (count > per_class_slots) {
+                throw std::runtime_error("Configured keypoint count " + std::to_string(kp_counts[c]) +
+                                         " for keypoint class " + std::to_string(c) + " exceeds the per-class stride " +
+                                         std::to_string(per_class_slots));
+            }
+        }
+    }
     // Find the keypoint class with the most active keypoints.
     // For single-class models (e.g. COCO person), all detections use this class.
     size_t default_kp_class = 0;
@@ -358,27 +395,37 @@ void RFDETRInference::postprocess_keypoint_outputs(float scale_w, float scale_h,
 
     const float res = static_cast<float>(config_.resolution);
 
-    for (size_t q = 0; q < num_queries; ++q) {
-        const size_t det_offset = q * static_cast<size_t>(dets_shape[2]);
-        const size_t label_offset = q * num_classes;
+    // Keypoint labels share the detection path's class layout and its flattened
+    // query/class ranking (see postprocess_outputs()). The shipped keypoint
+    // checkpoints are background-first — logit 0 is background, logit 1 the first
+    // real class (COCO person for the preview model) — which is what
+    // `Config::background_class_id`'s default 0 and `keypoint_counts`' leading 0
+    // both encode; upstream calls the same layout `background_class_id=0`.
+    const int background_slot =
+        rfdetr::processing::resolve_background_slot(config_.background_class_id, static_cast<int>(num_classes));
+    const auto num_foreground =
+        static_cast<size_t>(rfdetr::processing::foreground_class_count(static_cast<int>(num_classes), background_slot));
 
-        // RF-DETR keypoint labels use the same offset as detection: logit 0 is background,
-        // logit 1 is the first real class (COCO person for the preview model).
-        float best_score = -1.0f;
-        int best_class_idx = -1;
-        for (size_t j = 0; j < num_classes; ++j) {
-            const float logit = labels_data[label_offset + j];
-            const float score = rfdetr::processing::sigmoid(logit);
-            if (score > best_score) {
-                best_score = score;
-                best_class_idx = static_cast<int>(j);
-            }
-        }
+    rfdetr::processing::build_foreground_scores(labels_data, static_cast<int>(num_queries),
+                                                static_cast<int>(num_classes), background_slot, score_grid_);
+    const auto ranked =
+        rfdetr::processing::select_topk_multiclass(score_grid_, static_cast<size_t>(config_.max_detections));
 
-        const int class_id = best_class_idx - 1;
-        if (best_score <= config_.threshold || class_id < 0 || static_cast<size_t>(class_id) >= coco_labels_.size()) {
+    for (const size_t flat : ranked) {
+        const float best_score = score_grid_[flat];
+        if (!(best_score > config_.threshold)) {
             continue;
         }
+
+        const size_t q = flat / num_foreground;
+        const auto class_id = static_cast<int>(flat % num_foreground);
+        if (static_cast<size_t>(class_id) >= coco_labels_.size()) {
+            continue;
+        }
+        // kp_counts / kp_map are indexed by exported logit slot, not by label index.
+        const int best_class_idx = rfdetr::processing::slot_for_foreground_column(class_id, background_slot);
+
+        const size_t det_offset = q * static_cast<size_t>(dets_shape[2]);
 
         // Decode bbox
         const float cx = dets_data[det_offset + 0] * res;
@@ -502,3 +549,251 @@ std::optional<std::filesystem::path> RFDETRInference::save_output_image(const rf
     }
     return std::nullopt;
 }
+
+// --- GPU pipeline -----------------------------------------------------------
+
+bool RFDETRInference::gpu_preprocess_active() const noexcept {
+#ifdef USE_DALI
+    return config_.gpu_preprocess && backend_->supports_device_io() && rfdetr::gpu::device_available();
+#else
+    return false;
+#endif
+}
+
+bool RFDETRInference::gpu_postprocess_active() const noexcept {
+#ifdef USE_CUDA_POSTPROCESS
+    return config_.gpu_postprocess && backend_->supports_device_io() && rfdetr::gpu::device_available();
+#else
+    return false;
+#endif
+}
+
+#if defined(USE_CUDA_POSTPROCESS) || defined(USE_DALI)
+
+void RFDETRInference::ensure_gpu_ready() {
+    if (gpu_ready_) {
+        return;
+    }
+    if (!backend_->supports_device_io()) {
+        throw std::runtime_error("The GPU pipeline requires a backend with device I/O (build with -DUSE_TENSORRT=ON)");
+    }
+    if (!rfdetr::gpu::device_available()) {
+        throw std::runtime_error("The GPU pipeline was requested but no CUDA device is available");
+    }
+
+#ifdef USE_DALI
+    if (config_.gpu_preprocess) {
+        const auto pipeline =
+            config_.dali_pipeline_dir / ("preprocess_encoded_" + std::to_string(config_.resolution) + ".dali");
+        if (!std::filesystem::exists(pipeline)) {
+            throw std::runtime_error("Serialized DALI pipeline not found: " + pipeline.string() +
+                                     "\nGenerate it with: ./scripts/generate_dali_pipelines.sh " +
+                                     std::to_string(config_.resolution));
+        }
+        dali_encoded_ = std::make_unique<rfdetr::gpu::DaliPreprocessor>(
+            pipeline, rfdetr::gpu::DaliPreprocessor::Source::EncodedImage, config_.gpu_device_id);
+        std::cout << "GPU preprocessing: DALI (" << pipeline.filename().string() << ")" << std::endl;
+    }
+#endif
+
+    gpu_ready_ = true;
+}
+
+void RFDETRInference::run_gpu_image(const std::filesystem::path &image_path, int &orig_h, int &orig_w) {
+#ifdef USE_DALI
+    ensure_gpu_ready();
+    if (!dali_encoded_) {
+        throw std::runtime_error("run_gpu_image called without GPU preprocessing enabled");
+    }
+
+    // The original size still comes from the host: DALI could report it as a
+    // second output, but the caller needs it before the box decode anyway and
+    // reading the header is cheaper than a device round trip.
+    const auto probe = rfdetr::media::load_image(image_path);
+    if (probe.empty()) {
+        throw std::runtime_error("Failed to read image: " + image_path.string());
+    }
+    orig_h = probe.height;
+    orig_w = probe.width;
+
+    std::ifstream file(image_path, std::ios::binary | std::ios::ate);
+    if (!file) {
+        throw std::runtime_error("Failed to open image: " + image_path.string());
+    }
+    const auto size = static_cast<size_t>(file.tellg());
+    file.seekg(0, std::ios::beg);
+    encoded_bytes_.resize(size);
+    if (!file.read(reinterpret_cast<char *>(encoded_bytes_.data()), static_cast<std::streamsize>(size))) {
+        throw std::runtime_error("Failed to read image bytes: " + image_path.string());
+    }
+
+    const auto res = static_cast<size_t>(config_.resolution);
+    const size_t tensor_bytes = 3 * res * res * sizeof(float);
+    void *const input_binding = backend_->get_input_device_ptr();
+    auto *const stream = backend_->device_stream();
+
+    // DALI writes straight into the TensorRT input binding, so nothing but the
+    // compressed bytes crosses the bus.
+    dali_encoded_->process_encoded(encoded_bytes_, input_binding, tensor_bytes, stream);
+    backend_->run_inference_device(input_binding, input_shape_);
+#else
+    (void)image_path;
+    orig_h = 0;
+    orig_w = 0;
+    throw std::runtime_error("Built without DALI support (-DUSE_DALI=ON)");
+#endif
+}
+
+void RFDETRInference::run_gpu_frame(const rfdetr::media::Image &bgr_frame) {
+#ifdef USE_DALI
+    ensure_gpu_ready();
+    if (bgr_frame.empty()) {
+        throw std::runtime_error("run_gpu_frame received an empty frame");
+    }
+
+    // The `frame` pipeline variant is only needed by the video path, so it is
+    // created on first use rather than in ensure_gpu_ready().
+    if (!dali_frame_) {
+        const auto pipeline =
+            config_.dali_pipeline_dir / ("preprocess_frame_" + std::to_string(config_.resolution) + ".dali");
+        if (!std::filesystem::exists(pipeline)) {
+            throw std::runtime_error("Serialized DALI pipeline not found: " + pipeline.string() +
+                                     "\nGenerate it with: ./scripts/generate_dali_pipelines.sh " +
+                                     std::to_string(config_.resolution));
+        }
+        dali_frame_ = std::make_unique<rfdetr::gpu::DaliPreprocessor>(
+            pipeline, rfdetr::gpu::DaliPreprocessor::Source::BgrFrame, config_.gpu_device_id);
+    }
+
+    auto *const stream = backend_->device_stream();
+
+    // One H2D of the interleaved BGR bytes; everything after that stays on the
+    // device. The buffer is grow-only, so steady-state frames never allocate.
+    frame_device_.reserve(bgr_frame.bytes());
+    rfdetr::gpu::copy_h2d(frame_device_.get(), bgr_frame.data(), bgr_frame.bytes(), stream);
+
+    const auto res = static_cast<size_t>(config_.resolution);
+    const size_t tensor_bytes = 3 * res * res * sizeof(float);
+    void *const input_binding = backend_->get_input_device_ptr();
+
+    dali_frame_->process_frame(frame_device_.get(), bgr_frame.height, bgr_frame.width, input_binding, tensor_bytes,
+                               stream);
+    backend_->run_inference_device(input_binding, input_shape_);
+#else
+    (void)bgr_frame;
+    throw std::runtime_error("Built without DALI support (-DUSE_DALI=ON)");
+#endif
+}
+
+void RFDETRInference::fetch_device_outputs() {
+    // Device inference leaves the outputs on the GPU; the CPU postprocessors read
+    // output_data_cache_, so copy them across and mirror run_inference()'s cache
+    // layout exactly.
+    //
+    // The copies must come from the device pointers, NOT from get_output_data():
+    // that reads the backend's host output buffers, which only the host-side
+    // run_inference() ever fills. Reading them after a device-side inference
+    // yields zeros — which look like a model that detected nothing rather than
+    // like a bug.
+    const size_t num_outputs = backend_->get_output_count();
+    auto *const stream = backend_->device_stream();
+
+    output_data_cache_.clear();
+    output_shapes_cache_.clear();
+
+    for (size_t i = 0; i < num_outputs; ++i) {
+        auto shape = backend_->get_output_shape(i);
+        const size_t size = std::accumulate(shape.begin(), shape.end(), size_t{1},
+                                            [](size_t acc, int64_t dim) { return acc * static_cast<size_t>(dim); });
+
+        std::vector<float> data(size);
+        rfdetr::gpu::copy_d2h(data.data(), backend_->get_output_device_ptr(i), size * sizeof(float), stream);
+        output_data_cache_.push_back(std::move(data));
+        output_shapes_cache_.push_back(std::move(shape));
+    }
+
+    // One synchronisation for all of the copies above.
+    backend_->synchronize_device();
+}
+
+void RFDETRInference::postprocess_segmentation_outputs_gpu(float scale_w, float scale_h, int orig_h, int orig_w,
+                                                           std::vector<float> &scores, std::vector<int> &class_ids,
+                                                           std::vector<BoundingBox> &boxes,
+                                                           std::vector<rfdetr::media::Mask> &masks) {
+#ifdef USE_CUDA_POSTPROCESS
+    ensure_gpu_ready();
+
+    if (backend_->get_output_count() < 3) {
+        throw std::runtime_error("Expected 3 output tensors for segmentation, got " +
+                                 std::to_string(backend_->get_output_count()));
+    }
+
+    const auto dets_shape = backend_->get_output_shape(0);
+    const auto labels_shape = backend_->get_output_shape(1);
+    const auto masks_shape = backend_->get_output_shape(2);
+    if (dets_shape.size() < 3 || labels_shape.size() < 3 || masks_shape.size() < 4) {
+        throw std::runtime_error("Segmentation output tensors have unexpected ranks");
+    }
+
+    if (!seg_postprocessor_) {
+        rfdetr::gpu::SegPostprocessParams params;
+        // Shapes come from the engine, never from constants, so one build serves
+        // every resolution / query count / mask size.
+        params.num_queries = static_cast<int>(dets_shape[1]);
+        params.num_classes = static_cast<int>(labels_shape[2]);
+        params.dets_stride = static_cast<int>(dets_shape[2]);
+        params.mask_h = static_cast<int>(masks_shape[2]);
+        params.mask_w = static_cast<int>(masks_shape[3]);
+        params.resolution = config_.resolution;
+        params.threshold = config_.threshold;
+        params.mask_threshold = config_.mask_threshold;
+        params.max_detections = config_.max_detections;
+        params.num_labels = static_cast<int>(coco_labels_.size());
+        params.background_slot =
+            rfdetr::processing::resolve_background_slot(config_.background_class_id, params.num_classes);
+        params.orig_w = orig_w;
+        params.orig_h = orig_h;
+        params.scale_w = scale_w;
+        params.scale_h = scale_h;
+        seg_postprocessor_ = std::make_unique<rfdetr::gpu::SegPostprocessor>(params, backend_->device_stream());
+    }
+    seg_postprocessor_->set_frame_geometry(orig_w, orig_h, scale_w, scale_h);
+
+    seg_postprocessor_->run(backend_->get_output_device_ptr(0), backend_->get_output_device_ptr(1),
+                            backend_->get_output_device_ptr(2), seg_result_);
+
+    const auto count = static_cast<size_t>(seg_result_.count);
+    scores.reserve(scores.size() + count);
+    class_ids.reserve(class_ids.size() + count);
+    boxes.reserve(boxes.size() + count);
+    masks.reserve(masks.size() + count);
+
+    for (size_t i = 0; i < count; ++i) {
+        scores.push_back(seg_result_.scores[i]);
+        class_ids.push_back(static_cast<int>(seg_result_.class_ids[i]));
+        boxes.push_back(seg_result_.boxes[i]);
+
+        // Unpack one full-frame mask out of the packed byte range.
+        const int64_t begin = seg_result_.mask_offsets[i];
+        const int64_t end = seg_result_.mask_offsets[i + 1];
+        rfdetr::media::Mask mask;
+        mask.width = orig_w;
+        mask.height = orig_h;
+        mask.data.assign(seg_result_.mask_data.begin() + static_cast<ptrdiff_t>(begin),
+                         seg_result_.mask_data.begin() + static_cast<ptrdiff_t>(end));
+        masks.push_back(std::move(mask));
+    }
+#else
+    (void)scale_w;
+    (void)scale_h;
+    (void)orig_h;
+    (void)orig_w;
+    scores.clear();
+    class_ids.clear();
+    boxes.clear();
+    masks.clear();
+    throw std::runtime_error("Built without CUDA postprocessing (-DUSE_CUDA_POSTPROCESS=ON)");
+#endif
+}
+
+#endif // USE_CUDA_POSTPROCESS || USE_DALI

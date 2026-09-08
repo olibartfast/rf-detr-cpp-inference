@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstring>
 #include <iostream>
+#include <optional>
 #include <unordered_set>
 
 namespace {
@@ -31,13 +32,77 @@ constexpr const char *kBackendDescription = "ONNX Runtime — .onnx";
 constexpr const char *kBackendBuildFlags = "-DUSE_ONNX_RUNTIME=ON";
 #endif
 
+// Numeric options report a bad value against the flag it belongs to: std::stoi/std::stof throw on a
+// typo, and an uncaught exception here would abort before the usage text can help.
+bool parse_int_option(const char *flag, const char *value, std::optional<int> &out) {
+    try {
+        size_t consumed = 0;
+        const int parsed = std::stoi(value, &consumed);
+        if (consumed == std::strlen(value)) {
+            out = parsed;
+            return true;
+        }
+    } catch (const std::exception &) {
+        // fall through to the shared error message
+    }
+    std::cerr << "Error: " << flag << " expects an integer, got '" << value << "'" << std::endl;
+    return false;
+}
+
+bool parse_float_option(const char *flag, const char *value, std::optional<float> &out) {
+    try {
+        size_t consumed = 0;
+        const float parsed = std::stof(value, &consumed);
+        if (consumed == std::strlen(value)) {
+            out = parsed;
+            return true;
+        }
+    } catch (const std::exception &) {
+        // fall through to the shared error message
+    }
+    std::cerr << "Error: " << flag << " expects a number, got '" << value << "'" << std::endl;
+    return false;
+}
+
+bool parse_int_list(const char *flag, const char *value, std::vector<int> &out) {
+    out.clear();
+    const std::string input(value);
+    size_t start = 0;
+    while (true) {
+        const size_t comma = input.find(',', start);
+        const std::string token = input.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
+        if (token.empty()) {
+            std::cerr << "Error: " << flag << " expects comma-separated integers, got '" << value << "'" << std::endl;
+            return false;
+        }
+        try {
+            size_t consumed = 0;
+            const int parsed = std::stoi(token, &consumed);
+            if (consumed != token.size()) {
+                throw std::invalid_argument("trailing characters");
+            }
+            out.push_back(parsed);
+        } catch (const std::exception &) {
+            std::cerr << "Error: " << flag << " expects comma-separated integers, got '" << value << "'" << std::endl;
+            return false;
+        }
+        if (comma == std::string::npos) {
+            break;
+        }
+        start = comma + 1;
+    }
+    return true;
+}
+
 } // anonymous namespace
 
 int main(int argc, const char *argv[]) {
     if (argc < 4) {
         std::cerr << "Usage: " << argv[0]
                   << " <path_to_model> <path_to_image_or_video> <path_to_coco_labels> [--segmentation|--keypoint] "
-                     "[--threshold <val>] [--display]"
+                     "[--threshold <val>] [--resolution <px>] [--max-detections <n>] [--mask-threshold <val>] "
+                     "[--background-class-id <n|none>] [--keypoint-counts <n[,n...]>] [--output <path>] "
+                     "[--display] [--gpu-preprocess] [--gpu-postprocess] [--dali-pipeline-dir <dir>]"
                   << std::endl;
         std::cerr << "Examples:" << std::endl;
         std::cerr << "  Detection:    " << argv[0] << " " << kExampleModel << " ./image.jpg ./coco_labels.txt"
@@ -50,10 +115,22 @@ int main(int argc, const char *argv[]) {
                   << std::endl;
         std::cerr << "  Video+display:" << argv[0] << " " << kExampleModel << " ./video.mp4 ./coco_labels.txt --display"
                   << std::endl;
+        std::cerr << "  Tuned:        " << argv[0] << " " << kExampleModel
+                  << " ./image.jpg ./coco_labels.txt --threshold 0.7 --max-detections 100" << std::endl;
+        std::cerr << "  GPU pipeline: " << argv[0]
+                  << " ./model.engine ./image.jpg ./coco_labels.txt --segmentation --gpu-preprocess --gpu-postprocess"
+                  << std::endl;
         std::cerr << std::endl;
         std::cerr << "Note: exactly one backend is selected at compile time; this binary was built with" << std::endl;
         std::cerr << "      " << kBackendDescription << std::endl;
         std::cerr << "      Rebuild with " << kBackendBuildFlags << " to select it explicitly." << std::endl;
+        std::cerr << "      --background-class-id selects the exported logit slot holding background" << std::endl;
+        std::cerr << "      (default 0 = background-first, as the shipped RF-DETR exports are;" << std::endl;
+        std::cerr << "      negative counts from the end, 'none' keeps every slot)." << std::endl;
+        std::cerr << "      --keypoint-counts sets num_keypoints_per_class as comma-separated counts" << std::endl;
+        std::cerr << "      (default 0,17 = background-first COCO; pass 17 for an active-first export)." << std::endl;
+        std::cerr << "      --gpu-preprocess needs -DUSE_DALI=ON, --gpu-postprocess needs" << std::endl;
+        std::cerr << "      -DUSE_CUDA_POSTPROCESS=ON; both require the TensorRT backend." << std::endl;
         return 1;
     }
 
@@ -65,7 +142,26 @@ int main(int argc, const char *argv[]) {
     bool use_segmentation = false;
     bool use_keypoint = false;
     bool display = false;
-    float threshold = -1.0f; // -1 = use Config default
+    bool gpu_preprocess = false;
+    bool gpu_postprocess = false;
+    std::filesystem::path dali_pipeline_dir = "data/dali";
+    // Unset means "leave the Config default alone" — a plain sentinel value would be ambiguous for
+    // --mask-threshold, whose argument is a logit and may legitimately be negative or zero.
+    std::optional<int> resolution;
+    std::optional<int> max_detections;
+    std::optional<float> threshold;
+    std::optional<float> mask_threshold;
+    // Two levels of "unset": no flag at all leaves the Config default, while
+    // --background-class-id none is an explicit request to keep every logit slot.
+    bool background_class_id_given = false;
+    std::optional<int> background_class_id;
+    // Unset falls back to the backend defaults below ("output_image.jpg" /
+    // "output_video.mp4"); an explicit --output overrides whichever path the
+    // input kind selects.
+    std::optional<std::filesystem::path> output_path_arg;
+    // Unset leaves Config's legacy {0, 17} default alone; an explicit
+    // --keypoint-counts replaces it (e.g. "17" for the active-first schema).
+    std::optional<std::vector<int>> keypoint_counts_arg;
 
     for (int i = 4; i < argc; ++i) {
         if (std::strcmp(argv[i], "--segmentation") == 0) {
@@ -74,23 +170,101 @@ int main(int argc, const char *argv[]) {
             use_keypoint = true;
         } else if (std::strcmp(argv[i], "--display") == 0) {
             display = true;
+        } else if (std::strcmp(argv[i], "--gpu-preprocess") == 0) {
+            gpu_preprocess = true;
+        } else if (std::strcmp(argv[i], "--gpu-postprocess") == 0) {
+            gpu_postprocess = true;
+        } else if (std::strcmp(argv[i], "--dali-pipeline-dir") == 0 && i + 1 < argc) {
+            dali_pipeline_dir = argv[++i];
         } else if (std::strcmp(argv[i], "--threshold") == 0 && i + 1 < argc) {
-            threshold = std::stof(argv[++i]);
+            if (!parse_float_option("--threshold", argv[++i], threshold)) {
+                return 1;
+            }
+        } else if (std::strcmp(argv[i], "--resolution") == 0 && i + 1 < argc) {
+            if (!parse_int_option("--resolution", argv[++i], resolution)) {
+                return 1;
+            }
+        } else if (std::strcmp(argv[i], "--max-detections") == 0 && i + 1 < argc) {
+            if (!parse_int_option("--max-detections", argv[++i], max_detections)) {
+                return 1;
+            }
+        } else if (std::strcmp(argv[i], "--background-class-id") == 0 && i + 1 < argc) {
+            const char *value = argv[++i];
+            background_class_id_given = true;
+            if (std::strcmp(value, "none") == 0) {
+                background_class_id.reset();
+            } else if (!parse_int_option("--background-class-id", value, background_class_id)) {
+                return 1;
+            }
+        } else if (std::strcmp(argv[i], "--mask-threshold") == 0 && i + 1 < argc) {
+            if (!parse_float_option("--mask-threshold", argv[++i], mask_threshold)) {
+                return 1;
+            }
+        } else if (std::strcmp(argv[i], "--output") == 0 && i + 1 < argc) {
+            output_path_arg = argv[++i];
+        } else if (std::strcmp(argv[i], "--keypoint-counts") == 0 && i + 1 < argc) {
+            std::vector<int> counts;
+            if (!parse_int_list("--keypoint-counts", argv[++i], counts)) {
+                return 1;
+            }
+            keypoint_counts_arg = std::move(counts);
         }
     }
 
+    if (threshold && (*threshold < 0.0f || *threshold > 1.0f)) {
+        std::cerr << "Error: --threshold must be in [0, 1], got " << *threshold << std::endl;
+        return 1;
+    }
+    if (resolution && *resolution <= 0) {
+        std::cerr << "Error: --resolution must be positive; omit it to auto-detect from the model" << std::endl;
+        return 1;
+    }
+    if (max_detections && *max_detections <= 0) {
+        std::cerr << "Error: --max-detections must be positive" << std::endl;
+        return 1;
+    }
+    if (gpu_postprocess && !use_segmentation) {
+        std::cerr << "Error: --gpu-postprocess applies to segmentation only; add --segmentation" << std::endl;
+        return 1;
+    }
+
+#if !defined(USE_DALI)
+    if (gpu_preprocess) {
+        std::cerr << "Error: --gpu-preprocess requires a build with -DUSE_DALI=ON" << std::endl;
+        return 1;
+    }
+#endif
+#if !defined(USE_CUDA_POSTPROCESS)
+    if (gpu_postprocess) {
+        std::cerr << "Error: --gpu-postprocess requires a build with -DUSE_CUDA_POSTPROCESS=ON" << std::endl;
+        return 1;
+    }
+#endif
     try {
         Config config;
-        config.resolution = 0; // 0 = auto-detect from model
+        config.resolution = resolution.value_or(0); // 0 = auto-detect from model
         if (use_keypoint) {
             config.model_type = ModelType::KEYPOINT;
         } else {
             config.model_type = use_segmentation ? ModelType::SEGMENTATION : ModelType::DETECTION;
         }
-        config.max_detections = 300;
-        config.mask_threshold = 0.0F;
-        if (threshold >= 0.0f) {
-            config.threshold = threshold;
+        config.gpu_preprocess = gpu_preprocess;
+        config.gpu_postprocess = gpu_postprocess;
+        config.dali_pipeline_dir = dali_pipeline_dir;
+        if (threshold) {
+            config.threshold = *threshold;
+        }
+        if (max_detections) {
+            config.max_detections = *max_detections;
+        }
+        if (mask_threshold) {
+            config.mask_threshold = *mask_threshold;
+        }
+        if (background_class_id_given) {
+            config.background_class_id = background_class_id;
+        }
+        if (keypoint_counts_arg) {
+            config.keypoint_counts = *keypoint_counts_arg;
         }
 
         if (is_video_file(input_path)) {
@@ -103,7 +277,7 @@ int main(int argc, const char *argv[]) {
             vconfig.video_path = input_path;
             vconfig.model_path = model_path;
             vconfig.label_path = label_file_path;
-            vconfig.output_path = "output_video.mp4";
+            vconfig.output_path = output_path_arg.value_or("output_video.mp4");
             vconfig.inference_config = config;
             vconfig.ring_buffer_size = 8;
             vconfig.display = display;
@@ -117,9 +291,23 @@ int main(int argc, const char *argv[]) {
 
             int orig_h = 0;
             int orig_w = 0;
-            std::vector<float> input_data = inference.preprocess_image(input_path, orig_h, orig_w);
 
-            inference.run_inference(input_data);
+            // Both are always false in a CPU-only build: gpu_*_active() reports
+            // whether the path is compiled in, enabled, and backed by a device.
+            const bool gpu_pre = inference.gpu_preprocess_active();
+            const bool gpu_post = inference.gpu_postprocess_active();
+
+#if defined(USE_CUDA_POSTPROCESS) || defined(USE_DALI)
+            if (gpu_pre) {
+                // Preprocess and infer entirely on the device; nothing but the
+                // compressed image bytes is copied to the GPU.
+                inference.run_gpu_image(input_path, orig_h, orig_w);
+            } else
+#endif
+            {
+                std::vector<float> input_data = inference.preprocess_image(input_path, orig_h, orig_w);
+                inference.run_inference(input_data);
+            }
 
             std::vector<float> scores;
             std::vector<int> class_ids;
@@ -129,7 +317,19 @@ int main(int argc, const char *argv[]) {
             const float scale_w = static_cast<float>(orig_w) / static_cast<float>(inference.get_resolution());
             const float scale_h = static_cast<float>(orig_h) / static_cast<float>(inference.get_resolution());
 
-            if (use_keypoint) {
+#if defined(USE_CUDA_POSTPROCESS) || defined(USE_DALI)
+            // A device-side inference leaves the outputs on the GPU. The CUDA
+            // postprocessor reads them there; every CPU postprocessor needs them
+            // pulled into the host cache first.
+            if (gpu_pre && !gpu_post) {
+                inference.fetch_device_outputs();
+            }
+            if (gpu_post) {
+                inference.postprocess_segmentation_outputs_gpu(scale_w, scale_h, orig_h, orig_w, scores, class_ids,
+                                                               boxes, masks);
+            } else
+#endif
+                if (use_keypoint) {
                 inference.postprocess_keypoint_outputs(scale_w, scale_h, orig_h, orig_w, scores, class_ids, boxes,
                                                        keypoints);
             } else if (use_segmentation) {
@@ -138,6 +338,9 @@ int main(int argc, const char *argv[]) {
             } else {
                 inference.postprocess_outputs(scale_w, scale_h, scores, class_ids, boxes);
             }
+            // Both are unused in a CPU-only build, where they are always false.
+            (void)gpu_pre;
+            (void)gpu_post;
 
             rfdetr::media::Image image = rfdetr::media::load_image(input_path);
             if (image.empty()) {
@@ -152,7 +355,7 @@ int main(int argc, const char *argv[]) {
                 inference.draw_detections(image, boxes, class_ids, scores);
             }
 
-            const std::filesystem::path output_path = "output_image.jpg";
+            const std::filesystem::path output_path = output_path_arg.value_or("output_image.jpg");
             if (const auto saved_path = inference.save_output_image(image, output_path)) {
                 std::cout << "Output image saved to: " << saved_path->string() << std::endl;
             } else {
