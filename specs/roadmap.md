@@ -91,14 +91,19 @@ encoded path diverges up to `0.069` — entirely the JPEG decode (nvJPEG vs stb)
   - `bench_gpu_pipeline.cpp` (Phase 2) times preprocess (CPU and DALI), the H2D+D2H transfer, and
     postprocess (CPU and CUDA). The H2D+infer+D2H stage still needs a real engine.
 - [ ] Run the exit gate on real hardware — the [`gpu-verify`](../.claude/skills/gpu-verify/SKILL.md) workflow:
-  1. All three tasks run with `--gpu-preprocess` inside the tolerances above
+  1. All three tasks run with `--gpu-preprocess` inside the tolerances above — done (four
+     combinations pass through a real engine, `integration_test_gpu_parity.cpp`)
   2. Segmentation runs with `--gpu-postprocess` at mask IoU ≥ 0.999, including on the dense fixture
-  3. A 1000-frame video run completes with no leak and no `compute-sanitizer` findings
-  4. The default (ONNX Runtime, CPU) build and its results are bit-identical to today
-  5. Benchmarks recorded, including the flat ones
-  6. README and CHANGELOG updated per [AGENTS.md](../AGENTS.md)
+     — done (unit + integration)
+  3. A 1000-frame video run completes with no leak and no `compute-sanitizer` findings — **UNRUN**:
+     the local sanitizer/toolkit pairing cannot instrument the app (injection library mismatch);
+     needs a matching CUDA toolkit or the rented-GPU runbook
+  4. The default (ONNX Runtime, CPU) build and its results are bit-identical to today — done
+  5. Benchmarks recorded, including the flat ones — done (CPU 7 ms/11.7 ms preprocess, 3553 ms CPU
+     vs 541 ms GPU seg postprocess, 1080p)
+  6. README and CHANGELOG updated per [AGENTS.md](../AGENTS.md) — done
 
-  Items 4 and 6 are already satisfied; 1, 2, 3, and 5 are not.
+  Only item 3 remains.
 
 ---
 
