@@ -160,7 +160,7 @@ cmake --build build --parallel
 
 ### Building the ExecuTorch install prefix
 
-ExecuTorch **v1.4.0** is the pinned C++ runtime. The `rfdetr[executorch]==1.10.0`
+ExecuTorch **v1.4.0** is the pinned C++ runtime. The `rfdetr[executorch]==1.10.1`
 extra allows ExecuTorch `>=1.3,<2.0` and does not guarantee that version; `.pte` schema
 compatibility across ExecuTorch versions is not guaranteed.
 
