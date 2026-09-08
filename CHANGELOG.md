@@ -16,6 +16,9 @@ Notable user-visible changes to this project and compatibility updates for upstr
 - `--keypoint-counts` CLI flag to decode active-first `[17]` keypoint exports, and `--output` to
   choose the image/video output path.
 - Segmentation export in `deploy/export_executorch.py` via `--segmentation`.
+- Golden CPU parity fixtures under `tests/data/gpu_parity/`, a `gpu_parity_gen` regenerator, the
+  fixture-backed `test_gpu_parity.cpp` (CPU determinism, DALI preprocess parity, no-letterbox,
+  end-to-end regression), and the per-stage `bench_gpu_pipeline.cpp`.
 
 ### Changed
 
@@ -54,15 +57,24 @@ Notable user-visible changes to this project and compatibility updates for upstr
 ### Validation status
 
 - A real RTX 3060 gate run completed with 9 passes, 0 failures, and 5 explicitly unrun checks.
-- CUDA segmentation postprocessing matched the CPU path on the tested image. DALI preprocessing
-  changed one final score by up to 0.0163, so formal parity remains open.
-- Still unrun: golden/dense parity fixtures, four-path per-stage benchmarks, and a 1000-frame
+- CUDA segmentation postprocessing matched the CPU path on the tested image, and the new parity
+  fixtures confirm it: end-to-end regression passes on all four fixtures, and the dense fixture
+  (200 detections) saturates the cap correctly.
+- DALI resize + normalise matches the CPU path within `8.8e-3` on all three natural fixtures. The
+  encoded path diverges by up to `0.069` on the tensor, but the delta is entirely the JPEG decode
+  (nvJPEG vs stb) — the frame path isolates resize and shows it is not the source. This remains the
+  open "DALI preprocessing parity" item; its end-to-end effect is bounded (one final score shifted
+  by up to 0.0163).
+- Still unrun: four-path per-stage benchmarks with a real engine, and a 1000-frame
   `compute-sanitizer` run. See [`specs/roadmap.md`](specs/roadmap.md).
 - TensorRT, DALI, CUDA, ExecuTorch, and Docker runtime behavior is not fully exercised by CI.
 
 ### Known issues
 
-- GPU parity fixtures, benchmarks, and the long sanitizer run required for the next release are
+- DALI's encoded preprocess does not bit-match the CPU tensor (up to `0.069` max |Δ|): nvJPEG and
+  stb decode JPEG differently. Resize itself is within tolerance; closing this fully would require
+  the CPU path to decode with the same JPEG decoder.
+- Four-path per-stage benchmarks with a real engine, and the long `compute-sanitizer` run, are
   incomplete.
 
 ## [v0.4.0] - 2026-08-04
