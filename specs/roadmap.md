@@ -40,7 +40,7 @@ From the Known Issues table in [CHANGELOG.md](../CHANGELOG.md). Independent of e
 
 ---
 
-## Phase 2 — GPU parity fixtures
+## Phase 2 — GPU parity fixtures (Complete)
 
 The parity gate the GPU work was supposed to be measured against was never built. Everything in Phases 3 and 4 depends on it.
 
@@ -48,27 +48,35 @@ Spec: [`features/2026-08-15-gpu-parity-fixtures/`](features/2026-08-15-gpu-parit
 
 **Evidence from the first real gate run (2026-08-26).** The four combinations split by *preprocessing*, not postprocessing: `cpu-cpu` and `cpupre-gpupost` agree to the last digit, as do `gpupre-cpupost` and `gpu-gpu` — CUDA postprocessing is bit-identical to CPU. DALI preprocessing is not: max score delta 0.0163 on one image, 16× the 1e-3 score tolerance. One image and final scores rather than the preprocessed tensor, so not conclusive — but write these fixtures expecting to find a discrepancy, not to confirm its absence. Details in [CHANGELOG.md](../CHANGELOG.md).
 
-- [ ] Add golden CPU fixtures under `tests/data/gpu_parity/` (directory does not exist)
-  - A small, a wide, and a tall image; save the CPU-produced preprocessed tensor and the final detections/masks with explicit tolerances
-  - Add a **dense synthetic fixture** engineered to produce more than 100 above-threshold detections. Stock photos yield 10–50 detections, below any cap, so they cannot distinguish a truncating postprocessor from a correct one
-- [ ] Add `tests/unit/test_gpu_parity.cpp`
-  - Follow `tests/unit/test_gpu_postprocess.cpp` for the `GTEST_SKIP()`-without-a-device pattern
-- [ ] Add `tests/benchmark/bench_gpu_pipeline.cpp` and register it in `CMakeLists.txt`
-  - `tests/benchmark/bench_preprocessing.cpp` currently covers only `sigmoid`, `cxcywh_to_xyxy`, and `normalize_image`
-  - Time four stages separately — preprocess, H2D+infer, D2H, postprocess — for a still image and for a video run
+The fixtures confirmed it and split the cause: resize + normalise matches within `8.8e-3`, while the
+encoded path diverges up to `0.069` — entirely the JPEG decode (nvJPEG vs stb). See
+`tests/data/gpu_parity/README.md`.
+
+- [x] Add golden CPU fixtures under `tests/data/gpu_parity/`
+  - A small, a wide, and a tall image; the CPU-produced preprocessed tensor and final detections
+    are stored with explicit tolerances, plus a `dense` synthetic fixture (200 detections) that
+    saturates the cap
+- [x] Add `tests/unit/test_gpu_parity.cpp`
+  - Follows `tests/unit/test_gpu_postprocess.cpp` for the `GTEST_SKIP()`-without-a-device pattern;
+    `SKIP_WITHOUT_GPU` and `MockDeviceBackend` lifted into `tests/unit/gpu_test_utils.hpp`
+- [x] Add `tests/benchmark/bench_gpu_pipeline.cpp` and register it in `CMakeLists.txt`
+  - Times preprocess (CPU and DALI), the H2D+D2H transfer, and segmentation postprocess (CPU and
+    CUDA) separately; the H2D+infer+D2H stage is engine-bound and measured on the Phase 4 gate
 
 ---
 
-## Phase 3 — GPU build and CI integration
+## Phase 3 — GPU build and CI integration (Complete)
 
-The one incomplete part of the GPU pipeline's build work; dependency declarations and CMake options are already done.
-
-- [ ] Add a `gpu-pipeline` configure preset to `CMakePresets.json` (none of the five existing presets covers TensorRT, ExecuTorch, OpenCV, or GPU)
-- [ ] Add DALI staging and the GPU options to `dockerfile.trt` — it contains **zero** DALI references today
-  - Base the stage on `nvcr.io/nvidia/tensorrt:<tag>` with the DALI libraries staged in
-- [ ] Add a compile-only GPU job to CI
-  - Compile the GPU targets and skip execution, matching the posture already taken for TensorRT. `nvcc` is available on runners; a GPU is not
-  - **Verify:** CI green with GPU targets compiled and GPU tests skipped, and the skip **visible** in the test output rather than silent
+- [x] Add a `gpu-pipeline` configure preset to `CMakePresets.json`
+  - New `gpu-pipeline` preset: TensorRT + `USE_GPU_PIPELINE=ON`, DALI_ROOT defaulting to
+    `~/dependencies/dali`; TensorRT resolves from `TENSORRT_ROOTDIR` or the download resolver
+- [x] Add DALI staging and the GPU options to `dockerfile.trt`
+  - Already landed with the backend-split Dockerfiles: `dockerfile.trt` carries the `GPU_PIPELINE`
+    build arg and the `dali-fetch`/`dali-selected` staging stages (this roadmap item predated it)
+- [x] Add a compile-only GPU job to CI
+  - `gpu-compile.yml` compiles TensorRT/DALI/CUDA under `-DWERROR=ON` across all four option
+    combinations (this roadmap item predated it). It compiles the library only — the GPU test
+    targets link real DALI/TensorRT symbols and are compile-verified on the manual GPU build
 
 ---
 

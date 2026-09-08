@@ -397,16 +397,32 @@ if(USE_CUDA_POSTPROCESS)
     # case skips at runtime when no device is present.
     list(APPEND UNIT_TEST_SOURCES "${TEST_DIR}/unit/test_gpu_postprocess.cpp")
 endif()
+if(USE_DALI OR USE_CUDA_POSTPROCESS)
+    # Fixture-backed parity: preprocess parity needs DALI, end-to-end regression
+    # needs CUDA postprocess, and the CPU-determinism case needs neither. The
+    # file guards each group with #ifdef, so either half may be absent.
+    list(APPEND UNIT_TEST_SOURCES "${TEST_DIR}/unit/test_gpu_parity.cpp")
+endif()
 
 add_executable(unit_tests ${UNIT_TEST_SOURCES})
 target_compile_options(unit_tests PRIVATE ${PROJECT_WARNING_FLAGS})
 target_link_libraries(unit_tests PRIVATE rfdetr_inference_lib Deps::GTest)
 target_include_directories(unit_tests PRIVATE "${TEST_DIR}/unit")
+target_compile_definitions(unit_tests PRIVATE
+    GPU_PARITY_FIXTURE_DIR="${TEST_DIR}/data/gpu_parity"
+    GPU_PARITY_DALI_DIR="${CMAKE_SOURCE_DIR}/data/dali"
+)
 
 # --- Integration Tests ---
 add_executable(integration_tests "${TEST_DIR}/integration/integration_test_rfdetr_inference.cpp")
 target_compile_options(integration_tests PRIVATE ${PROJECT_WARNING_FLAGS})
 target_link_libraries(integration_tests PRIVATE rfdetr_inference_lib Deps::GTest)
+
+# --- GPU parity fixture generator (dev tool, CPU-only) ---
+add_executable(gpu_parity_gen "${TEST_DIR}/unit/gpu_parity_fixture_gen.cpp")
+target_compile_options(gpu_parity_gen PRIVATE ${PROJECT_WARNING_FLAGS})
+target_link_libraries(gpu_parity_gen PRIVATE rfdetr_inference_lib)
+target_include_directories(gpu_parity_gen PRIVATE "${TEST_DIR}/unit")
 
 # Ensure the data directory exists before running integration tests
 add_custom_command(TARGET integration_tests PRE_BUILD
@@ -428,9 +444,13 @@ if(BENCHMARKS)
     set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
     find_dependency_unified(GoogleBenchmark REQUIRED)
 
-    add_executable(benchmarks "${TEST_DIR}/benchmark/bench_preprocessing.cpp")
+    add_executable(benchmarks "${TEST_DIR}/benchmark/bench_preprocessing.cpp"
+                              "${TEST_DIR}/benchmark/bench_gpu_pipeline.cpp")
     target_compile_options(benchmarks PRIVATE ${PROJECT_WARNING_FLAGS})
     target_link_libraries(benchmarks PRIVATE rfdetr_inference_lib Deps::GoogleBenchmark)
+    target_include_directories(benchmarks PRIVATE "${TEST_DIR}/unit")
+    target_compile_definitions(benchmarks PRIVATE GPU_PARITY_FIXTURE_DIR="${TEST_DIR}/data/gpu_parity"
+                                                 GPU_PARITY_DALI_DIR="${CMAKE_SOURCE_DIR}/data/dali")
 endif()
 
 # Enable testing

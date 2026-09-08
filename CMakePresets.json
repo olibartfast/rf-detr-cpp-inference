@@ -53,6 +53,20 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "USE_ONNX_RUNTIME": "ON"
       }
+    },
+    {
+      "name": "gpu-pipeline",
+      "displayName": "GPU pipeline (TensorRT + DALI + CUDA)",
+      "description": "TensorRT backend with the full GPU pipeline. Stage DALI first (./scripts/fetch_dali.sh); TensorRT resolves from -DTENSORRT_ROOTDIR or is downloaded by the dependency resolver. Override DALI_ROOT/TENSORRT_ROOTDIR if not under ~/dependencies.",
+      "binaryDir": "${sourceDir}/build-gpu",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "USE_ONNX_RUNTIME": "OFF",
+        "USE_TENSORRT": "ON",
+        "USE_GPU_PIPELINE": "ON",
+        "DALI_ROOT": "$env{HOME}/dependencies/dali",
+        "TENSORRT_ROOTDIR": "$env{TENSORRT_ROOTDIR}"
+      }
     }
   ],
   "buildPresets": [
@@ -75,6 +89,10 @@
     {
       "name": "debug-valgrind",
       "configurePreset": "debug-valgrind"
+    },
+    {
+      "name": "gpu-pipeline",
+      "configurePreset": "gpu-pipeline"
     }
   ]
 }
