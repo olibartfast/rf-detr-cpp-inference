@@ -82,13 +82,14 @@ encoded path diverges up to `0.069` — entirely the JPEG decode (nvJPEG vs stb)
 
 ## Phase 4 — GPU parity gate and benchmarks
 
-- [ ] Add `tests/integration/integration_test_gpu_parity.cpp`
-  - Run every fixture through all four combinations: CPU/CPU, GPU-pre/CPU-post, CPU-pre/GPU-post, GPU/GPU
-  - Assert: preprocessed tensor `max |Δ| ≤ 2e-2`; detection sets match on class and count with scores within `1e-3`; box centres within 1 px; mask IoU ≥ 0.999
-  - **Verify:** all four pass on the dense fixture as well as the natural images
+- [x] Add `tests/integration/integration_test_gpu_parity.cpp`
+  - Runs the four combinations (CPU/CPU, GPU-pre/CPU-post, CPU-pre/GPU-post, GPU/GPU) through a real
+    engine; CUDA postprocess asserted to the tight tolerance (scores `1e-3`, box centres 1 px, mask
+    IoU ≥ 0.999) and DALI preprocess to the documented decode-aware bound. Written and
+    compile-verified; runtime verification is the exit gate below.
 - [ ] Extend the benchmark to the same four combinations, per-stage, still image and video
-  - Expect a large improvement in segmentation postprocess — the mask resize is the whole point
-  - Expect **little or no end-to-end gain from preprocessing on single still images**: at 560×560 the CPU preprocess is ~1–2 ms and DALI adds its own launch overhead. The wins are the eliminated 3.7 MB H2D, the freed CPU in the video pipeline's preprocess stage, and headroom at higher resolutions. Record what the numbers actually say, including where they are flat
+  - `bench_gpu_pipeline.cpp` (Phase 2) times preprocess (CPU and DALI), the H2D+D2H transfer, and
+    postprocess (CPU and CUDA). The H2D+infer+D2H stage still needs a real engine.
 - [ ] Run the exit gate on real hardware — the [`gpu-verify`](../.claude/skills/gpu-verify/SKILL.md) workflow:
   1. All three tasks run with `--gpu-preprocess` inside the tolerances above
   2. Segmentation runs with `--gpu-postprocess` at mask IoU ≥ 0.999, including on the dense fixture

@@ -414,7 +414,13 @@ target_compile_definitions(unit_tests PRIVATE
 )
 
 # --- Integration Tests ---
-add_executable(integration_tests "${TEST_DIR}/integration/integration_test_rfdetr_inference.cpp")
+set(INTEGRATION_TEST_SOURCES "${TEST_DIR}/integration/integration_test_rfdetr_inference.cpp")
+if(USE_GPU_PIPELINE)
+    # End-to-end GPU parity: the four pre/post combinations against a real engine.
+    # Skips at runtime without a model or a matching .dali pipeline.
+    list(APPEND INTEGRATION_TEST_SOURCES "${TEST_DIR}/integration/integration_test_gpu_parity.cpp")
+endif()
+add_executable(integration_tests ${INTEGRATION_TEST_SOURCES})
 target_compile_options(integration_tests PRIVATE ${PROJECT_WARNING_FLAGS})
 target_link_libraries(integration_tests PRIVATE rfdetr_inference_lib Deps::GTest)
 
