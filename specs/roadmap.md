@@ -25,7 +25,7 @@ From the Known Issues table in [CHANGELOG.md](../CHANGELOG.md). Independent of e
   - Touches a CI-unexecutable path, so it needs a spec directory per [AGENTS.md](../AGENTS.md)
 - [ ] Support the active-first keypoint schema (`rfdetr` 1.8.2+)
   - Upstream 1.8.2 changed the default `num_keypoints_per_class` from background-first `[0, 17]` to active-first `[17]` ([#1160](https://github.com/roboflow/rf-detr/pull/1160)); `Config::keypoint_counts` still defaults to `{0, 17}` and has no CLI override
-  - `deploy/requirements.txt` pins 1.10.0, so the documented export path produces a schema the default build cannot decode — expected to throw `Keypoint tensor channels (17) not divisible by number of keypoint classes (2)`
+  - `deploy/requirements.txt` pins 1.10.1, so the documented export path produces a schema the default build cannot decode — expected to throw `Keypoint tensor channels (17) not divisible by number of keypoint classes (2)`
   - **Verify against a real 1.8.2+ keypoint export first.** The failure is derived from the release notes and the code, not observed; the `labels` column count under the new schema is unconfirmed and decides whether `background_class_id` also needs to change
   - Decide between a `--keypoint-counts` flag and auto-detecting the schema from the tensor shape. Either way, pre-1.8.2 exports must keep working
   - Also re-export keypoint models with 1.8.1+: [#1135](https://github.com/roboflow/rf-detr/pull/1135) fixed eval-mode query routing, which export traces

@@ -79,9 +79,9 @@ one is compiled in via `-DUSE_OPENCV=ON/OFF`.
 - Replaces FFmpeg, SDL2, **and** stb entirely — none of those are required when OpenCV is enabled
 
 ### Python / Pip Packages (Export Tooling)
-- **RF-DETR export package**: `rfdetr[onnx]==1.10.0` from `deploy/requirements.txt`
-- **ExecuTorch export (optional)**: `rfdetr[executorch]==1.10.0` — only needed to produce `.pte` models for the ExecuTorch backend. Pin it: the extra constrains ExecuTorch only to `>=1.3,<2.0`. Check what pip actually installed (`pip show executorch`) and ensure it matches the C++ runtime this project pins to v1.4.0
-- **TensorRT export (optional)**: `rfdetr[tensorrt]==1.10.0` — provides `tensorrt` + `polygraphy` for in-process engine builds (1.9.0+); `pycuda` moved to the separate `rfdetr[tensorrt-bench]` extra
+- **RF-DETR export package**: `rfdetr[onnx]==1.10.1` from `deploy/requirements.txt`
+- **ExecuTorch export (optional)**: `rfdetr[executorch]==1.10.1` — only needed to produce `.pte` models for the ExecuTorch backend. Pin it: the extra constrains ExecuTorch only to `>=1.3,<2.0`. Check what pip actually installed (`pip show executorch`) and ensure it matches the C++ runtime this project pins to v1.4.0
+- **TensorRT export (optional)**: `rfdetr[tensorrt]==1.10.1` — provides `tensorrt` + `polygraphy` for in-process engine builds (1.9.0+); `pycuda` moved to the separate `rfdetr[tensorrt-bench]` extra
 - **Python**: 3.10+ (Python 3.11 virtual environment recommended)
 - **pre-commit**: Optional for local hooks; install with `pip install pre-commit`
 
@@ -130,7 +130,7 @@ This project supports both RF-DETR detection and segmentation models from Robofl
 
 2. **Download the ONNX Model**:
    - Follow instructions in the [export documentation](docs/export.md) to export models in ONNX format.
-   - **Tested with**: `rfdetr[onnx]==1.10.0` (Python 3.10+; 3.11 venv recommended)
+   - **Tested with**: `rfdetr[onnx]==1.10.1` (Python 3.10+; 3.11 venv recommended)
    - **Detection models**: Export with standard configuration (outputs: `dets`, `labels`)
    - **Segmentation models**: Export with segmentation configuration (outputs: `dets`, `labels`, `masks`)
    - **Keypoint models**: Export with keypoint configuration (outputs: `dets`, `labels`, `keypoints`)
