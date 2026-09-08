@@ -64,6 +64,36 @@ bool parse_float_option(const char *flag, const char *value, std::optional<float
     return false;
 }
 
+bool parse_int_list(const char *flag, const char *value, std::vector<int> &out) {
+    out.clear();
+    const std::string input(value);
+    size_t start = 0;
+    while (true) {
+        const size_t comma = input.find(',', start);
+        const std::string token = input.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
+        if (token.empty()) {
+            std::cerr << "Error: " << flag << " expects comma-separated integers, got '" << value << "'" << std::endl;
+            return false;
+        }
+        try {
+            size_t consumed = 0;
+            const int parsed = std::stoi(token, &consumed);
+            if (consumed != token.size()) {
+                throw std::invalid_argument("trailing characters");
+            }
+            out.push_back(parsed);
+        } catch (const std::exception &) {
+            std::cerr << "Error: " << flag << " expects comma-separated integers, got '" << value << "'" << std::endl;
+            return false;
+        }
+        if (comma == std::string::npos) {
+            break;
+        }
+        start = comma + 1;
+    }
+    return true;
+}
+
 } // anonymous namespace
 
 int main(int argc, const char *argv[]) {
@@ -71,7 +101,7 @@ int main(int argc, const char *argv[]) {
         std::cerr << "Usage: " << argv[0]
                   << " <path_to_model> <path_to_image_or_video> <path_to_coco_labels> [--segmentation|--keypoint] "
                      "[--threshold <val>] [--resolution <px>] [--max-detections <n>] [--mask-threshold <val>] "
-                     "[--background-class-id <n|none>] "
+                     "[--background-class-id <n|none>] [--keypoint-counts <n[,n...]>] [--output <path>] "
                      "[--display] [--gpu-preprocess] [--gpu-postprocess] [--dali-pipeline-dir <dir>]"
                   << std::endl;
         std::cerr << "Examples:" << std::endl;
@@ -97,6 +127,8 @@ int main(int argc, const char *argv[]) {
         std::cerr << "      --background-class-id selects the exported logit slot holding background" << std::endl;
         std::cerr << "      (default 0 = background-first, as the shipped RF-DETR exports are;" << std::endl;
         std::cerr << "      negative counts from the end, 'none' keeps every slot)." << std::endl;
+        std::cerr << "      --keypoint-counts sets num_keypoints_per_class as comma-separated counts" << std::endl;
+        std::cerr << "      (default 0,17 = background-first COCO; pass 17 for an active-first export)." << std::endl;
         std::cerr << "      --gpu-preprocess needs -DUSE_DALI=ON, --gpu-postprocess needs" << std::endl;
         std::cerr << "      -DUSE_CUDA_POSTPROCESS=ON; both require the TensorRT backend." << std::endl;
         return 1;
@@ -123,6 +155,13 @@ int main(int argc, const char *argv[]) {
     // --background-class-id none is an explicit request to keep every logit slot.
     bool background_class_id_given = false;
     std::optional<int> background_class_id;
+    // Unset falls back to the backend defaults below ("output_image.jpg" /
+    // "output_video.mp4"); an explicit --output overrides whichever path the
+    // input kind selects.
+    std::optional<std::filesystem::path> output_path_arg;
+    // Unset leaves Config's legacy {0, 17} default alone; an explicit
+    // --keypoint-counts replaces it (e.g. "17" for the active-first schema).
+    std::optional<std::vector<int>> keypoint_counts_arg;
 
     for (int i = 4; i < argc; ++i) {
         if (std::strcmp(argv[i], "--segmentation") == 0) {
@@ -161,6 +200,14 @@ int main(int argc, const char *argv[]) {
             if (!parse_float_option("--mask-threshold", argv[++i], mask_threshold)) {
                 return 1;
             }
+        } else if (std::strcmp(argv[i], "--output") == 0 && i + 1 < argc) {
+            output_path_arg = argv[++i];
+        } else if (std::strcmp(argv[i], "--keypoint-counts") == 0 && i + 1 < argc) {
+            std::vector<int> counts;
+            if (!parse_int_list("--keypoint-counts", argv[++i], counts)) {
+                return 1;
+            }
+            keypoint_counts_arg = std::move(counts);
         }
     }
 
@@ -216,6 +263,9 @@ int main(int argc, const char *argv[]) {
         if (background_class_id_given) {
             config.background_class_id = background_class_id;
         }
+        if (keypoint_counts_arg) {
+            config.keypoint_counts = *keypoint_counts_arg;
+        }
 
         if (is_video_file(input_path)) {
             // --- Video pipeline ---
@@ -227,7 +277,7 @@ int main(int argc, const char *argv[]) {
             vconfig.video_path = input_path;
             vconfig.model_path = model_path;
             vconfig.label_path = label_file_path;
-            vconfig.output_path = "output_video.mp4";
+            vconfig.output_path = output_path_arg.value_or("output_video.mp4");
             vconfig.inference_config = config;
             vconfig.ring_buffer_size = 8;
             vconfig.display = display;
@@ -305,7 +355,7 @@ int main(int argc, const char *argv[]) {
                 inference.draw_detections(image, boxes, class_ids, scores);
             }
 
-            const std::filesystem::path output_path = "output_image.jpg";
+            const std::filesystem::path output_path = output_path_arg.value_or("output_image.jpg");
             if (const auto saved_path = inference.save_output_image(image, output_path)) {
                 std::cout << "Output image saved to: " << saved_path->string() << std::endl;
             } else {

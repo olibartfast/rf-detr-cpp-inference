@@ -14,31 +14,29 @@ Before starting any phase, run the [`feature-spec`](../.claude/skills/feature-sp
 
 ---
 
-## Phase 1 — Close the known issues
+## Phase 1 — Close the known issues (Complete)
 
 From the Known Issues table in [CHANGELOG.md](../CHANGELOG.md). Independent of each other and of everything below.
 
-- [ ] Make `src/backends/tensorrt_backend.cpp` compile under `-DWERROR=ON`
-  - The gpu-verify gate builds with `-DWERROR=ON`, so this fails gate step 1 and skips every later step
-  - Mechanical: `-Wsign-conversion` at 148, 161, 257, 267, 271; `-Wunused-parameter` on `input_shape` at 171
-  - A decision, not mechanical: `kEXPLICIT_BATCH` (180) is a no-op in TensorRT 10, and `platformHasFastFp16()` (223) / `BuilderFlag::kFP16` (224) are superseded by strongly-typed networks
-  - Touches a CI-unexecutable path, so it needs a spec directory per [AGENTS.md](../AGENTS.md)
-- [ ] Support the active-first keypoint schema (`rfdetr` 1.8.2+)
-  - Upstream 1.8.2 changed the default `num_keypoints_per_class` from background-first `[0, 17]` to active-first `[17]` ([#1160](https://github.com/roboflow/rf-detr/pull/1160)); `Config::keypoint_counts` still defaults to `{0, 17}` and has no CLI override
-  - `deploy/requirements.txt` pins 1.10.1, so the documented export path produces a schema the default build cannot decode — expected to throw `Keypoint tensor channels (17) not divisible by number of keypoint classes (2)`
-  - **Verify against a real 1.8.2+ keypoint export first.** The failure is derived from the release notes and the code, not observed; the `labels` column count under the new schema is unconfirmed and decides whether `background_class_id` also needs to change
-  - Decide between a `--keypoint-counts` flag and auto-detecting the schema from the tensor shape. Either way, pre-1.8.2 exports must keep working
-  - Also re-export keypoint models with 1.8.1+: [#1135](https://github.com/roboflow/rf-detr/pull/1135) fixed eval-mode query routing, which export traces
-- [ ] Add segmentation export to `deploy/export_executorch.py`
-  - `--model_type` offers only detection classes; the script instantiates `RFDETRNano`…`RFDETR2XLarge`, never `RFDETRSeg*`
-  - Not an upstream or runtime limitation: `rfdetr` exports `RFDETRSegMedium` to `.pte` without error, `ExecuTorchBackend::validate_output_order()` inspects only outputs 0 and 1 so a third `masks` output passes, and `postprocess_segmentation_outputs()` addresses outputs positionally
-  - Segmentation `.pte` files must be hand-exported today — see [docs/backend-parity-segmentation-video.md](../docs/backend-parity-segmentation-video.md)
-- [ ] Add an output-path flag to `src/main.cpp`
-  - Video output is hardcoded to `output_video.mp4` in the working directory, so comparing backends requires running each from its own directory
-  - Image output is likewise hardcoded to `output_image.jpg`
-- [ ] Verify and close the `.gitignore` item
-  - **Partly stale**: `*.pte` is now ignored (`.gitignore:7`), and `output_video.mp4` (`:13`) has no leading slash so it already matches at any depth
-  - What remains: once the output flag above lands, arbitrary output filenames are no longer covered. Decide the ignore pattern with that flag, then strike the item from the CHANGELOG
+- [x] Make `src/backends/tensorrt_backend.cpp` compile under `-DWERROR=ON`
+  - Landed with the GPU pipeline work: `gpu-compile.yml` compiles the TensorRT backend under
+    `-DWERROR=ON` in CI, and the file's sign-conversions, unused parameter, and TensorRT 10
+    deprecations (`kEXPLICIT_BATCH`, `platformHasFastFp16`, `BuilderFlag::kFP16`) are resolved.
+    No further change was needed; verification is CI, per the project's TensorRT posture.
+- [x] Support the active-first keypoint schema (`rfdetr` 1.8.2+)
+  - Added `--keypoint-counts`; verified against a real 1.10.1 export that the official
+    `RFDETRKeypointPreview` checkpoint is **background-first** (`labels [1,100,2]`,
+    `keypoints [1,100,34,8]`) and decodes with the default `{0, 17}` — the earlier "default
+    export cannot decode" premise was wrong. The flag supports genuinely active-first `[17]`
+    finetunes (`--keypoint-counts 17 --background-class-id none`).
+  - Spec: [`features/2026-09-08-keypoint-schema/`](features/2026-09-08-keypoint-schema/)
+- [x] Add segmentation export to `deploy/export_executorch.py`
+  - `--segmentation` now instantiates `RFDETRSeg*` and documents the third `masks` output.
+- [x] Add an output-path flag to `src/main.cpp`
+  - `--output <path>` overrides `output_image.jpg` / `output_video.mp4` for either input kind.
+- [x] Verify and close the `.gitignore` item
+  - `output_image.jpg` joined `output_video.mp4`; arbitrary `--output` paths are the user's own,
+    so they are intentionally not ignored.
 
 ---
 
