@@ -13,6 +13,9 @@ Notable user-visible changes to this project and compatibility updates for upstr
 - Compile-only CI matrix for TensorRT, DALI, and CUDA postprocessing under `-WERROR`.
 - `scripts/run_gate.sh` and the rented-GPU runbook for repeatable hardware verification.
 - CLI overrides for resolution, maximum detections, mask threshold, and background-class slot.
+- `--keypoint-counts` CLI flag to decode active-first `[17]` keypoint exports, and `--output` to
+  choose the image/video output path.
+- Segmentation export in `deploy/export_executorch.py` via `--segmentation`.
 
 ### Changed
 
@@ -42,6 +45,11 @@ Notable user-visible changes to this project and compatibility updates for upstr
   execution without arming an unwanted shutdown watchdog.
 - GPU score filtering, background handling, and CPU/CUDA mask borders now follow the same
   postprocessing contract.
+- Image and video output paths are no longer hardcoded: `--output` selects either.
+- Keypoint decoding accepts the active-first `[17]` schema via `--keypoint-counts` (with
+  `--background-class-id none`). The official `RFDETRKeypointPreview` checkpoint is
+  background-first and still decodes with the default `{0, 17}`, so the earlier "default export
+  cannot decode" warning was wrong.
 
 ### Validation status
 
@@ -54,12 +62,6 @@ Notable user-visible changes to this project and compatibility updates for upstr
 
 ### Known issues
 
-- Keypoint models exported with `rfdetr` 1.8.2+ use the active-first `[17]` schema, while the
-  default decoder still expects `{0, 17}`. Current documented exports may therefore fail to
-  decode; pre-1.8.2 exports remain supported.
-- `deploy/export_executorch.py` cannot yet export segmentation variants; they must be exported
-  through the upstream Python API.
-- Image and video output paths are fixed to `output_image.jpg` and `output_video.mp4`.
 - GPU parity fixtures, benchmarks, and the long sanitizer run required for the next release are
   incomplete.
 
