@@ -73,6 +73,7 @@ double mask_iou(const rfdetr::media::Mask &a, const rfdetr::media::Mask &b) {
 
 Config make_config(bool gpu_preprocess, bool gpu_postprocess) {
     Config config;
+    config.resolution = 0; // auto-detect from the model
     config.model_type = ModelType::SEGMENTATION;
     config.gpu_preprocess = gpu_preprocess;
     config.gpu_postprocess = gpu_postprocess;
