@@ -98,6 +98,26 @@ class ExportScriptTests(unittest.TestCase):
             self.assertEqual(FakePteModel.calls[-1]["output_name"], "rfdetr-nano")
             self.assertIn(str(Path(tmp) / "rfdetr-nano.pte"), output)
 
+    def test_executorch_segmentation_uses_seg_class(self):
+        module = types.ModuleType("rfdetr")
+        for name in ("RFDETRSegNano", "RFDETRSegSmall", "RFDETRSegMedium",
+                     "RFDETRSegLarge", "RFDETRSegXLarge", "RFDETRSeg2XLarge"):
+            setattr(module, name, FakePteModel)
+        for name in ("RFDETRNano", "RFDETRSmall", "RFDETRMedium", "RFDETRLarge",
+                     "RFDETRXLarge", "RFDETR2XLarge", "RFDETRKeypointPreview"):
+            setattr(module, name, FakeModel)
+
+        stdout = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.dict(sys.modules, {"rfdetr": module}), \
+             mock.patch.object(sys, "argv", [export_executorch.__file__, "--output_dir", tmp,
+                                             "--model_type", "small", "--segmentation"]), \
+             contextlib.redirect_stdout(stdout):
+            export_executorch.main()
+
+        self.assertEqual(FakePteModel.calls[-1]["output_name"], "rfdetr-seg-small")
+        self.assertIn(str(Path(tmp) / "rfdetr-seg-small.pte"), stdout.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

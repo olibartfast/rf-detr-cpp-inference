@@ -981,6 +981,30 @@ class KeypointPostprocessTest : public ::testing::Test {
         return inference;
     }
 
+    std::unique_ptr<RFDETRInference> make_inference(std::vector<std::vector<float>> output_data,
+                                                    std::vector<std::vector<int64_t>> output_shapes,
+                                                    std::vector<int> keypoint_counts,
+                                                    std::optional<int> background_class_id, float threshold = 0.5f,
+                                                    int resolution = 560) {
+        Config config;
+        config.resolution = resolution;
+        config.threshold = threshold;
+        config.model_type = ModelType::KEYPOINT;
+        config.keypoint_counts = std::move(keypoint_counts);
+        config.background_class_id = background_class_id;
+
+        auto backend = std::make_unique<MockBackend>();
+        backend->set_outputs(std::move(output_data), std::move(output_shapes));
+
+        auto inference = std::make_unique<RFDETRInference>(std::move(backend), labels_file_->path(), config);
+
+        const auto res = static_cast<size_t>(resolution);
+        std::vector<float> dummy_input(3 * res * res, 0.0f);
+        inference->run_inference(dummy_input);
+
+        return inference;
+    }
+
     std::unique_ptr<TempLabelFile> labels_file_;
 };
 
@@ -1237,6 +1261,82 @@ TEST_F(KeypointPostprocessTest, BackgroundColumnIgnored) {
 
     // Background maps to class_id -1 and is skipped.
     EXPECT_TRUE(scores.empty());
+}
+
+TEST_F(KeypointPostprocessTest, ActiveFirstSchemaDecodes) {
+    // rfdetr 1.8.2+ exports a single active keypoint class (person, 17 keypoints)
+    // with no background slot: keypoint_counts={17}, background_class_id=none.
+    const int num_dets = 1;
+    const int num_classes = 3; // person, bicycle, car
+    const int num_kp = 17;
+
+    std::vector<float> dets_data = {0.5f, 0.5f, 0.2f, 0.1f};
+    std::vector<float> labels_data(static_cast<size_t>(num_dets * num_classes), -10.0f);
+    labels_data[0] = 10.0f; // class 0 = person
+
+    std::vector<float> kp_data(static_cast<size_t>(num_dets * num_kp * 8), 0.0f);
+    kp_data[0] = 0.25f; // first keypoint normalized x
+    kp_data[1] = 0.5f;  // first keypoint normalized y
+    kp_data[2] = 10.0f; // findability logit
+    kp_data[3] = 10.0f; // visibility logit
+
+    auto inference = make_inference({dets_data, labels_data, kp_data},
+                                    {{1, num_dets, 4}, {1, num_dets, num_classes}, {1, num_dets, num_kp, 8}}, {17},
+                                    std::nullopt, 0.5f, 100);
+
+    std::vector<float> scores;
+    std::vector<int> class_ids;
+    std::vector<BoundingBox> boxes;
+    std::vector<std::vector<KeypointResult>> keypoints;
+
+    inference->postprocess_keypoint_outputs(1.0f, 1.0f, 100, 200, scores, class_ids, boxes, keypoints);
+
+    ASSERT_EQ(keypoints.size(), 1u);
+    EXPECT_EQ(class_ids[0], 0); // person
+    ASSERT_EQ(keypoints[0].size(), 17u);
+    EXPECT_NEAR(keypoints[0][0].x, 50.0f, 0.01f);
+    EXPECT_NEAR(keypoints[0][0].y, 50.0f, 0.01f);
+}
+
+TEST_F(KeypointPostprocessTest, RejectsNegativeKeypointCount) {
+    Config config;
+    config.model_type = ModelType::KEYPOINT;
+    config.keypoint_counts = {0, -1};
+    auto backend = std::make_unique<MockBackend>();
+    EXPECT_THROW(std::make_unique<RFDETRInference>(std::move(backend), labels_file_->path(), config),
+                 std::invalid_argument);
+}
+
+TEST_F(KeypointPostprocessTest, RejectsAllBackgroundKeypointCounts) {
+    Config config;
+    config.model_type = ModelType::KEYPOINT;
+    config.keypoint_counts = {0, 0};
+    auto backend = std::make_unique<MockBackend>();
+    EXPECT_THROW(std::make_unique<RFDETRInference>(std::move(backend), labels_file_->path(), config),
+                 std::invalid_argument);
+}
+
+TEST_F(KeypointPostprocessTest, RejectsKeypointCountExceedingStride) {
+    const int num_dets = 1;
+    const int num_classes = 92;
+    std::vector<float> dets_data(static_cast<size_t>(num_dets * 4), 0.5f);
+    std::vector<float> labels_data(static_cast<size_t>(num_dets * num_classes), -10.0f);
+    labels_data[1] = 10.0f;
+    // 34 slots across 2 keypoint classes -> per-class stride 17. A count of 18
+    // overruns the stride and must be rejected rather than reading the next class.
+    std::vector<float> kp_data(static_cast<size_t>(num_dets * 272), 0.0f);
+
+    auto inference =
+        make_inference({dets_data, labels_data, kp_data},
+                       {{1, num_dets, 4}, {1, num_dets, num_classes}, {1, num_dets, 34, 8}}, {0, 18}, 0, 0.5f, 100);
+
+    std::vector<float> scores;
+    std::vector<int> class_ids;
+    std::vector<BoundingBox> boxes;
+    std::vector<std::vector<KeypointResult>> keypoints;
+
+    EXPECT_THROW(inference->postprocess_keypoint_outputs(1.0f, 1.0f, 100, 200, scores, class_ids, boxes, keypoints),
+                 std::runtime_error);
 }
 
 int main(int argc, char **argv) {

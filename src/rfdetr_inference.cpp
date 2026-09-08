@@ -20,6 +20,18 @@ void validate_config(const Config &config) {
         throw std::invalid_argument("max_detections must be non-negative, got " +
                                     std::to_string(config.max_detections));
     }
+    bool has_active_keypoint_class = false;
+    for (const int count : config.keypoint_counts) {
+        if (count < 0) {
+            throw std::invalid_argument("keypoint_counts entries must be non-negative, got " + std::to_string(count));
+        }
+        if (count > 0) {
+            has_active_keypoint_class = true;
+        }
+    }
+    if (!config.keypoint_counts.empty() && !has_active_keypoint_class) {
+        throw std::invalid_argument("keypoint_counts must include at least one class with keypoints");
+    }
 }
 
 } // namespace
@@ -355,6 +367,20 @@ void RFDETRInference::postprocess_keypoint_outputs(float scale_w, float scale_h,
         throw std::runtime_error("Keypoint tensor channels (" + std::to_string(num_keypoints) +
                                  ") not divisible by number of keypoint classes (" + std::to_string(num_kp_classes) +
                                  ")");
+    }
+    // Reject a configured per-class count larger than the tensor's per-class stride.
+    // Each keypoint class is padded to the same number of slots, so a count that
+    // overruns the stride would read into the next class's keypoints.
+    if (num_kp_classes > 0) {
+        const size_t per_class_slots = num_keypoints / num_kp_classes;
+        for (size_t c = 0; c < kp_counts.size(); ++c) {
+            const auto count = static_cast<size_t>(kp_counts[c] >= 0 ? kp_counts[c] : 0);
+            if (count > per_class_slots) {
+                throw std::runtime_error("Configured keypoint count " + std::to_string(kp_counts[c]) +
+                                         " for keypoint class " + std::to_string(c) + " exceeds the per-class stride " +
+                                         std::to_string(per_class_slots));
+            }
+        }
     }
     // Find the keypoint class with the most active keypoints.
     // For single-class models (e.g. COCO person), all detections use this class.
