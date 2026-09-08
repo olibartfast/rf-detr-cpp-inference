@@ -44,11 +44,11 @@ RF-DETR does not behave like the CNN detectors most GPU pipeline code is written
 
 1. **No letterbox.** Preprocessing is a plain stretch to `res×res` — independent `scale_x`, `scale_y`, no padding (`src/media.cpp:212-213`). No `fn.paste` in the DALI pipeline, and box decode stays `scale_w = orig_w / res`, `scale_h = orig_h / res`.
 2. **ImageNet normalisation, not `/255` alone.** `/255` then mean `{0.485, 0.456, 0.406}` / std `{0.229, 0.224, 0.225}`. Folded into DALI as `mean = m*255`, `std = s*255`.
-3. **DETR head — no NMS.** The model emits 300 already-decoded queries in normalised `cxcywh`. There is nothing to suppress; no candidate scan and no score ranking belong in the pipeline.
-4. **Full per-query masks.** Segmentation output is `masks[1, 300, mask_h, mask_w]` — one complete mask per query, no prototype tensor and no coefficient dot product. The kernel is a straight bilinear resize of one `mask_h × mask_w` slice plus threshold.
+3. **DETR head — no NMS.** The model emits normalised `cxcywh` boxes; `num_queries` comes from tensor shapes, never a hardcoded 300. Candidates are ranked by sigmoid class scores and filtered without NMS.
+4. **Full per-query masks.** Segmentation output is `masks[1, num_queries, mask_h, mask_w]` — one complete mask per query, no prototype tensor and no coefficient dot product. All dimensions come from tensor shapes. The kernel is a straight bilinear resize of one `mask_h × mask_w` slice plus threshold; multiple selected classes for a query reuse that query's mask.
 5. **No sigmoid on masks.** The raw value is compared against `mask_threshold`, which defaults to `0.0` — a logit threshold. Applying sigmoid and comparing against 0.5 is equivalent only at those defaults and diverges at any other value. Keep the raw-logit comparison.
-6. **Detection and segmentation select differently.** Detection takes a per-query argmax over classes; segmentation takes a global top-k over all 300×`num_classes` score pairs, so one query can yield several detections. The GPU segmentation path must reproduce the global top-k.
-7. **Class-index offset.** Both CPU paths subtract 1 from the class index to skip the background logit, then drop anything outside the label list. The kernel must do the same before compaction, or counts differ by however many queries pick background.
+6. **Shared global top-k selection.** Detection, segmentation, and keypoint CPU paths rank sigmoid scores over the flattened query/foreground-class grid, so one query can yield several detections. The configured background column is excluded before top-k. Examine at most `min(max_detections, num_queries * num_foreground)` ranked candidates, then retain only scores strictly greater than `threshold`; rejected candidates are not replaced from below the cap. GPU segmentation follows the same selection contract.
+7. **Compact foreground class indices.** Class IDs index the foreground columns after removing the configured background slot, then candidates outside the label list are dropped. `background_class_id` defaults to `0` (skip the first exported column), supports negative indices counted from the end, and accepts `std::nullopt` to keep every column. Subtracting one unconditionally is incorrect; CPU selection and the GPU kernel use the compact foreground index directly.
 8. **DALI hosts preprocessing only.** Postprocess kernels live directly in `src/gpu/` and are called by our own code. There is no external scheduler to satisfy, so wrapping them in DALI operators would cost the operator schema, pipeline serialisation, and plugin loading for no benefit.
 
 ## Packed output contract
@@ -71,9 +71,9 @@ RF-DETR does not behave like the CNN detectors most GPU pipeline code is written
 - **`daliOutputRelease` ordering.** Release **after** the TensorRT enqueue, never before. Getting this wrong hands DALI's buffer back to its pool while TensorRT is still reading it, producing intermittent garbage rather than a crash.
 - **`antialias=False` in the DALI resize.** DALI antialiases when downscaling by default; `preprocess_bgr_image` is a plain 4-tap bilinear sample. Without it, tensors diverge on every image larger than `res`, worst on the largest.
 - **`float` accumulation in the mask kernel, not `double`.** The CPU reference is `float`; matching it matters more than extra precision.
-- **Threshold after ranking, and cap the output not the input.** See model contract rule 6.
+- **Rank all foreground pairs, cap examined candidates, then apply the strict threshold.** Filtering can leave fewer than `max_detections` outputs; do not backfill. See model contract rule 6.
 - **Read shapes from tensors.** `mask_h`, `mask_w`, `num_queries`, `num_classes` come from the tensor shapes — never hardcode them, or the kernels lock to one engine.
-- **Score-sort ties are the one legitimate ordering difference.** Assert on the *set* of detections, not the order.
+- **Finite equal-score ties use ascending flattened foreground index.** CPU `select_topk_multiclass` explicitly breaks ties by index. CUDA `decode_scores` initializes indices in ascending order and CUB `DeviceRadixSort::SortPairsDescending` is stable, preserving that order for equal scores. This does not assert CPU/GPU NaN ranking equality.
 - **Resize is a tolerance gate, never an equality gate.** DALI resize will not bit-match the CPU bilinear. Do not promise equality for resampling.
 
 ## Risks

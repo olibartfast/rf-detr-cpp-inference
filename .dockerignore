@@ -26,3 +26,6 @@ README.md
 docs/
 export_trt.sh
 build_trt.sh
+
+# Locally preserved model artifacts; mount these at runtime.
+data/models/

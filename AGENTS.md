@@ -81,6 +81,7 @@ hardcode a version anywhere else.
 - **After editing `versions.env`, run `./scripts/check_version_sync.sh`**, then reconcile the prose in `README.md` and `docs/` — that text is required by Spec Sync but is not machine-checked.
 
 ## Dependency Resolution
+- ONNX Runtime automatic downloads cover Linux/Windows x64/arm64. Other targets may supply a compatible prefix or package-manager build; loading the catalog with ONNX disabled must not reject them.
 - Default (`-DDEPS_MODE=apt`): system packages + pinned downloads — no extra tooling
 - Conan/vcpkg: auto-activate via toolchain; see [docs/package-manager-architecture.md](docs/package-manager-architecture.md)
 - `-DDEPS_DEBUG=ON` logs which handler resolved each dependency
