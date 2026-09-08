@@ -28,6 +28,14 @@ Status is updated only from observed commands. An unchecked item is not implied 
 - [x] TensorRT native-export validation: `UNRUN` (Python `tensorrt` extra not installed).
 - [x] Docker matrix: one build per backend run locally — `dockerfile.onnxrt`, `dockerfile.executorch`, `dockerfile.trt` (`GPU_PIPELINE=on`). Other `MEDIA_BACKEND`/`GPU_PIPELINE` combinations and any `--gpus all` run are `UNRUN` (no NVIDIA hardware on this machine).
 
+### Recovery clarification (2026-09-08)
+
+The historical no-NVIDIA explanation above accounts for unrun GPU execution,
+not omitted image builds. The original record is preserved; the exact build-time
+constraints for those omitted cases were not recorded. Current release-candidate
+Docker evidence is tracked separately in
+[the v0.5.0 validation record](../2026-09-08-release-v0.5.0/validation.md).
+
 ## Definition of done
 
 - [x] Pins, live documentation, README, mission, and tech stack agree on 1.10.0.
