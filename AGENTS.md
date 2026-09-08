@@ -70,6 +70,8 @@ chosen by which file you pass to `-f` (there is no bare `Dockerfile`):
 - Design constraints: [specs/gpu-pipeline.md](specs/gpu-pipeline.md) — remaining phases: [specs/roadmap.md](specs/roadmap.md)
 
 ## Dependency Versions
+
+Current export package: `rfdetr[onnx]==1.10.1`; the authoritative pin is in `versions.env`.
 **[`versions.env`](versions.env) is the single source of truth for every third-party pin.** Never
 hardcode a version anywhere else.
 - CMake reads it via `cmake/versions.cmake` (included before `cmake/deps/Deps.cmake`); each pin is a `CACHE STRING`, so `-DTENSORRT_VERSION=…` overrides it.

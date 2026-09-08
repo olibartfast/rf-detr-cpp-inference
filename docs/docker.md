@@ -25,7 +25,7 @@ backend — see the file's header for the full matrix.
 > or registry package), so the first build is slow — it clones ExecuTorch with recursive
 > submodules and installs a CPU-only `torch` wheel for the operator codegen. Pin a
 > different runtime with `--build-arg EXECUTORCH_VERSION=<tag>`; it defaults to `v1.4.0`
-> to match the exporter used by `rfdetr[executorch]==1.10.0`, and enables the optimized
+> to match the exporter used by `rfdetr[executorch]==1.10.1`, and enables the optimized
 > kernel set that 1.9.1+ `.pte` files need. The build applies the
 > upstream `extension_evalue_util` install fix automatically. ExecuTorch links
 > statically, so the runtime image ships no extra shared libraries and needs no GPU.

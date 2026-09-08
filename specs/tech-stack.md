@@ -27,7 +27,7 @@ build when a restatement drifts. Run it after editing `versions.env`.
 | Dependencies | apt / conan / vcpkg facade | — | `find_dependency_unified()`, `DEPS_MODE` default `apt` (`cmake/deps/Deps.cmake:6`) |
 | Format | clang-format | 18 | `.clang-format`: LLVM base, indent 4, column 120 |
 | Static analysis | clang-tidy 18, cppcheck | — | `.clang-tidy`; CI excludes `tensorrt_backend.cpp` from clang-tidy |
-| Export tooling | `rfdetr[onnx]` | 1.10.0 | `versions.env` → `RFDETR_VERSION`, mirrored into `deploy/requirements.txt`; ONNX opset 17 (`ONNX_OPSET_VERSION`) |
+| Export tooling | `rfdetr[onnx]` | 1.10.1 | `versions.env` → `RFDETR_VERSION`, mirrored into `deploy/requirements.txt`; ONNX opset 17 (`ONNX_OPSET_VERSION`) |
 | Vendored | stb, font8x8 | unversioned | `third_party/` — no install step |
 
 ## Inference backends
