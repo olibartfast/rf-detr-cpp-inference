@@ -116,6 +116,22 @@ function(deps_provided_finalize NAME INSTALL_DIR)
         list(APPEND _libs "${_cuda_lib}")
         get_filename_component(_cd "${_cuda_lib}" DIRECTORY)
         list(APPEND _rpath "${_cd}")
+
+        # The library alone is not enough. TensorRT's own headers include
+        # <cuda_runtime_api.h>, so the CUDA include directory has to reach the
+        # interface too. Without this a plain -DUSE_TENSORRT=ON build compiles
+        # only where CUDA happens to sit on the default include path; builds
+        # that also set USE_DALI or USE_CUDA_POSTPROCESS masked it, because
+        # those resolve CUDAToolkit separately and carry its includes along.
+        find_package(CUDAToolkit QUIET)
+        if(CUDAToolkit_INCLUDE_DIRS)
+            list(APPEND _inc_dir ${CUDAToolkit_INCLUDE_DIRS})
+        else()
+            get_filename_component(_cuda_root "${_cd}" DIRECTORY)
+            if(EXISTS "${_cuda_root}/include/cuda_runtime_api.h")
+                list(APPEND _inc_dir "${_cuda_root}/include")
+            endif()
+        endif()
     endif()
 
     list(REMOVE_DUPLICATES _rpath)

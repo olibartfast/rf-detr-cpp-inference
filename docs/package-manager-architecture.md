@@ -53,17 +53,23 @@ deps_declare(OnnxRuntime
     DEFINITIONS         USE_ONNX_RUNTIME
     APT                 OFF
     PROVIDED_ACQUIRE    DOWNLOAD
-    PROVIDED_URL        "https://github.com/microsoft/onnxruntime/releases/download/v1.21.0/onnxruntime-linux-x64-1.21.0.tgz"
-    PROVIDED_VERSION    "1.21.0"
-    PROVIDED_SUBDIR     "onnxruntime-linux-x64-1.21.0"
+    PROVIDED_URL        "https://github.com/microsoft/onnxruntime/releases/download/v${_onnxruntime_version}/${_onnxruntime_archive}.${_onnxruntime_extension}"
+    PROVIDED_VERSION    "${_onnxruntime_version}"
+    PROVIDED_SUBDIR     "${_onnxruntime_archive}"
     PROVIDED_INCLUDE    "include"
-    PROVIDED_LIBRARY    "lib/libonnxruntime.so.1.21.0"
+    PROVIDED_LIBRARY    "${_onnxruntime_library}"
     PROVIDED_HEADER_GUARD "include/onnxruntime_cxx_api.h"
-    PROVIDED_RUNTIME_LIBS "lib/libonnxruntime.so.1.21.0"
+    PROVIDED_RUNTIME_LIBS "${_onnxruntime_runtime}"
     PROVIDED_ROOT_CACHE "ONNXRUNTIME_ROOTDIR"
     PROVIDED_ROOT_VARS  "ONNXRUNTIME_ROOTDIR;OnnxRuntime_ROOT"
 )
 ```
+
+Values may be computed above the `deps_declare` call — the catalog file is
+ordinary CMake. `OnnxRuntime.cmake` uses that to pick the archive, extension, and
+library names from `CMAKE_SYSTEM_NAME`/`CMAKE_SYSTEM_PROCESSOR` (Linux and
+Windows, x64 and arm64), so a provided-download dependency resolves against the
+*target* platform instead of a hard-coded one.
 
 To add a conan/vcpkg coordinate: add `CONAN_FIND`/`CONAN_TARGETS` or
 `VCPKG_FIND`/`VCPKG_TARGETS` to the catalog entry, and add the package to
@@ -85,7 +91,7 @@ deps_declare(ExecuTorch
     APT_IMPORTED_TARGETS     "executorch;extension_module_static;..."
     PROVIDED_ACQUIRE         FETCHCONTENT      # 2nd: clone + build from source
     PROVIDED_FC_REPO         "https://github.com/pytorch/executorch.git"
-    PROVIDED_FC_TAG          "v1.3.1"
+    PROVIDED_FC_TAG          "v1.4.0"
     PROVIDED_FC_SUBMODULES   RECURSE
     PROVIDED_FC_OPTIONS      "EXECUTORCH_BUILD_XNNPACK=ON;..."
 )
@@ -110,7 +116,7 @@ unused by the existing `GTest` / `GoogleBenchmark` entries:
 |---|---|---|---|
 | ONNX Runtime 1.21.0 | provided-download | provided-download | provided-download |
 | TensorRT 10.13.3.9 | provided-download | provided-download | provided-download |
-| ExecuTorch v1.3.1 | apt-find_package, else provided-FetchContent | same | same |
+| ExecuTorch v1.4.0 | apt-find_package, else provided-FetchContent | same | same |
 | OpenCV | apt | **conan** | vcpkg (slow) |
 | FFmpeg | apt | **conan** | **vcpkg** |
 | SDL2 | apt | **conan** | **vcpkg** |

@@ -1,0 +1,279 @@
+# TensorRT backend Dockerfile for RF-DETR C++ Inference.
+#
+# One of three backend Dockerfiles (dockerfile.onnxrt, dockerfile.executorch,
+# dockerfile.trt); the backend is chosen by which file you pass to `-f`. This one
+# builds the GPU TensorRT backend, in either media flavour, with an opt-in GPU
+# pipeline (DALI preprocessing + CUDA segmentation postprocessing):
+#
+#   MEDIA_BACKEND     GPU_PIPELINE   Image
+#   ─────────────     ────────────   ─────────────────────────────
+#   ffmpeg (default)  off (default)  TensorRT + FFmpeg/SDL2/stb
+#   opencv            off             TensorRT + OpenCV
+#   ffmpeg|opencv     dali            TensorRT + DALI GPU preprocessing
+#   ffmpeg|opencv     cuda            TensorRT + CUDA segmentation postprocessing
+#   ffmpeg|opencv     on              TensorRT + both GPU halves
+#
+# Build args:
+#   MEDIA_BACKEND       ffmpeg (default) | opencv
+#   GPU_PIPELINE        off (default) | dali | cuda | on — see "GPU pipeline" below
+#   CUDA_ARCHITECTURES  CMAKE_CUDA_ARCHITECTURES for the postprocessing kernels (GPU_PIPELINE=cuda|on only)
+#   TENSORRT_VERSION    TensorRT bundled in the NGC base image
+#   NGC_CONTAINER_TAG   NGC monthly tag for the TensorRT base image and (GPU_PIPELINE=dali|on) the DALI staging image
+#   DOCKER_BASE_IMAGE   base image for the non-TensorRT stages (the DALI placeholder)
+#
+# The version args default to the values in versions.env, the single source of
+# truth for this project's pins. A Dockerfile cannot read that file, so the
+# defaults below restate it and scripts/check_version_sync.sh (run by lint.yml)
+# fails when the two drift.
+#
+# Examples:
+#   docker build -f dockerfile.trt -t rfdetr-trt-ffmpeg .
+#   docker build -f dockerfile.trt -t rfdetr-trt-opencv --build-arg MEDIA_BACKEND=opencv .
+#   docker build -f dockerfile.trt -t rfdetr-trt-gpu --build-arg GPU_PIPELINE=on .
+#
+# Run (requires --gpus all and a .engine/.trt model):
+#   docker run --gpus all -v "$PWD/data:/data" -v "$PWD/exports:/exports" \
+#     rfdetr-trt-opencv /exports/model.engine /data/dog.jpg /data/coco-labels-91.txt
+#
+# Run (GPU pipeline image, DALI preprocessing + CUDA postprocessing):
+#   docker run --gpus all -v "$PWD/data:/data" -v "$PWD/exports:/exports" \
+#     rfdetr-trt-gpu /exports/model.engine /data/dog.jpg /data/coco-labels-91.txt \
+#     --gpu-preprocess --gpu-postprocess --segmentation
+#
+# GPU pipeline (design notes):
+#   - Staging DALI needs `docker run` (see scripts/fetch_dali.sh) which a `docker build`
+#     cannot invoke; the dali-fetch stage below replicates that extraction instead.
+#   - DALI is staged through a conditional stage alias, forwarded through a dali-selected
+#     stage as the layer the builder/runtime COPYs consume (FROM expands ARGs; COPY --from
+#     does not), so that for valid combinations the ~15 GB nvcr.io/nvidia/tritonserver image
+#     is pulled only when GPU_PIPELINE actually requests DALI (dali|on) — BuildKit prunes
+#     unreferenced stages, so `dali-fetch` is never even attempted for off|cuda. An invalid
+#     combination can still reference dali-fetch and pull the image before the builder's
+#     fail-fast check rejects it — see the caveat next to that check.
+#   - DALI is installed at /opt/dali in both the builder and runtime stages. This is load-bearing,
+#     not cosmetic: CMake's DALI.cmake resolves its PROVIDED_LIBRARIES relative to DALI_ROOT and
+#     bakes that directory into inference_app's BUILD_RPATH/INSTALL_RPATH (CMakeLists.txt's
+#     _GPU_RPATH_DIRS); if the runtime stage installed DALI anywhere else, the RPATH baked in by
+#     the builder would not resolve there.
+
+# Keep in sync with versions.env — see scripts/check_version_sync.sh.
+ARG MEDIA_BACKEND=ffmpeg
+ARG GPU_PIPELINE=off
+ARG TENSORRT_VERSION=10.13.3.9
+ARG NGC_CONTAINER_TAG=25.12
+ARG DOCKER_BASE_IMAGE=ubuntu:24.04
+ARG CUDA_ARCHITECTURES=86
+
+# =============================================================================
+# DALI staging, selected by GPU_PIPELINE (off | dali | cuda | on)
+# =============================================================================
+# `docker build` has no equivalent of `docker run`, so scripts/fetch_dali.sh's
+# extraction (pinned Triton container -> DALI wheel tree) cannot be invoked here;
+# this replicates it as a stage instead. Two source stages below are aliased per
+# GPU_PIPELINE value and forwarded through a dali-selected stage (`FROM` expands
+# ARGs but `COPY --from` does not), so the builder and runtime COPYs consume the
+# literal dali-selected name while the heavy image is pulled only when DALI is
+# actually requested.
+
+# Cheap placeholder: used for GPU_PIPELINE=off and =cuda, which need no DALI.
+FROM ${DOCKER_BASE_IMAGE} AS dali-none
+ARG DOCKER_BASE_IMAGE
+RUN mkdir -p /staging/dali
+
+# Used for GPU_PIPELINE=dali and =on. Layout mirrors scripts/fetch_dali.sh exactly:
+# include/, the hidden .libs/, and the four top-level .so files, all flat under
+# /staging/dali. .libs/ is not optional — libdali.so carries ~24 vendored
+# DT_NEEDED entries (libjpeg, ffmpeg, aws-sdk, ...) resolved at load time via
+# RUNPATH $ORIGIN/.libs, so it must ship in the same relative position as here.
+FROM nvcr.io/nvidia/tritonserver:${NGC_CONTAINER_TAG}-py3 AS dali-fetch
+ARG NGC_CONTAINER_TAG
+RUN WHEEL_DIR=/opt/tritonserver/backends/dali/wheel/dali/nvidia/dali && \
+    mkdir -p /staging/dali && \
+    cp -a "${WHEEL_DIR}/include" /staging/dali/ && \
+    cp -a "${WHEEL_DIR}/.libs" /staging/dali/ && \
+    cp -a "${WHEEL_DIR}/libdali.so" "${WHEEL_DIR}/libdali_core.so" \
+          "${WHEEL_DIR}/libdali_kernels.so" "${WHEEL_DIR}/libdali_operators.so" \
+          /staging/dali/
+
+FROM dali-none AS dali-off
+FROM dali-fetch AS dali-dali
+FROM dali-none AS dali-cuda
+FROM dali-fetch AS dali-on
+
+# dali-selected: COPY --from expands no ARGs, so forward the alias to a literal stage name.
+FROM dali-${GPU_PIPELINE} AS dali-selected
+
+# =============================================================================
+# Build stage
+# =============================================================================
+FROM nvcr.io/nvidia/tensorrt:${NGC_CONTAINER_TAG}-py3 AS builder
+
+ARG MEDIA_BACKEND
+ARG GPU_PIPELINE
+ARG CUDA_ARCHITECTURES
+ARG TENSORRT_VERSION
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Fail fast, before any package installs or the ~10 minute compile: GPU_PIPELINE
+# must be one of the known values (off|dali|cuda|on). This only shortens the
+# feedback loop for the compile path itself — BuildKit may still build the
+# dali-fetch stage (an independent DAG node) concurrently even when this check is
+# about to fail, so an invalid combination can still trigger the Triton image pull.
+RUN case "$GPU_PIPELINE" in \
+        off|dali|cuda|on) ;; \
+        *) echo "error: --build-arg GPU_PIPELINE=$GPU_PIPELINE must be one of off|dali|cuda|on" >&2; \
+           exit 1 ;; \
+    esac
+
+# === shared:toolchain ===
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        cmake \
+        ninja-build \
+        clang-18 \
+        pkg-config \
+        wget \
+        ca-certificates \
+        git \
+    && rm -rf /var/lib/apt/lists/*
+# === /shared:toolchain ===
+
+# === shared:media-dev-packages ===
+RUN if [ "$MEDIA_BACKEND" = "opencv" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends libopencv-dev \
+        && rm -rf /var/lib/apt/lists/*; \
+    else \
+        apt-get update && apt-get install -y --no-install-recommends \
+            libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libsdl2-dev \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
+# === /shared:media-dev-packages ===
+
+# === shared:workspace-copy ===
+WORKDIR /workspace
+COPY . .
+# === /shared:workspace-copy ===
+
+# Reuse the TensorRT bundled in the NGC base image instead of downloading the
+# ~1GB tarball from developer.nvidia.com (which is rate-limited and frequently
+# times out). The CMake build looks for it at build/_deps/TensorRT-<version>/
+# (the layout cmake/deps/packages/TensorRT.cmake builds from TENSORRT_VERSION in
+# versions.env); symlink the system headers/libs into that layout so the download
+# guard passes.
+RUN mkdir -p "build/_deps/TensorRT-${TENSORRT_VERSION}" && \
+    ln -s /usr/include/x86_64-linux-gnu "build/_deps/TensorRT-${TENSORRT_VERSION}/include" && \
+    ln -s /usr/lib/x86_64-linux-gnu "build/_deps/TensorRT-${TENSORRT_VERSION}/lib"
+
+# DALI (headers + libs), staged at /opt/dali — see "GPU pipeline (design notes)"
+# above for why the path must match the runtime stage's install below. Empty
+# for GPU_PIPELINE=off|cuda (dali-none only creates the directory), so this is
+# unconditional and harmless in the default configuration.
+COPY --from=dali-selected /staging/dali/ /opt/dali/
+
+# -DTENSORRT_VERSION must match the shim directory created above: with a
+# --build-arg override the shim moves, and without this CMake would keep reading
+# the versions.env default, miss the shim, and try to download that version
+# instead — mixing it with the NGC image's actual runtime.
+#
+# nvcc for GPU_PIPELINE=cuda|on comes from the CUDA toolkit bundled in the NGC
+# TensorRT base image. NVIDIA's own base images normally export
+# /usr/local/cuda/bin on PATH via an ENV baked into the image, which every FROM
+# inherits. Observed at build time (CUDA compiler identification NVIDIA 13.1.80
+# via /usr/local/cuda/bin/nvcc), but -DCMAKE_CUDA_COMPILER is still set explicitly
+# as a defensive fallback instead of relying on PATH alone.
+#
+# Offline googletest: gtest is resolved via FetchContent unconditionally
+# (CMakeLists.txt), which git-clones github.com at configure time. When
+# third_party/googletest/ (gitignored) is present in the build context, point
+# FetchContent at it and skip the clone — the only GitHub dependency this
+# image's build has left; see docs/docker.md.
+#
+# NGC 25.12 places CMake 3.24 in /usr/local/bin ahead of Ubuntu CMake 3.28.
+# CMake 3.24 cannot enable CUDA C++20 for this image nvcc 13.1, so invoke
+# the apt-installed CMake explicitly for both configure and build.
+RUN CMAKE_CUDA_COMPILER_FLAG=""; \
+    GTEST_FLAG=""; \
+    USE_DALI_FLAG=OFF; \
+    USE_CUDA_PP_FLAG=OFF; \
+    CUDA_INC="-I/usr/local/cuda/include"; \
+    case "$GPU_PIPELINE" in \
+        dali) USE_DALI_FLAG=ON ;; \
+        cuda) USE_CUDA_PP_FLAG=ON ;; \
+        on)   USE_DALI_FLAG=ON; USE_CUDA_PP_FLAG=ON ;; \
+        off)  ;; \
+        *) echo "error: --build-arg GPU_PIPELINE=$GPU_PIPELINE must be one of off|dali|cuda|on" >&2; \
+           exit 1 ;; \
+    esac; \
+    CUDA_ARCH_FLAG=""; \
+    if [ "$USE_CUDA_PP_FLAG" = "ON" ]; then \
+        CUDA_ARCH_FLAG="-DCMAKE_CUDA_ARCHITECTURES=$CUDA_ARCHITECTURES"; \
+        CMAKE_CUDA_COMPILER_FLAG="-DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc"; \
+    fi; \
+    if [ -d third_party/googletest ]; then \
+        GTEST_FLAG="-DFETCHCONTENT_SOURCE_DIR_GTEST=/workspace/third_party/googletest"; \
+    fi; \
+    /usr/bin/cmake -S . -B build -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DTENSORRT_VERSION="$TENSORRT_VERSION" \
+        -DCMAKE_C_COMPILER=/usr/bin/clang-18 \
+        -DCMAKE_CXX_COMPILER=/usr/bin/clang++-18 \
+        -DCMAKE_C_FLAGS="$CUDA_INC" \
+        -DCMAKE_CXX_FLAGS="$CUDA_INC" \
+        -DUSE_ONNX_RUNTIME=OFF \
+        -DUSE_TENSORRT=ON \
+        -DUSE_EXECUTORCH=OFF \
+        -DUSE_OPENCV=$([ "$MEDIA_BACKEND" = opencv ] && echo ON || echo OFF) \
+        -DUSE_DALI=$USE_DALI_FLAG \
+        -DUSE_CUDA_POSTPROCESS=$USE_CUDA_PP_FLAG \
+        -DDALI_ROOT=/opt/dali \
+        $CUDA_ARCH_FLAG $CMAKE_CUDA_COMPILER_FLAG $GTEST_FLAG \
+    && /usr/bin/cmake --build build --parallel
+
+# Stage the .dali pipeline files the DALI preprocessing path loads at runtime
+# (see data/dali/ and --dali-pipeline-dir). Empty unless GPU_PIPELINE actually
+# enables DALI, so it stays a no-op for every other matrix combination.
+RUN mkdir -p /staging/dali-pipelines && \
+    case "$GPU_PIPELINE" in \
+        dali|on) cp /workspace/data/dali/*.dali /staging/dali-pipelines/ ;; \
+    esac
+
+# =============================================================================
+# Runtime stage
+# =============================================================================
+FROM nvcr.io/nvidia/tensorrt:${NGC_CONTAINER_TAG}-py3 AS runtime
+
+ARG MEDIA_BACKEND
+ARG GPU_PIPELINE
+ENV DEBIAN_FRONTEND=noninteractive
+
+# === shared:runtime-media ===
+RUN if [ "$MEDIA_BACKEND" = "opencv" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends libopencv-dev \
+        && rm -rf /var/lib/apt/lists/*; \
+    else \
+        apt-get update && apt-get install -y --no-install-recommends \
+            libavcodec60 libavformat60 libavutil58 libswscale7 libx264-164 libsdl2-2.0-0 \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
+# === /shared:runtime-media ===
+
+# Not the repo root: only /opt/rfdetr/data/dali is populated (from the builder's
+# /staging/dali-pipelines), so the app's default --dali-pipeline-dir ("data/dali",
+# resolved relative to CWD) finds it without an extra flag. Kept distinct from
+# /data on purpose — the run examples above bind-mount the host's data/ directory
+# (images, labels) at /data, which would otherwise shadow anything baked in there.
+WORKDIR /opt/rfdetr
+
+# DALI runtime libs, at the same /opt/dali path the builder's RPATH points at
+# (see "GPU pipeline (design notes)" at the top of this file). Empty for
+# GPU_PIPELINE=off|cuda.
+COPY --from=dali-selected /staging/dali/ /opt/dali/
+
+# .dali pipeline files for --gpu-preprocess. Empty for GPU_PIPELINE=off|cuda.
+COPY --from=builder /staging/dali-pipelines/ ./data/dali/
+
+# === shared:runtime-tail ===
+COPY --from=builder /workspace/build/inference_app /usr/local/bin/inference_app
+RUN ldconfig
+ENTRYPOINT ["inference_app"]
+CMD ["--help"]
+# === /shared:runtime-tail ===

@@ -1,0 +1,123 @@
+# ONNX Runtime backend Dockerfile for RF-DETR C++ Inference.
+#
+# One of three backend Dockerfiles (dockerfile.onnxrt, dockerfile.executorch,
+# dockerfile.trt); the backend is chosen by which file you pass to `-f`. This one
+# builds the CPU-only ONNX Runtime backend, in either media flavour:
+#
+#   MEDIA_BACKEND   Image
+#   ─────────────   ─────────────────────────────
+#   ffmpeg (default) ONNX Runtime + FFmpeg/SDL2/stb
+#   opencv           ONNX Runtime + OpenCV
+#
+# Build args:
+#   MEDIA_BACKEND       ffmpeg (default) | opencv
+#   DOCKER_BASE_IMAGE   base image for the builder and runtime stages
+#
+# The version args default to the values in versions.env, the single source of
+# truth for this project's pins. A Dockerfile cannot read that file, so the
+# defaults below restate it and scripts/check_version_sync.sh (run by lint.yml)
+# fails when the two drift.
+#
+# Examples:
+#   docker build -f dockerfile.onnxrt -t rfdetr-onnx-ffmpeg .
+#   docker build -f dockerfile.onnxrt -t rfdetr-onnx-opencv --build-arg MEDIA_BACKEND=opencv .
+#
+# Run:
+#   docker run -v "$PWD/data:/data" -v "$PWD/exports:/exports" \
+#     rfdetr-onnx-ffmpeg /exports/model.onnx /data/dog.jpg /data/coco-labels-91.txt
+
+# Keep in sync with versions.env — see scripts/check_version_sync.sh.
+ARG MEDIA_BACKEND=ffmpeg
+ARG DOCKER_BASE_IMAGE=ubuntu:24.04
+
+# =============================================================================
+# Build stage
+# =============================================================================
+FROM ${DOCKER_BASE_IMAGE} AS builder
+
+ARG MEDIA_BACKEND
+ENV DEBIAN_FRONTEND=noninteractive
+
+# === shared:toolchain ===
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        cmake \
+        ninja-build \
+        clang-18 \
+        pkg-config \
+        wget \
+        ca-certificates \
+        git \
+    && rm -rf /var/lib/apt/lists/*
+# === /shared:toolchain ===
+
+# === shared:media-dev-packages ===
+RUN if [ "$MEDIA_BACKEND" = "opencv" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends libopencv-dev \
+        && rm -rf /var/lib/apt/lists/*; \
+    else \
+        apt-get update && apt-get install -y --no-install-recommends \
+            libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libsdl2-dev \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
+# === /shared:media-dev-packages ===
+
+# === shared:workspace-copy ===
+WORKDIR /workspace
+COPY . .
+# === /shared:workspace-copy ===
+
+# The ONNX Runtime archive version is read by CMake from versions.env (not an
+# ARG here); the shared libs it fetches at build time are staged below for the
+# runtime stage to copy.
+#
+# Offline googletest: gtest is resolved via FetchContent unconditionally
+# (CMakeLists.txt), which git-clones github.com at configure time. When
+# third_party/googletest/ (gitignored) is present in the build context, point
+# FetchContent at it and skip the clone — see docs/docker.md.
+RUN GTEST_FLAG=""; \
+    if [ -d third_party/googletest ]; then \
+        GTEST_FLAG="-DFETCHCONTENT_SOURCE_DIR_GTEST=/workspace/third_party/googletest"; \
+    fi; \
+    cmake -S . -B build -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_C_COMPILER=/usr/bin/clang-18 \
+        -DCMAKE_CXX_COMPILER=/usr/bin/clang++-18 \
+        -DUSE_ONNX_RUNTIME=ON \
+        -DUSE_TENSORRT=OFF \
+        -DUSE_EXECUTORCH=OFF \
+        -DUSE_OPENCV=$([ "$MEDIA_BACKEND" = opencv ] && echo ON || echo OFF) \
+        $GTEST_FLAG \
+    && cmake --build build --parallel
+
+# Stage the ONNX Runtime shared libs (fetched at build time) so the runtime
+# stage can copy them.
+RUN mkdir -p /staging/ort && \
+    cp /workspace/build/_deps/onnxruntime-linux-*/lib/libonnxruntime.so* /staging/ort/
+
+# =============================================================================
+# Runtime stage
+# =============================================================================
+FROM ${DOCKER_BASE_IMAGE} AS runtime
+
+ARG MEDIA_BACKEND
+ENV DEBIAN_FRONTEND=noninteractive
+
+# === shared:runtime-media ===
+RUN if [ "$MEDIA_BACKEND" = "opencv" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends libopencv-dev \
+        && rm -rf /var/lib/apt/lists/*; \
+    else \
+        apt-get update && apt-get install -y --no-install-recommends \
+            libavcodec60 libavformat60 libavutil58 libswscale7 libx264-164 libsdl2-2.0-0 \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
+# === /shared:runtime-media ===
+
+COPY --from=builder /staging/ort/ /usr/local/lib/
+
+# === shared:runtime-tail ===
+COPY --from=builder /workspace/build/inference_app /usr/local/bin/inference_app
+RUN ldconfig
+ENTRYPOINT ["inference_app"]
+CMD ["--help"]
+# === /shared:runtime-tail ===

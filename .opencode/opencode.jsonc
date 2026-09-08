@@ -1,0 +1,12 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  // Tiering (see docs/opencode-workflow.md):
+  //   frontier  reasoner    deepseek/deepseek-v4-pro
+  //   midtier   planner     deepseek/deepseek-v4-flash
+  //   worker    implementer nvidia/meta/muse-glimmer-30b
+  // To move a tier onto local hardware, change only the provider half of the
+  // string, e.g. "lmstudio/<model-id>". Everything else stays put.
+  "model": "deepseek/deepseek-v4-pro",
+  "small_model": "deepseek/deepseek-v4-flash",
+  "instructions": ["AGENTS.md"]
+}

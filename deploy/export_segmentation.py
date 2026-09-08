@@ -17,9 +17,14 @@ The RFDETRSeg* classes handle the export internally and output:
 
 import argparse
 
+try:
+    from .export_common import resolve_exported_path
+except ImportError:  # Running the file directly from the deploy directory.
+    from export_common import resolve_exported_path
 
-def expected_onnx_filename(model_type: str) -> str:
-    return f"rfdetr-seg-{model_type}.onnx"
+
+def default_output_name(model_type: str) -> str:
+    return f"rfdetr-seg-{model_type}"
 
 
 def main():
@@ -29,6 +34,8 @@ def main():
     # Export options that will be passed to the model's export() method
     parser.add_argument('--output_dir', default=None, type=str,
                         help='Path to save exported model (default: current directory)')
+    parser.add_argument('--output_name', default=None, type=str,
+                        help='Output filename stem without extension')
     parser.add_argument('--opset_version', default=17, type=int,
                         help='ONNX opset version (default: 17)')
     parser.add_argument('--batch_size', default=1, type=int,
@@ -79,6 +86,7 @@ def main():
     export_kwargs = {
         'opset_version': args.opset_version,
         'batch_size': args.batch_size,
+        'output_name': args.output_name or default_output_name(args.model_type),
     }
 
     # Add output_dir if specified
@@ -94,10 +102,8 @@ def main():
     print(f"  - Input size: {args.input_size}x{args.input_size}")
     print(f"  - ONNX opset: {args.opset_version}")
 
-    model.export(**export_kwargs)
-
-    output_dir = args.output_dir or "output"
-    print(f"\nExpected ONNX file: {output_dir}/{expected_onnx_filename(args.model_type)}")
+    exported_path = resolve_exported_path(model.export(**export_kwargs), "ONNX")
+    print(f"\nExported ONNX file: {exported_path}")
 
     print("\n" + "="*60)
     print("✓ Export complete!")

@@ -1,8 +1,13 @@
 import argparse
 
+try:
+    from .export_common import resolve_exported_path
+except ImportError:  # Running the file directly from the deploy directory.
+    from export_common import resolve_exported_path
 
-def expected_pte_filename(model_type: str) -> str:
-    return f"rfdetr-{model_type}.pte"
+
+def default_output_name(model_type: str) -> str:
+    return f"rfdetr-{model_type}"
 
 
 def main():
@@ -12,6 +17,8 @@ def main():
     # Export options that will be passed to the model's export() method
     parser.add_argument('--output_dir', default=None, type=str,
                         help='Path to save exported model (default: output)')
+    parser.add_argument('--output_name', default=None, type=str,
+                        help='Output filename stem without extension')
     parser.add_argument('--batch_size', default=1, type=int,
                         help='Batch size for export (default: 1)')
     parser.add_argument('--input_size', default=640, type=int,
@@ -19,6 +26,8 @@ def main():
     parser.add_argument('--model_type', default='medium', type=str,
                         choices=['nano', 'small', 'medium', 'large', 'xlarge', '2xlarge'],
                         help='Model type (default: medium)')
+    parser.add_argument('--segmentation', action='store_true',
+                        help='Export a segmentation model (RFDETRSeg*, adds a masks output)')
     parser.add_argument('--backend', default='xnnpack', type=str,
                         choices=['xnnpack', 'coreml', 'qnn'],
                         help='ExecuTorch backend: xnnpack (CPU, fp32), coreml (Apple, fp16), '
@@ -45,13 +54,20 @@ def main():
     print("="*60)
 
     # Initialize the detection model
-    print(f"\n[1/2] Loading RF-DETR Detection model ({args.model_type})...")
+    print(f"\n[1/2] Loading RF-DETR {'Segmentation' if args.segmentation else 'Detection'} model ({args.model_type})...")
     model = None
     model_kwargs = {}
     if args.device:
         model_kwargs['device'] = args.device
 
-    if args.model_type == 'nano':
+    if args.segmentation:
+        from rfdetr import __dict__ as rfdetr_namespace
+        seg_classes = {
+            'nano': 'RFDETRSegNano', 'small': 'RFDETRSegSmall', 'medium': 'RFDETRSegMedium',
+            'large': 'RFDETRSegLarge', 'xlarge': 'RFDETRSegXLarge', '2xlarge': 'RFDETRSeg2XLarge',
+        }
+        model = rfdetr_namespace[seg_classes[args.model_type]](**model_kwargs)
+    elif args.model_type == 'nano':
         from rfdetr import RFDETRNano
         model = RFDETRNano(**model_kwargs)
     elif args.model_type == 'small':
@@ -77,6 +93,8 @@ def main():
         'format': 'executorch',
         'backend': args.backend,
         'batch_size': args.batch_size,
+        'output_name': args.output_name or default_output_name(args.model_type if not args.segmentation
+                                                               else f"seg-{args.model_type}"),
     }
 
     # Add output_dir if specified
@@ -97,10 +115,8 @@ def main():
     if args.soc:
         print(f"  - Target SoC: {args.soc}")
 
-    model.export(**export_kwargs)
-
-    output_dir = args.output_dir or "output"
-    print(f"\nExpected ExecuTorch file: {output_dir}/{expected_pte_filename(args.model_type)}")
+    exported_path = resolve_exported_path(model.export(**export_kwargs), "ExecuTorch")
+    print(f"\nExported ExecuTorch file: {exported_path}")
 
     print("\n" + "="*60)
     print("✓ Export complete!")
@@ -108,8 +124,14 @@ def main():
     print("\nModel outputs:")
     print("  - dets: Bounding boxes [batch, num_queries, 4]")
     print("  - labels: Class logits [batch, num_queries, num_classes]")
-    print("\nNote: ExecuTorch export requires 'pip install rfdetr[executorch]==1.9.0'.")
-    print("      Pin it: 1.9.0 resolves ExecuTorch 1.3.1, matching the pinned C++ runtime.")
+    if args.segmentation:
+        print("  - masks: Segmentation masks [batch, num_queries, H, W]")
+    print("\nNote: ExecuTorch export requires 'pip install rfdetr[executorch]==1.10.1'.")
+    print("      The extra only constrains ExecuTorch to >=1.3,<2.0, so check what it")
+    print("      installed ('pip show executorch'): the .pte must be exported with the")
+    print("      same version as the C++ runtime, which this project pins to v1.4.0.")
+    print("      1.9.1 recombines undelegated addmm into aten.linear (~2.5x faster XNNPACK")
+    print("      inference); re-export .pte files produced with 1.9.0 to pick it up.")
     if args.backend == 'xnnpack':
         print("      Build the C++ side with -DUSE_ONNX_RUNTIME=OFF -DUSE_EXECUTORCH=ON")
         print("      -DEXECUTORCH_DELEGATE=xnnpack (the default).")
