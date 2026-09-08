@@ -17,11 +17,11 @@
 #   rsync -av <instance>:~/gate-results/ ./gate-results/
 #
 # What it cannot do: the parity tolerances in the skill (preprocessed tensor
-# 2e-2, scores 1e-3, box centres 1 px, mask IoU 0.999) have no fixtures to run
-# against — tests/data/gpu_parity/ is roadmap Phase 2 and does not exist, and
-# src/main.cpp has no output-path flag (Phase 1). Those checks are reported
-# UNRUN. Per the skill: an unrun check is reported as unrun, never implied to
-# have passed.
+# 2e-2, scores 1e-3, box centres 1 px, mask IoU 0.999) are exercised by
+# integration_test_gpu_parity.cpp (the four pre/post combinations), which this
+# script runs in step 2/3. The default-path bit-identical check still has no
+# baseline artefact, so it is reported UNRUN. Per the skill: an unrun check is
+# reported as unrun, never implied to have passed.
 #
 # Deliberately NOT `set -e`: a failing check is data, not a reason to abandon the
 # remaining checks. Failures are recorded and the script continues.
@@ -265,9 +265,19 @@ step_combinations() {
     run_combo cpupre-gpupost --gpu-postprocess --segmentation
     run_combo gpu-gpu        --gpu-preprocess --gpu-postprocess --segmentation
 
-    unrun "tolerance checks (tensor 2e-2, scores 1e-3, centres 1px, mask IoU 0.999)
-          — tests/data/gpu_parity/ does not exist; roadmap Phase 2"
-    unrun "dense fixture >100 detections — not built; roadmap Phase 2"
+    # The four-combination parity tolerances live in integration_test_gpu_parity.cpp
+    # (compiled with USE_GPU_PIPELINE=ON). It skips when no model or no matching
+    # .dali pipeline is present.
+    if [[ -n "$MODEL" && -f "$MODEL" ]]; then
+        if RFDETR_TEST_MODEL="$MODEL" "$REPO/build-gpu/integration_tests" \
+                --gtest_filter='GpuParityIntegration.*' > "${RESULTS}/parity-integration.txt" 2>&1; then
+            pass "four-combination parity (integration_test_gpu_parity)"
+        else
+            fail "four-combination parity — see parity-integration.txt"
+        fi
+    else
+        unrun "four-combination parity — no MODEL set"
+    fi
 }
 
 # --- Step 4: memory and long-run safety ---------------------------------------
@@ -331,8 +341,9 @@ step_benchmarks() {
         fail "benchmarks build or run failed"
     fi
 
-    unrun "per-stage four-combination benchmark — bench_gpu_pipeline.cpp does not
-          exist; bench_preprocessing.cpp covers only sigmoid/cxcywh/normalize. Phase 2"
+    unrun "per-stage four-combination benchmark with a real engine — the
+          H2D+infer+D2H stage needs an engine; bench_gpu_pipeline.cpp covers
+          preprocess and postprocess. Phase 4"
 }
 
 # --- Step 6: the default path is unchanged ------------------------------------
@@ -361,7 +372,7 @@ step_default_path() {
     # needs an inference run and something to diff it against. Neither exists
     # here, so it is reported unrun rather than absorbed into the PASS above.
     unrun "default path bit-identical to the pre-change baseline — no baseline
-          artefact and no output-path flag in src/main.cpp; roadmap Phase 1"
+          artefact to diff against"
 
     if ctest --test-dir "$REPO/build-gpu" --output-on-failure -R UnitTests \
            > "${RESULTS}/unit-tests-gpu.txt" 2>&1; then
