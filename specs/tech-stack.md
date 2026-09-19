@@ -123,7 +123,7 @@ All three push/PR workflows (`ci.yml`, `lint.yml`, `gpu-compile.yml`) trigger on
 - Prose version statements in `README.md`, `docs/advanced-usage.md`, `docs/building.md`,
   `docs/docker.md`, `docs/architecture.md` and `docs/package-manager-architecture.md` restate
   `versions.env` for readers. `AGENTS.md` requires them, and nothing verifies them — step 3 above is manual.
-- `project()` declares `VERSION 0.5.0`; `vcpkg.json` and the README badge agree. This is a *project*
+- `project()` declares `VERSION 0.5.1`; `vcpkg.json` and the README badge agree. This is a *project*
   version, not a dependency pin, so `versions.env` does not cover it.
 - `dockerfile.trt` forwards `--build-arg TENSORRT_VERSION` to CMake as `-DTENSORRT_VERSION`, because the TensorRT shim directory it creates must match what CMake looks for. Any future build arg that names a pin needs the same forwarding.
 - `scripts/run_gate.sh` defaults `CUDA_ARCH=89` rather than the build default
