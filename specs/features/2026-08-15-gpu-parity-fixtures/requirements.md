@@ -1,6 +1,6 @@
 # Requirements: GPU Parity Fixtures
 
-Roadmap [Phase 2](../../roadmap.md#phase-2--gpu-parity-fixtures). Builds the measurement apparatus
+Roadmap [Phase 2](../../roadmap.md#phase-2--gpu-parity-fixtures-complete). Builds the measurement apparatus
 that Phases 3 and 4 are gated on. No production code changes — this phase adds test data, one unit
 test file, and one benchmark file.
 

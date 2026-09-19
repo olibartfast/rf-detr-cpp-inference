@@ -13,6 +13,14 @@ Notable user-visible changes to this project and compatibility updates for upstr
   new `docs/advanced-usage.md`: every CMake option, the backends in depth, runtime tuning,
   label/class-layout customization, the GPU pipeline at runtime, performance notes, embedding
   `RFDETRInference`, and what CI cannot cover. No behaviour, build option, or pin changed.
+- `docs/usage.md` is now purely the operational reference — how to run each mode and what every
+  flag does. The material that had accumulated past that (top-k selection theory, class-layout
+  guidance, the `Config` table, the embedding example) moved to `docs/advanced-usage.md`, which
+  is where it belongs and where it was otherwise duplicated.
+- `docs/` now holds only documentation for users of the inference application. The two
+  maintainer procedures that had been filed there moved to `specs/`, beside the skills they
+  serve: `docs/rented-gpu-runbook.md` → `specs/rented-gpu-runbook.md` and
+  `docs/opencode-workflow.md` → `specs/opencode-workflow.md`.
 
 ## [v0.5.0] - 2026-09-08
 

@@ -128,5 +128,5 @@ Both push/PR workflows trigger on `master` and `develop`. Integration tests are 
 - `dockerfile.trt` forwards `--build-arg TENSORRT_VERSION` to CMake as `-DTENSORRT_VERSION`, because the TensorRT shim directory it creates must match what CMake looks for. Any future build arg that names a pin needs the same forwarding.
 - `scripts/run_gate.sh` defaults `CUDA_ARCH=89` rather than the build default
   `CUDA_ARCHITECTURES=86`. Deliberate, and not a pin: the value is a property of whichever
-  card the gate runs on, so it stays out of `versions.env`. `docs/rented-gpu-runbook.md`
+  card the gate runs on, so it stays out of `versions.env`. `specs/rented-gpu-runbook.md`
   carries the card-to-arch table and expects it to be set per run.
