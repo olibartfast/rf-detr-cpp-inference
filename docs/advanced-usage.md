@@ -191,6 +191,33 @@ build with no sanitizer at all. Commands for each:
 `-DONNXRUNTIME_ROOTDIR`, `-DEXECUTORCH_ROOTDIR`, or `-DDALI_ROOT` so every dependency comes
 from a local prefix.
 
+### Prefixes and paths
+
+Point the build at a dependency you already have, instead of letting it download or build one.
+Each is a cache variable, so `-D` on the command line wins.
+
+| Option | Default | Effect |
+|--------|---------|--------|
+| `-DONNXRUNTIME_ROOTDIR=<path>` | — | Prebuilt ONNX Runtime prefix, instead of the automatic download |
+| `-DTENSORRT_ROOTDIR=<path>` | — | TensorRT prefix, instead of the automatic download (`TensorRT_ROOT` also works) |
+| `-DEXECUTORCH_ROOTDIR=<path>` | — | ExecuTorch install prefix; without it ExecuTorch is built from source |
+| `-DDALI_ROOT=<path>` | — | Staged DALI libraries/headers from `./scripts/fetch_dali.sh` (`DALI_ROOTDIR` is the same variable) |
+| `-DRFDETR_VERSIONS_ENV=<file>` | `versions.env` at the repo root | Which pin file `cmake/versions.cmake` reads |
+
+Individual version pins are cache variables too — `-DONNX_RUNTIME_VERSION=…`,
+`-DTENSORRT_VERSION=…`, and so on. See [Overriding a Pinned Version](#overriding-a-pinned-version).
+
+### Valgrind targets
+
+Created only when Valgrind is found, on a plain `Debug` build with no sanitizer.
+
+| Option | Default | Effect |
+|--------|---------|--------|
+| `-DVALGRIND_MEMCHECK_OPTS=<flags>` | `--error-exitcode=1 --leak-check=full --show-leak-kinds=definite,indirect --errors-for-leak-kinds=definite,indirect` | Flags the `memcheck` target passes to valgrind; `valgrind.supp` at the repo root is appended automatically when present |
+| `-DVALGRIND_PROFILE_ARGS=<args>` | empty | Extra arguments the `callgrind`/`massif` targets pass to the profiled binary |
+
+The targets themselves are in [development.md](development.md#valgrind--profiling-optional).
+
 ### Presets
 
 `CMakePresets.json` carries the default build, four diagnostic CPU presets, and `gpu-pipeline`
