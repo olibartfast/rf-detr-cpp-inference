@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.12)
-project(rfdetr_inference VERSION 0.5.0 LANGUAGES CXX C)
+project(rfdetr_inference VERSION 0.5.1 LANGUAGES CXX C)
 
 # Set C++ standard to C++20
 set(CMAKE_CXX_STANDARD 20)

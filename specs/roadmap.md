@@ -6,7 +6,8 @@ Work this project has committed to, as a phased queue. Phases are ordered so eac
 
 ## Status
 
-- Last tag **v0.5.0** (2026-09-08). Flow is git-flow: `develop` → `release/vX.Y.Z` → `master`, merged back.
+- Last tag **v0.5.1** (2026-09-19). Flow is git-flow: `develop` → `release/vX.Y.Z` → `master`, merged back.
+- **v0.5.1 is released** — a documentation-only patch: the README quick start, the new `docs/advanced-usage.md`, `docs/usage.md` trimmed to operations, and the maintainer procedures moved to `specs/`. No behaviour, build option, or pin changed.
 - **v0.5.0 is released** — the rfdetr 1.9.1 and 1.9.2 alignments and the whole GPU pipeline shipped. Phases 1–5 are complete.
 - GPU pipeline: preprocessing and segmentation postprocessing **work end to end**; the test, build,
   and CI scaffolding (Phases 2–4) is complete and the parity gate has passed.
