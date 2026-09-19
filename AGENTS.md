@@ -7,6 +7,10 @@ Read these before starting work; this file covers commands, the specs cover inte
 - [specs/roadmap.md](specs/roadmap.md) — phased work queue and deferred items
 - [specs/gpu-pipeline.md](specs/gpu-pipeline.md) — GPU design constraints; the 8-rule model contract is the review checklist for any change to `src/gpu/`
 - [specs/features/](specs/features/) — one directory per phase of work: `requirements.md`, `plan.md`, `validation.md`
+- [specs/rented-gpu-runbook.md](specs/rented-gpu-runbook.md) — the operational half of [gpu-verify](.claude/skills/gpu-verify/SKILL.md): renting a box, running `scripts/run_gate.sh` on it unattended, collecting results
+- [specs/opencode-workflow.md](specs/opencode-workflow.md) — the reasoner/planner/implementer delegation setup in `.opencode/`; it sits beside this file's workflow, it does not replace it
+
+`docs/` is for users of the inference application; instructions aimed at whoever (or whatever) *works on* this repository live here in `specs/`, beside the skills in `.claude/skills/`.
 
 ## Workflow
 The loop: pick the next unticked phase in `specs/roadmap.md` → write its spec → implement from `plan.md` → pass `validation.md` → update `CHANGELOG.md` → merge to `develop` → tick the phase.
@@ -66,7 +70,7 @@ chosen by which file you pass to `-f` (there is no bare `Dockerfile`):
 - Runtime flags (default off): `--gpu-preprocess`, `--gpu-postprocess` (segmentation only), `--dali-pipeline-dir <dir>` (default `data/dali`)
 - Regenerate `.dali` pipelines for a new resolution: `./scripts/generate_dali_pipelines.sh <res>` (needs `--gpus all` Docker); 432 and 576 are checked in
 - GPU unit tests (`test_gpu_postprocess.cpp`) `GTEST_SKIP()` without a CUDA device; like TensorRT, CI compiles but does not execute GPU paths — `gpu-compile.yml` builds all four `USE_DALI`/`USE_CUDA_POSTPROCESS` combinations with `-DWERROR=ON` against headers staged by `scripts/ci/stage_gpu_headers.sh`, so a compile break is a red PR, not a surprise on metered hardware. Behaviour still has to be tested manually with [gpu-verify](.claude/skills/gpu-verify/SKILL.md)
-- On a rented GPU box, `./scripts/run_gate.sh` drives the executable part of that checklist unattended and reports the rest as `UNRUN`; it arms a deadline watchdog and stops the instance when done. Env knobs: `CUDA_ARCH` (default `89`), `DEADLINE_HOURS`, `SKIP_DEFAULT_PATH`, `SELF_STOP`, `MODEL`, `VIDEO`. End-to-end procedure — choosing an instance, export prep, setup script, collecting results: [docs/rented-gpu-runbook.md](docs/rented-gpu-runbook.md)
+- On a rented GPU box, `./scripts/run_gate.sh` drives the executable part of that checklist unattended and reports the rest as `UNRUN`; it arms a deadline watchdog and stops the instance when done. Env knobs: `CUDA_ARCH` (default `89`), `DEADLINE_HOURS`, `SKIP_DEFAULT_PATH`, `SELF_STOP`, `MODEL`, `VIDEO`. End-to-end procedure — choosing an instance, export prep, setup script, collecting results: [specs/rented-gpu-runbook.md](specs/rented-gpu-runbook.md)
 - Design constraints: [specs/gpu-pipeline.md](specs/gpu-pipeline.md) — remaining phases: [specs/roadmap.md](specs/roadmap.md)
 
 ## Dependency Versions

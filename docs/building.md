@@ -255,7 +255,7 @@ The two halves are independent: `-DUSE_CUDA_POSTPROCESS=ON` alone builds the
 CUDA segmentation postprocessing (needs `nvcc`, no DALI), and `-DUSE_DALI=ON`
 alone builds the DALI preprocessing (plain C++ against the DALI C API, no
 `nvcc`). `-DUSE_GPU_PIPELINE=ON` turns on both. See [GPU Pipeline](architecture.md#gpu-pipeline) for how it works, and
-[Usage](usage.md#gpu-pipeline-flags-tensorrt-builds-with-the-gpu-pipeline-compiled-in)
+[Usage](usage.md#gpu-pipeline)
 for the runtime flags.
 
 ## Build with OpenCV Media/Display Backend

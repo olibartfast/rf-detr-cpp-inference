@@ -19,7 +19,7 @@ the git-flow rules are the same regardless of which harness drives them.
 | `planner` | midtier | `deepseek/deepseek-v4-flash` | primary | `specs/`, `docs/`, `CHANGELOG.md`, `.opencode/` |
 | `implementer` | worker | `nvidia/meta/muse-glimmer-30b` | subagent | only what the packet names |
 
-Definitions live in [`.opencode/agents/`](../.opencode/agents/); shared defaults
+Definitions live in `.opencode/agents/` (not checked in); shared defaults
 in [`.opencode/opencode.jsonc`](../.opencode/opencode.jsonc).
 
 **reasoner** decides architecture, the GPU 8-rule model contract, backend/ABI
@@ -89,7 +89,7 @@ shape nobody planned.
 ## The loop
 
 1. **Frame.** Start `reasoner` on the next unticked phase in
-   [`specs/roadmap.md`](../specs/roadmap.md). It reads the specs and states the
+   [`specs/roadmap.md`](roadmap.md). It reads the specs and states the
    decision and the required final state. Routine work — a rename, a doc fix, a
    dependency bump with no contract change — skips this step and starts at 2.
 2. **Decompose.** `planner` writes the spec triple under
@@ -107,7 +107,7 @@ shape nobody planned.
    item and re-dispatch a corrected packet. `planner` does not fix the output
    itself; that hides an underspecified packet and moves work back up-tier.
 6. **Escalate** to `reasoner` when a packet keeps coming back wrong, when the
-   plan contradicts [`specs/mission.md`](../specs/mission.md), or when the right
+   plan contradicts [`specs/mission.md`](mission.md), or when the right
    fix changes a contract rather than an implementation.
 7. **Close.** `validation.md` passes, `CHANGELOG.md` updated, merged to
    `develop`, phase ticked in the roadmap.

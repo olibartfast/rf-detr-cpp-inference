@@ -13,8 +13,9 @@ file. Images and videos both work out of the box; video runs through a multi-thr
 zero-copy pipeline.
 
 **Start here, then go deeper:** this page is the short path — install, build, run.
-Everything beyond it (the full CMake option list, backend internals, tuning, and embedding
-the library in your own code) lives in **[docs/advanced-usage.md](docs/advanced-usage.md)**.
+[docs/usage.md](docs/usage.md) is the full command-line reference, and everything past it —
+the complete CMake option list, backend internals, tuning strategy, and embedding the library
+in your own code — lives in **[docs/advanced-usage.md](docs/advanced-usage.md)**.
 
 ---
 
@@ -224,16 +225,15 @@ for TensorRT + DALI + CUDA.
 
 | Document | Covers |
 |----------|--------|
-| **[docs/advanced-usage.md](docs/advanced-usage.md)** | **Advanced usage and customization** — full CMake option reference, backends in depth, tuning, the GPU pipeline at runtime, embedding `RFDETRInference` in your own code |
+| **[docs/usage.md](docs/usage.md)** | Every run mode and every command-line flag — the operational reference |
+| **[docs/advanced-usage.md](docs/advanced-usage.md)** | **Advanced usage and customization** — full CMake option reference, backends in depth, tuning strategy, class layouts, the GPU pipeline at runtime, the `Config` reference, embedding `RFDETRInference` in your own code |
 | **[docs/building.md](docs/building.md)** | Toolchain install, every build configuration, dependency-resolution modes, the ExecuTorch install prefix, the GPU pipeline build |
-| **[docs/usage.md](docs/usage.md)** | Every run mode and command-line flag, tuning, `Config` reference |
 | **[docs/export.md](docs/export.md)** | Exporting `.onnx` / `.engine` / `.pte` models from `rfdetr` |
 | **[docs/architecture.md](docs/architecture.md)** | GPU pipeline, video ring buffer, model output shapes, processing stages |
 | **[docs/development.md](docs/development.md)** | Formatting, static analysis, sanitizers, Valgrind, tests, benchmarks |
 | **[docs/docker.md](docs/docker.md)** | The three backend Dockerfiles and their image matrix |
 | **[docs/glossary.md](docs/glossary.md)** | Terms used across the codebase |
 | **[docs/package-manager-architecture.md](docs/package-manager-architecture.md)** | How `find_dependency_unified` resolves each dependency |
-| **[docs/rented-gpu-runbook.md](docs/rented-gpu-runbook.md)** | Running the GPU verification gate on rented hardware |
 
 ---
 

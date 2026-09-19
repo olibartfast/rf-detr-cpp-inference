@@ -256,15 +256,19 @@ invocations: [building.md](building.md#dependency-resolution).
 
 ## Tuning Inference at Runtime
 
-Nothing here requires a rebuild.
+Nothing here requires a rebuild. [usage.md](usage.md#inference-parameters) lists every flag and
+its default; this is when to reach for them.
 
-| Flag | Default | When to reach for it |
-|------|---------|----------------------|
-| `--threshold <val>` | `0.5` | Raise to cut false positives, lower to catch faint objects. Must be in `[0, 1]` |
-| `--max-detections <n>` | `300` | Top-k cap on ranked *(query, class)* pairs — upstream's `num_select`. Lower it for less postprocessing work on crowded frames |
-| `--mask-threshold <val>` | `0.0` | Mask logit cutoff (segmentation only); may be negative. Raise for tighter, more conservative masks |
-| `--resolution <px>` | auto-detect | Only for a model that accepts a size other than the one recorded in the file — auto-detection is correct for a normal export |
-| `--output <path>` | `output_image.jpg` / `output_video.mp4` | Where the annotated result is written |
+- **`--threshold`** — raise it to cut false positives, lower it to catch faint objects. The
+  default `0.5` is a middle setting, not a tuned one.
+- **`--max-detections`** — the top-k cap on ranked *(query, class)* pairs. Lowering it from the
+  default `300` cuts postprocessing work on crowded frames; raising it only helps if you are
+  genuinely losing detections below the cap.
+- **`--mask-threshold`** — the mask logit cutoff, segmentation only. It is a *logit*, so `0.0`
+  is the even-odds point and negative values are legal. Raise it for tighter, more conservative
+  masks.
+- **`--resolution`** — leave it alone unless the model accepts a size other than the one
+  recorded in its file. Auto-detection is correct for a normal export.
 
 ```bash
 ./build/inference_app model.onnx image.jpg coco-labels-91.txt --threshold 0.7 --max-detections 100
@@ -273,14 +277,23 @@ Nothing here requires a rebuild.
 
 These compose with every mode — `--segmentation`, `--keypoint`, video input, and `--display`.
 
-**Why top-k comes before the threshold.** RF-DETR scores classes with independent sigmoids
-rather than a softmax, so one query can legitimately clear the threshold on several classes at
-once. Postprocessing ranks the flattened *(query, class)* grid and keeps the top
-`--max-detections` pairs **before** applying `--threshold` — matching upstream's
-`PostProcess._select_topk`. Results come back in descending-score order, ties broken by
-ascending flattened index, so a given model and image always produce the same ordering.
-Detection, segmentation, keypoint, and the CUDA kernels all share that rule. Longer
-explanation: [usage.md](usage.md#how-detections-are-selected).
+### How detections are selected
+
+RF-DETR scores classes with independent sigmoids rather than a softmax, so one query can
+legitimately clear the threshold on several classes at once. Postprocessing therefore ranks the
+flattened *(query, class)* grid and keeps the top `--max-detections` pairs **before** applying
+`--threshold`, which is what `PostProcess._select_topk` does upstream — a per-query argmax would
+silently drop every class but the strongest (the bug rfdetr 1.9.3 fixed in its own
+exported-model decoders).
+
+Two consequences worth knowing:
+
+- **Ordering is deterministic.** Results come back in descending-score order, with exact ties
+  broken by ascending flattened query/class index, so a given model and image always produce the
+  same ordering. Detection, segmentation, keypoint, and the CUDA postprocess kernels all share
+  that rule.
+- **`--max-detections` is a cap on *candidates*, not on results.** It bounds the ranked set that
+  `--threshold` then filters, so the number of detections you actually get is usually far lower.
 
 ---
 
@@ -349,7 +362,8 @@ verification gate is usually rented on; it is not a pin.
 Design constraints and how each half works: [architecture.md](architecture.md#gpu-pipeline) and
 [specs/gpu-pipeline.md](../specs/gpu-pipeline.md). The build:
 [building.md](building.md#build-with-the-gpu-pipeline-tensorrt--dali--cuda). Verifying it on
-real hardware: [rented-gpu-runbook.md](rented-gpu-runbook.md).
+real hardware is a maintainer procedure, kept with the specs:
+[specs/rented-gpu-runbook.md](../specs/rented-gpu-runbook.md).
 
 ---
 
@@ -403,11 +417,26 @@ described in [architecture.md](architecture.md#c-result-types).
 A second constructor takes an already-built `std::unique_ptr<InferenceBackend>`, which is how
 the tests inject a fake backend.
 
-### Config fields with no CLI flag
+### Config reference
 
-`src/main.cpp` leaves every field it does not override at its `Config` default, so changing the
-default in `src/rfdetr_inference.hpp` is enough for the fields below — or set them on your own
-`Config` when embedding.
+`Config` (`src/rfdetr_inference.hpp`) holds every inference setting. Some are reachable from the
+command line; the rest are set by editing `src/main.cpp`, or on your own `Config` when
+embedding. `src/main.cpp` leaves every field it does not override at its `Config` default, so
+changing a default in the header is enough for the fields with no flag.
+
+| `Config` field | Default | CLI override |
+|----------------|---------|--------------|
+| `model_type` | `ModelType::DETECTION` | `--segmentation` / `--keypoint` |
+| `threshold` | `0.5` | `--threshold <val>` |
+| `resolution` | auto-detected from the model | `--resolution <px>` |
+| `max_detections` | `300` (top-k selection) | `--max-detections <n>` |
+| `mask_threshold` | `0.0` (binary mask generation) | `--mask-threshold <val>` |
+| `background_class_id` | `0` (background-first exports) | `--background-class-id <n\|none>` |
+| `keypoint_counts` | `{0, 17}` | `--keypoint-counts <n[,n...]>` |
+| `gpu_preprocess` / `gpu_postprocess` | `false` | `--gpu-preprocess` / `--gpu-postprocess` |
+| `dali_pipeline_dir` | `data/dali` | `--dali-pipeline-dir <dir>` |
+
+The remaining fields have no flag:
 
 | Field | Default | What it controls |
 |-------|---------|------------------|
@@ -421,9 +450,6 @@ default in `src/rfdetr_inference.hpp` is enough for the fields below — or set 
 
 The video driver's own knobs live in `VideoPipelineConfig` (`src/video_pipeline.hpp`) —
 `ring_buffer_size` (8) and `output_path` — and `src/main.cpp` sets them.
-
-The complete `Config` table, including the fields that *do* have CLI flags, is in
-[usage.md](usage.md#configuration).
 
 ---
 
@@ -451,10 +477,11 @@ Both push/PR workflows trigger on `master` and `develop`.
 - Integration tests are not run by CI — they need a real model in the compiled-in backend's
   format.
 
-So the TensorRT, GPU-pipeline, and ExecuTorch paths must be exercised by hand. The checklist is
-[.claude/skills/gpu-verify/SKILL.md](../.claude/skills/gpu-verify/SKILL.md); on rented hardware,
-`./scripts/run_gate.sh` drives the executable part of it unattended and reports the rest as
-`UNRUN` — see [rented-gpu-runbook.md](rented-gpu-runbook.md).
+So the TensorRT, GPU-pipeline, and ExecuTorch paths must be exercised by hand before they can
+be trusted. `./scripts/run_gate.sh` drives the executable part of that verification unattended
+and reports the rest as `UNRUN`. The checklist it implements and the procedure for running it on
+rented hardware are maintainer material, kept with the specs —
+[specs/rented-gpu-runbook.md](../specs/rented-gpu-runbook.md).
 
 ---
 
