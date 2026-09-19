@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Single pass/fail gate for delegated work (see docs/opencode-workflow.md).
+# Single pass/fail gate for delegated work (see specs/opencode-workflow.md).
 # Prints one verdict line and exits 0 only if every stage passed. Workers run
 # this exactly once, at the end, and report the result without repairing it.
 #
