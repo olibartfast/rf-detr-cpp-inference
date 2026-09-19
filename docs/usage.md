@@ -85,7 +85,9 @@ conversion:
 
 ## Command-Line Flags
 
-The complete list. Every flag works with every mode.
+The complete list. The inference parameters below work with every mode; the mode and GPU flags
+carry the restrictions noted against each one (`--display` applies to video, `--gpu-postprocess`
+requires `--segmentation` and is rejected without it).
 
 ### Mode
 
