@@ -3,7 +3,7 @@
 [![C++](https://img.shields.io/badge/language-C++20-blue.svg)](https://en.cppreference.com/w/cpp)
 [![CMake](https://img.shields.io/badge/build%20system-CMake-blue.svg)](https://cmake.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)](https://github.com/olibartfast/rf-detr-cpp-inference/releases/tag/v0.5.0)
+[![Version](https://img.shields.io/badge/version-0.5.1-blue.svg)](https://github.com/olibartfast/rf-detr-cpp-inference/releases/tag/v0.5.1)
 
 Object detection, instance segmentation, and keypoint inference with the
 [RF-DETR](https://github.com/roboflow/rf-detr) model, in C++20.
