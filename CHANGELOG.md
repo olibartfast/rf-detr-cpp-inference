@@ -5,6 +5,15 @@ Notable user-visible changes to this project and compatibility updates for upstr
 
 ## [Unreleased]
 
+### Changed
+
+- Documentation restructured around a two-tier entry point. `README.md` is now a quick start —
+  install, build, export a model, run — keeping the version, build-option and backend
+  statements the `Spec Sync` rule requires, at a glance. The exhaustive reference moved to the
+  new `docs/advanced-usage.md`: every CMake option, the backends in depth, runtime tuning,
+  label/class-layout customization, the GPU pipeline at runtime, performance notes, embedding
+  `RFDETRInference`, and what CI cannot cover. No behaviour, build option, or pin changed.
+
 ## [v0.5.0] - 2026-09-08
 
 ### Added

@@ -34,7 +34,7 @@ Exactly one backend is compiled in; enabling two is a configure-time error.
   `cmake -S . -B build -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_EXECUTORCH=ON -DEXECUTORCH_ROOTDIR=<prefix> -DCMAKE_BUILD_TYPE=Release && cmake --build build --parallel`
   - `-DEXECUTORCH_DELEGATE=xnnpack|portable` (default `xnnpack`) must match the delegate the `.pte` was exported with.
   - Without `EXECUTORCH_ROOTDIR` the build falls back to compiling ExecuTorch v1.4.0 from source, which is slow and needs a Python interpreter with ExecuTorch's build deps (`import torchgen`, i.e. the `torch` wheel — a bare `python3` fails).
-  - The prefix must be built with `-DEXECUTORCH_BUILD_KERNELS_OPTIMIZED=ON` (defaults to `OFF`): `.pte` files from rfdetr 1.9.1+ call `aten::linear.out`, which only `optimized_native_cpu_ops_lib` registers. The build links that lib when present and warns + falls back to `portable_ops_lib` when not — exactly one op library, since duplicate kernel registration aborts at startup. See README "Building the ExecuTorch install prefix".
+  - The prefix must be built with `-DEXECUTORCH_BUILD_KERNELS_OPTIMIZED=ON` (defaults to `OFF`): `.pte` files from rfdetr 1.9.1+ call `aten::linear.out`, which only `optimized_native_cpu_ops_lib` registers. The build links that lib when present and warns + falls back to `portable_ops_lib` when not — exactly one op library, since duplicate kernel registration aborts at startup. See [docs/building.md](docs/building.md#building-the-executorch-install-prefix), "Building the ExecuTorch install prefix".
   - The `extension/evalue_util` install-path patch is only needed on v1.3.1 and older; v1.4.0 fixed it upstream.
 
 ## Docker
@@ -102,7 +102,11 @@ hardcode a version anywhere else.
 - A change to `specs/mission.md` or `specs/tech-stack.md` must propagate in the **same commit** to `README.md`, `AGENTS.md`, and any open spec under `specs/features/`. The constitution and what it describes never diverge across commits.
 - Mandatory for every release or dependency-facing patch: update `README.md` in the same change when code, build options, backend versions, Docker images, or Python export packages change.
 - Verify README dependency/version statements against `versions.env` (the source of truth), then `CMakeLists.txt`, `CMakePresets.json`, `deploy/requirements.txt`, `dockerfile.*`, and `docs/export.md`.
-- README must list current C++ library/runtime versions, CMake options, backend constraints, and pip packages used for export tooling.
+- README must list current C++ library/runtime versions, CMake options, backend constraints, and pip
+  packages used for export tooling. `README.md` is the quick start and carries these at a glance (the
+  `Versions at a Glance`, `Common Build Options` and `Choosing a Backend` sections); the exhaustive
+  reference — every CMake option, the per-backend constraints, the ONNX Runtime archive table — lives in
+  `docs/advanced-usage.md`. Both must be updated together, and the README must keep linking to it.
 - If a release intentionally needs no README change, say why in `CHANGELOG.md` or the PR/release notes.
 
 ## Testing

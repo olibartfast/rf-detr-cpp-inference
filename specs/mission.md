@@ -50,4 +50,5 @@ Deliberately not built, each for a recorded reason — see [roadmap.md](roadmap.
 - [gpu-pipeline.md](gpu-pipeline.md) — GPU design constraints; the model contract to check any `src/gpu/` change against
 - [features/](features/) — the spec directory for each phase of work
 - [AGENTS.md](../AGENTS.md) — build, test, and lint commands, and the workflow
-- [README.md](../README.md) — full user-facing reference
+- [README.md](../README.md) — the user-facing quick start: install, build, run
+- [docs/advanced-usage.md](../docs/advanced-usage.md) — the user-facing reference the README defers to: full CMake options, backends in depth, tuning, embedding the library
