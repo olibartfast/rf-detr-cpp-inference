@@ -5,6 +5,57 @@ Notable user-visible changes to this project and compatibility updates for upstr
 
 ## [Unreleased]
 
+## [v0.5.1] - 2026-09-19
+
+### Changed
+
+- Reconciled the CMake project version, vcpkg manifest and README badge to 0.5.1.
+
+- Documentation restructured around a two-tier entry point
+  ([#13](https://github.com/olibartfast/rf-detr-cpp-inference/pull/13)). `README.md` is now a quick start —
+  install, build, export a model, run — keeping the version, build-option and backend
+  statements the `Spec Sync` rule requires, at a glance. The exhaustive reference moved to the
+  new `docs/advanced-usage.md`: every CMake option, the backends in depth, runtime tuning,
+  label/class-layout customization, the GPU pipeline at runtime, performance notes, embedding
+  `RFDETRInference`, and what CI cannot cover. No behaviour, build option, or pin changed.
+- `docs/usage.md` is now purely the operational reference — how to run each mode and what every
+  flag does. The material that had accumulated past that (top-k selection theory, class-layout
+  guidance, the `Config` table, the embedding example) moved to `docs/advanced-usage.md`, which
+  is where it belongs and where it was otherwise duplicated.
+- `docs/` now holds only documentation for users of the inference application. The two
+  maintainer procedures that had been filed there moved to `specs/`, beside the skills they
+  serve: `docs/rented-gpu-runbook.md` → `specs/rented-gpu-runbook.md` and
+  `docs/opencode-workflow.md` → `specs/opencode-workflow.md`.
+- `docs/advanced-usage.md` joined the list of prose restatements of `versions.env` in
+  `specs/tech-stack.md`. The review finding to strip its version pins was declined: `AGENTS.md`
+  requires prose version statements, and the page is inside the manual reconciliation step, not
+  one of the four machine-checked locations.
+
+### Fixed
+
+Defects found in the [`#13`](https://github.com/olibartfast/rf-detr-cpp-inference/pull/13)
+review thread and corrected before merge:
+
+- The README quick start did not install `python3` or `python3-venv` before step 3's
+  `python3 -m venv`, which fails on a clean Ubuntu box with `ensurepip is not available`.
+- The advanced reference called itself the complete CMake option list while omitting real
+  user-facing cache variables. It now documents `ONNXRUNTIME_ROOTDIR`, `TENSORRT_ROOTDIR`,
+  `EXECUTORCH_ROOTDIR`, `DALI_ROOT`/`DALI_ROOTDIR`, `RFDETR_VERSIONS_ENV`,
+  `VALGRIND_MEMCHECK_OPTS`, and `VALGRIND_PROFILE_ARGS`.
+- The embedded `Config` reference described `resolution` as auto-detected when its real default
+  is `560`; only `0` activates auto-detection, which the CLI supplies. Embedders following the
+  old text would have silently requested a 560×560 input.
+- The command-line reference claimed every flag works in every mode. `--gpu-postprocess` is
+  rejected without `--segmentation`, both GPU flags require their build options, and `--display`
+  applies to video only.
+- The advanced reference's "Where to Go Next" sent readers to `docs/usage.md` for the `Config`
+  reference, which this release had just moved into the advanced guide itself.
+- The CI coverage note said "both push/PR workflows" when `ci.yml`, `lint.yml`, and
+  `gpu-compile.yml` all trigger on push and pull request to `master` and `develop`; the same
+  sentence in `specs/tech-stack.md` was corrected.
+- The README versions table said CUDA Toolkit `13.x` rather than the exact `13.0` pin in
+  `versions.env`.
+
 ## [v0.5.0] - 2026-09-08
 
 ### Added
@@ -145,7 +196,8 @@ Notable user-visible changes to this project and compatibility updates for upstr
 - Added sized detection and segmentation exports, ONNX Runtime output-count validation, and the
   initial native inference workflow.
 
-[Unreleased]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.5.0...develop
+[Unreleased]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.5.1...develop
+[v0.5.1]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.5.0...v0.5.1
 [v0.5.0]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.4.0...v0.5.0
 [v0.4.0]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.3.0...v0.4.0
 [v0.3.0]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.2.2...v0.3.0
