@@ -42,10 +42,13 @@ no extra SDK).
 ```bash
 sudo apt-get update
 sudo apt-get install -y cmake ninja-build pkg-config \
-  libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libsdl2-dev
+  libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libsdl2-dev \
+  python3 python3-venv
 ```
 
-Those are the media libraries for the default FFmpeg + SDL2 + stb backend. Prefer OpenCV?
+`python3-venv` is what step 3 needs — without it `python3 -m venv` fails with
+`ensurepip is not available`. The rest are the media libraries for the default
+FFmpeg + SDL2 + stb backend. Prefer OpenCV?
 Install `libopencv-dev` instead and build with `-DUSE_OPENCV=ON` — see
 [Media backends](docs/advanced-usage.md#media--display-backends).
 
