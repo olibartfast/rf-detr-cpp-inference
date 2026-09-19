@@ -36,8 +36,9 @@ sudo apt-get install -y clang-format-18 clang-tidy-18
 
 Exactly one inference backend is compiled in, and enabling two is a configure-time error.
 The comparison table and the model format each one accepts live in the
-[README](../README.md#backend-selection); the full CMake option list is in
-[Build Options](../README.md#build-options).
+[README](../README.md#choosing-a-backend), with the per-backend constraints in
+[Backends in Depth](advanced-usage.md#backends-in-depth); the full CMake option list is in
+[CMake Option Reference](advanced-usage.md#cmake-option-reference).
 
 ## Dependency Versions
 Every third-party version is pinned once, in [`versions.env`](../versions.env) at the
@@ -254,7 +255,7 @@ The two halves are independent: `-DUSE_CUDA_POSTPROCESS=ON` alone builds the
 CUDA segmentation postprocessing (needs `nvcc`, no DALI), and `-DUSE_DALI=ON`
 alone builds the DALI preprocessing (plain C++ against the DALI C API, no
 `nvcc`). `-DUSE_GPU_PIPELINE=ON` turns on both. See [GPU Pipeline](architecture.md#gpu-pipeline) for how it works, and
-[Usage](usage.md#gpu-pipeline-flags-tensorrt-builds-with-the-gpu-pipeline-compiled-in)
+[Usage](usage.md#gpu-pipeline)
 for the runtime flags.
 
 ## Build with OpenCV Media/Display Backend

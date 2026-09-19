@@ -22,7 +22,7 @@ Written for any coding agent; every step is a shell command a human can run.
 
 On rented hardware, `./scripts/run_gate.sh` drives steps 1, 2, 4, 5 and 6 below unattended and
 reports the rest as `UNRUN`. Renting, preparing and collecting:
-[docs/rented-gpu-runbook.md](../../../docs/rented-gpu-runbook.md).
+[specs/rented-gpu-runbook.md](../../../specs/rented-gpu-runbook.md).
 
 ## 1. Build the matrix
 

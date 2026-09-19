@@ -81,12 +81,12 @@ pip install rfdetr[onnx]==1.10.1
 python deploy/export_segmentation.py --model_type medium --input_size 432
 ```
 
-See [export.md](export.md) for the full matrix of export options.
+See [export.md](../docs/export.md) for the full matrix of export options.
 
 ### 2. Prepare a video of at least 1000 frames
 
 A single clean short run proves nothing about `daliOutputRelease` ordering — see
-[gpu-pipeline.md](../specs/gpu-pipeline.md).
+[gpu-pipeline.md](gpu-pipeline.md).
 
 ```bash
 ffmpeg -stream_loop 30 -i clip.mp4 -c copy long.mp4                    # real footage, preferred

@@ -49,5 +49,8 @@ Deliberately not built, each for a recorded reason — see [roadmap.md](roadmap.
 - [roadmap.md](roadmap.md) — the phased work queue and the deferred list
 - [gpu-pipeline.md](gpu-pipeline.md) — GPU design constraints; the model contract to check any `src/gpu/` change against
 - [features/](features/) — the spec directory for each phase of work
+- [rented-gpu-runbook.md](rented-gpu-runbook.md) — running the GPU verification gate on rented hardware
+- [opencode-workflow.md](opencode-workflow.md) — the three-role delegation setup in `.opencode/`
 - [AGENTS.md](../AGENTS.md) — build, test, and lint commands, and the workflow
-- [README.md](../README.md) — full user-facing reference
+- [README.md](../README.md) — the user-facing quick start: install, build, run
+- [docs/advanced-usage.md](../docs/advanced-usage.md) — the user-facing reference the README defers to: full CMake options, backends in depth, tuning, embedding the library
