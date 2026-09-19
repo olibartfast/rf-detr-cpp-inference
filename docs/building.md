@@ -36,8 +36,9 @@ sudo apt-get install -y clang-format-18 clang-tidy-18
 
 Exactly one inference backend is compiled in, and enabling two is a configure-time error.
 The comparison table and the model format each one accepts live in the
-[README](../README.md#backend-selection); the full CMake option list is in
-[Build Options](../README.md#build-options).
+[README](../README.md#choosing-a-backend), with the per-backend constraints in
+[Backends in Depth](advanced-usage.md#backends-in-depth); the full CMake option list is in
+[CMake Option Reference](advanced-usage.md#cmake-option-reference).
 
 ## Dependency Versions
 Every third-party version is pinned once, in [`versions.env`](../versions.env) at the
