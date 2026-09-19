@@ -143,7 +143,7 @@ configure-time error.
 | **ExecuTorch** | `.pte` | On-device / edge deployment | `-DUSE_ONNX_RUNTIME=OFF -DUSE_EXECUTORCH=ON -DEXECUTORCH_ROOTDIR=<prefix>` |
 
 ```bash
-# TensorRT (NVIDIA GPU) — CUDA 13.x must already be installed
+# TensorRT (NVIDIA GPU) — CUDA 13.0 must already be installed
 cmake -S . -B build -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON -DCMAKE_BUILD_TYPE=Release
 
 # ExecuTorch (CPU, .pte) — needs an install prefix
@@ -176,7 +176,7 @@ backend is CPU-only as shipped — are in
 | C++ compiler | Clang 15+ or GCC 12+ (C++20) | everything |
 | CMake | 3.12+ (3.17+ for the ExecuTorch source fallback) | everything |
 | **ONNX Runtime** | **1.21.0** | default backend — downloaded automatically |
-| **TensorRT** | **10.13.3.9** + CUDA Toolkit **13.x** | TensorRT backend (CUDA installed manually) |
+| **TensorRT** | **10.13.3.9** + CUDA Toolkit **13.0** series | TensorRT backend (CUDA installed manually) |
 | **ExecuTorch** | **v1.4.0** | ExecuTorch backend |
 | NVIDIA DALI | 1.51.2 (staged from `nvcr.io/nvidia/tritonserver:25.12-py3`) | `-DUSE_DALI=ON` |
 | FFmpeg / SDL2 | 5.x+ / 2.x (Conan pins 6.1 / 2.28.5) | default media backend — apt takes whatever the system has |

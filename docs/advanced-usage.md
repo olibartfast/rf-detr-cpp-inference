@@ -61,9 +61,9 @@ until the backend is extended to register one. For GPU inference, use TensorRT.
 
 ### TensorRT
 
-Version **10.13.3.9**, downloaded automatically during the build if not found. It needs
-**CUDA Toolkit 13.x**, which must be installed manually — the bundled TensorRT archive is
-built against it.
+Version **10.13.3.9**, downloaded automatically during the build if not found. It needs the
+**CUDA Toolkit 13.0** series (`CUDA_VERSION` in `versions.env`), which must be installed
+manually — the bundled TensorRT archive is built against it.
 
 - Linux with an NVIDIA GPU only.
 - TensorRT libraries are configured with RPATH, so no `LD_LIBRARY_PATH` is needed.
@@ -428,7 +428,7 @@ changing a default in the header is enough for the fields with no flag.
 |----------------|---------|--------------|
 | `model_type` | `ModelType::DETECTION` | `--segmentation` / `--keypoint` |
 | `threshold` | `0.5` | `--threshold <val>` |
-| `resolution` | auto-detected from the model | `--resolution <px>` |
+| `resolution` | `560` — **`0` means auto-detect**, which is what the CLI passes when `--resolution` is omitted | `--resolution <px>` |
 | `max_detections` | `300` (top-k selection) | `--max-detections <n>` |
 | `mask_threshold` | `0.0` (binary mask generation) | `--mask-threshold <val>` |
 | `background_class_id` | `0` (background-first exports) | `--background-class-id <n\|none>` |
@@ -462,7 +462,7 @@ The video driver's own knobs live in `VideoPipelineConfig` (`src/video_pipeline.
 | **GPU Backend Compile** | `gpu-compile.yml` | Compiles the TensorRT backend and both GPU halves with `-DWERROR=ON`, across all four `USE_DALI`/`USE_CUDA_POSTPROCESS` combinations |
 | **Dependency Modes** | `deps-modes.yml` | `workflow_dispatch` only; matrix over apt / conan / vcpkg |
 
-Both push/PR workflows trigger on `master` and `develop`.
+All three push/PR workflows trigger on `master` and `develop`.
 
 **What CI cannot do**, and what that means for you:
 
@@ -488,7 +488,8 @@ rented hardware are maintainer material, kept with the specs —
 ## Where to Go Next
 
 - [building.md](building.md) — every build configuration, step by step
-- [usage.md](usage.md) — the authoritative flag and `Config` reference
+- [usage.md](usage.md) — the authoritative command-line and flag reference (the `Config` reference
+  is [above](#config-reference), on this page)
 - [export.md](export.md) — producing `.onnx`, `.engine`, and `.pte` models
 - [architecture.md](architecture.md) — GPU pipeline, ring buffer, tensor contracts
 - [development.md](development.md) — sanitizers, Valgrind, tests, benchmarks

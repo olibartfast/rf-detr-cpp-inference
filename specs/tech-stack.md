@@ -106,7 +106,7 @@ These are enforced at configure time or by the runtime — not style preferences
 | `gpu-compile.yml` — GPU Backend Compile | Compile-only matrix, `-DWERROR=ON`: TensorRT alone, +DALI, +CUDA postprocess, +both. Builds `rfdetr_inference_lib` only — the staged shared objects are stubs, so no target that links is reachable |
 | `deps-modes.yml` — Dependency Modes | `workflow_dispatch` only; matrix over apt / conan / vcpkg |
 
-Both push/PR workflows trigger on `master` and `develop`. Integration tests are not run by CI.
+All three push/PR workflows (`ci.yml`, `lint.yml`, `gpu-compile.yml`) trigger on `master` and `develop`. Integration tests are not run by CI.
 
 ## Bumping a version
 
