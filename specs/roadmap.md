@@ -6,8 +6,9 @@ Work this project has committed to, as a phased queue. Phases are ordered so eac
 
 ## Status
 
-- Last tag **v0.4.0** (2026-08-04). Flow is git-flow: `develop` → `release/vX.Y.Z` → `master`, merged back.
-- **v0.5.0 is staged on `develop`** — the rfdetr 1.9.1 and 1.9.2 alignments and the whole GPU pipeline are unreleased. Phase 5 cuts it, now that Phases 1–4 are complete.
+- Last tag **v0.5.1** (2026-09-19). Flow is git-flow: `develop` → `release/vX.Y.Z` → `master`, merged back.
+- **v0.5.1 is released** — a documentation-only patch: the README quick start, the new `docs/advanced-usage.md`, `docs/usage.md` trimmed to operations, and the maintainer procedures moved to `specs/`. No behaviour, build option, or pin changed.
+- **v0.5.0 is released** — the rfdetr 1.9.1 and 1.9.2 alignments and the whole GPU pipeline shipped. Phases 1–5 are complete.
 - GPU pipeline: preprocessing and segmentation postprocessing **work end to end**; the test, build,
   and CI scaffolding (Phases 2–4) is complete and the parity gate has passed.
 
@@ -108,14 +109,14 @@ encoded path diverges up to `0.069` — entirely the JPEG decode (nvJPEG vs stb)
 
 ---
 
-## Phase 5 — Release v0.5.0
+## Phase 5 — Release v0.5.0 (Complete)
 
 The [`release`](../.claude/skills/release/SKILL.md) workflow. Gated on Phases 1–4.
 
 - [x] Read `AGENTS.md`, `README.md`, and `CHANGELOG.md`, then verify the rfdetr release against upstream — the mandatory "Spec Sync" rule
 - [x] Move `[Unreleased]` to `[v0.5.0]`, sync `README.md` version statements against `CMakeLists.txt`, `CMakePresets.json`, `deploy/requirements.txt`, `dockerfile.*`, and `docs/export.md`
 - [x] Resolve the version disagreement noted in [tech-stack.md](tech-stack.md#known-pin-duplications): `project()` declares none, `vcpkg.json` says `0.1.0`, the README badge says `0.4.0`
-- [ ] Cut `release/v0.5.0`, merge to `master`, tag, merge back to `develop`
+- [x] Cut `release/v0.5.0`, merge to `master`, tag, merge back to `develop`
 
 ---
 

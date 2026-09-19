@@ -1,20 +1,31 @@
 # Usage
 
-Running the inference application: every mode, every command-line flag, and the `Config` fields behind them.
+Running the inference application: every run mode and every command-line flag.
 
 > Part of the [RF-DETR C++ Inference](../README.md) documentation.
+>
+> This page is the operational reference — *what* each mode and flag does. For *why* and
+> *when* — tuning strategy, custom class layouts, the GPU pipeline, embedding the library in
+> your own code — see [advanced-usage.md](advanced-usage.md).
 
 ---
 
-
-
 ## Prepare Input Files
-- The RF-DETR model file (`.onnx` for ONNX Runtime, `.onnx`/`.engine`/`.trt` for TensorRT)
-- An input image (e.g., `image.jpg`) or video file (e.g., `video.mp4`)
-- A COCO labels file (e.g., `coco-labels-91.txt`)
+
+Three things, in the order the binary takes them:
+
+1. **A model** — `.onnx` for ONNX Runtime, `.onnx`/`.engine`/`.trt` for TensorRT, `.pte` for
+   ExecuTorch. Export one with [export.md](export.md).
+2. **An input** — an image (e.g. `image.jpg`) or a video (e.g. `video.mp4`).
+3. **A labels file** — one label per line; `data/coco-labels-91.txt` ships with the repo.
+
+```bash
+./build/inference_app <model> <input> <labels> [flags...]
+```
+
+---
 
 ## Run Inference
-After building the project, run the inference application:
 
 ### Object Detection
 
@@ -45,7 +56,7 @@ After building the project, run the inference application:
 ./build/inference_app /path/to/model.onnx /path/to/video.mp4 /path/to/coco-labels-91.txt
 ```
 
-With live preview window:
+With a live preview window (ESC quits early):
 
 ```bash
 ./build/inference_app /path/to/model.onnx /path/to/video.mp4 /path/to/coco-labels-91.txt --display
@@ -57,11 +68,39 @@ Video with segmentation:
 ./build/inference_app /path/to/model.onnx /path/to/video.mp4 /path/to/coco-labels-91.txt --segmentation
 ```
 
-Supported video formats: `.mp4`, `.avi`, `.mov`, `.mkv`, `.webm`, `.flv`, `.wmv`. Output is written to `output_video.mp4`.
+Supported containers: `.mp4`, `.avi`, `.mov`, `.mkv`, `.webm`, `.flv`, `.wmv`. Video files are
+recognised by extension and processed with the multi-threaded pipeline; output is written to
+`output_video.mp4`.
 
-### Tuning Flags
+### Using a Pre-built TensorRT Engine
 
-The inference parameters can be overridden without recompiling:
+On a TensorRT build, a `.engine` or `.trt` file is loaded directly, skipping ONNX-to-TensorRT
+conversion:
+
+```bash
+./build/inference_app /path/to/model.engine /path/to/image.jpg /path/to/coco-labels-91.txt --segmentation
+```
+
+---
+
+## Command-Line Flags
+
+The complete list. The inference parameters below work with every mode; the mode and GPU flags
+carry the restrictions noted against each one (`--display` applies to video, `--gpu-postprocess`
+requires `--segmentation` and is rejected without it).
+
+### Mode
+
+| Flag | Effect |
+|------|--------|
+| *(none)* | Object detection — the default |
+| `--segmentation` | Instance segmentation; requires a model exported with masks |
+| `--keypoint` | Keypoint detection; requires a keypoint export |
+| `--display` | Open a live preview window while processing a video |
+
+### Inference parameters
+
+Overridable without recompiling.
 
 | Flag | Default | Effect |
 |------|---------|--------|
@@ -81,90 +120,51 @@ The inference parameters can be overridden without recompiling:
   --segmentation --mask-threshold 0.5
 ```
 
-These flags work with all modes (`--segmentation`, `--keypoint`, video input, and `--display`). `--resolution`
-is only useful for models that accept an input size other than the one recorded in the model file — the
-auto-detected value is correct for a normally exported model.
+`--resolution` is only useful for a model that accepts an input size other than the one recorded
+in the model file — the auto-detected value is correct for a normally exported model.
+`--background-class-id` must match your export's logit layout; getting it wrong shifts every
+reported label by one. The layouts and what to pass for each are in
+[Customizing Labels and Class Layouts](advanced-usage.md#customizing-labels-and-class-layouts).
 
-`--background-class-id` mirrors the argument rfdetr 1.9.4 added to its own ONNX/TFLite decoders. The default
-`0` matches the shipped RF-DETR exports, whose logit 0 is background and whose logit *n* is COCO category *n*
-— which is exactly how `data/coco-labels-91.txt` is indexed. Change it only for a checkpoint with a different
-class layout: `none` for one where every logit slot is a real class (a fine-tuned model with contiguous
-0-based ids), or `-1` for one whose background sits in the final slot. Getting it wrong shifts every reported
-label by one.
+### GPU pipeline
 
-### How detections are selected
+Available only on a TensorRT build compiled with the GPU pipeline, and **off by default** even
+then.
 
-RF-DETR scores classes with independent sigmoids rather than a softmax, so one query can legitimately clear
-the threshold on several classes at once. Postprocessing therefore ranks the flattened *(query, class)* grid
-and keeps the top `--max-detections` pairs **before** applying `--threshold`, which is what
-`PostProcess._select_topk` does upstream — a per-query argmax would silently drop every class but the
-strongest (the bug rfdetr 1.9.3 fixed in its own exported-model decoders). Results come back in
-descending-score order, with exact ties broken by ascending flattened query/class index, so a given model and
-image always produce the same ordering. Detection, segmentation, keypoint, and the CUDA postprocess kernels
-all share that rule.
-
-### Using Pre-built TensorRT Engine
-
-If you have a pre-built TensorRT engine file (`.engine` or `.trt`), use it directly:
+| Flag | Requires | Effect |
+|------|----------|--------|
+| `--gpu-preprocess` | `-DUSE_DALI=ON` | Decode/resize/normalize on the GPU with DALI |
+| `--gpu-postprocess` | `-DUSE_CUDA_POSTPROCESS=ON` | Segmentation mask decode/resize/threshold in CUDA kernels; segmentation only |
+| `--dali-pipeline-dir <dir>` | `-DUSE_DALI=ON` | Where the serialized `.dali` pipeline files live (default `data/dali`) |
 
 ```bash
-./build/inference_app /path/to/model.engine /path/to/image.jpg /path/to/coco-labels-91.txt --segmentation
-```
-
-### GPU Pipeline Flags (TensorRT builds with the GPU pipeline compiled in)
-
-```bash
-# DALI GPU preprocessing + CUDA GPU segmentation postprocessing:
 ./build/inference_app /path/to/model.engine /path/to/image.jpg /path/to/coco-labels-91.txt \
   --segmentation --gpu-preprocess --gpu-postprocess
 ```
 
-- `--gpu-preprocess` — decode/resize/normalize on the GPU with DALI (build with `-DUSE_DALI=ON`)
-- `--gpu-postprocess` — segmentation mask decode/resize/threshold with CUDA kernels (build with `-DUSE_CUDA_POSTPROCESS=ON`); segmentation only, requires `--segmentation`
-- `--dali-pipeline-dir <dir>` — where the serialized `.dali` pipeline files live (default: `data/dali`)
+See [The GPU Pipeline at Runtime](advanced-usage.md#the-gpu-pipeline-at-runtime) for what each
+half does, and [architecture.md](architecture.md#gpu-pipeline) for the design.
 
-Both flags default off — the CPU paths remain the default even in a GPU-pipeline build. See [GPU Pipeline](architecture.md#gpu-pipeline).
+---
 
-**Features:**
-- The output image is saved as `output_image.jpg`; video output is saved as `output_video.mp4` (override either with `--output <path>`)
-- Detection/segmentation results (bounding boxes, labels, scores, and mask pixels) are printed to the console
-- Input resolution is automatically detected from the model (supports 432x432, 560x560, etc.)
-- Segmentation mode draws colored masks with transparency overlays
-- Uses top-k selection (default: 300 detections) for efficient processing
-- Video files are automatically detected by extension and processed with the multi-threaded pipeline
+## Output
 
-## Configuration
-`Config` (`src/rfdetr_inference.hpp`) holds the inference settings. Most of them are reachable from the
-command line — see [Tuning Flags](#tuning-flags) — and the rest require editing `src/main.cpp`:
+- The annotated image is saved as `output_image.jpg`, video as `output_video.mp4` — override
+  either with `--output <path>`.
+- Detection and segmentation results (bounding boxes, labels, scores, and mask pixels) are
+  printed to the console.
+- Input resolution is detected automatically from the model (432x432, 560x560, and so on).
+- Segmentation mode draws colored masks with transparency overlays; keypoint mode draws the
+  COCO skeleton.
+- Results come back in descending-score order, and ties break deterministically — the same model
+  and image always produce the same ordering. Why, and how the top-k selection interacts with
+  `--threshold`: [How detections are selected](advanced-usage.md#how-detections-are-selected).
 
-| `Config` field | Default | CLI override |
-|----------------|---------|--------------|
-| `model_type` | `ModelType::DETECTION` | `--segmentation` / `--keypoint` |
-| `threshold` | `0.5` | `--threshold <val>` |
-| `resolution` | auto-detected from the model | `--resolution <px>` |
-| `max_detections` | `300` (top-k selection) | `--max-detections <n>` |
-| `mask_threshold` | `0.0` (binary mask generation) | `--mask-threshold <val>` |
-| `background_class_id` | `0` (background-first exports) | `--background-class-id <n\|none>` |
-| `keypoint_counts` | `{0, 17}` | `--keypoint-counts <n[,n...]>` |
-| `gpu_preprocess` / `gpu_postprocess` | `false` | `--gpu-preprocess` / `--gpu-postprocess` |
-| `dali_pipeline_dir` | `data/dali` | `--dali-pipeline-dir <dir>` |
-| `gpu_device_id` | `0` | — (edit `src/main.cpp`) |
-| `means` / `stds` | ImageNet `[0.485, 0.456, 0.406]` / `[0.229, 0.224, 0.225]` | — (edit `src/main.cpp`) |
-| `keypoint_*`, `skeleton`, `draw_uncertainty` | COCO 17-keypoint layout | — (edit `src/main.cpp`) |
+---
 
-`src/main.cpp` leaves every field it does not override at its `Config` default, so changing a default in
-`src/rfdetr_inference.hpp` is enough for the fields with no CLI flag.
+## Going Further
 
-## Example Custom Configuration
-When embedding `RFDETRInference` rather than using the CLI:
-
-```cpp
-Config config;
-config.resolution = 0;              // Auto-detect
-config.threshold = 0.6f;            // Higher confidence threshold
-config.max_detections = 100;        // Fewer detections
-config.mask_threshold = 0.5f;       // More conservative masks
-config.model_type = ModelType::SEGMENTATION;
-
-RFDETRInference inference(model_path, label_path, config);
-```
+- [advanced-usage.md](advanced-usage.md) — tuning strategy, class layouts, the GPU pipeline,
+  the `Config` reference, and embedding `RFDETRInference` in your own code
+- [building.md](building.md) — build a different backend
+- [export.md](export.md) — produce a model to run

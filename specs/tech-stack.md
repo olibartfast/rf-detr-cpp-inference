@@ -106,7 +106,7 @@ These are enforced at configure time or by the runtime — not style preferences
 | `gpu-compile.yml` — GPU Backend Compile | Compile-only matrix, `-DWERROR=ON`: TensorRT alone, +DALI, +CUDA postprocess, +both. Builds `rfdetr_inference_lib` only — the staged shared objects are stubs, so no target that links is reachable |
 | `deps-modes.yml` — Dependency Modes | `workflow_dispatch` only; matrix over apt / conan / vcpkg |
 
-Both push/PR workflows trigger on `master` and `develop`. Integration tests are not run by CI.
+All three push/PR workflows (`ci.yml`, `lint.yml`, `gpu-compile.yml`) trigger on `master` and `develop`. Integration tests are not run by CI.
 
 ## Bumping a version
 
@@ -120,13 +120,13 @@ Both push/PR workflows trigger on `master` and `develop`. Integration tests are 
 
 ## Known pin duplications
 
-- Prose version statements in `README.md`, `docs/building.md`, `docs/docker.md`,
-  `docs/architecture.md` and `docs/package-manager-architecture.md` restate `versions.env` for
-  readers. `AGENTS.md` requires them, and nothing verifies them — step 3 above is manual.
-- `project()` declares `VERSION 0.5.0`; `vcpkg.json` and the README badge agree. This is a *project*
+- Prose version statements in `README.md`, `docs/advanced-usage.md`, `docs/building.md`,
+  `docs/docker.md`, `docs/architecture.md` and `docs/package-manager-architecture.md` restate
+  `versions.env` for readers. `AGENTS.md` requires them, and nothing verifies them — step 3 above is manual.
+- `project()` declares `VERSION 0.5.1`; `vcpkg.json` and the README badge agree. This is a *project*
   version, not a dependency pin, so `versions.env` does not cover it.
 - `dockerfile.trt` forwards `--build-arg TENSORRT_VERSION` to CMake as `-DTENSORRT_VERSION`, because the TensorRT shim directory it creates must match what CMake looks for. Any future build arg that names a pin needs the same forwarding.
 - `scripts/run_gate.sh` defaults `CUDA_ARCH=89` rather than the build default
   `CUDA_ARCHITECTURES=86`. Deliberate, and not a pin: the value is a property of whichever
-  card the gate runs on, so it stays out of `versions.env`. `docs/rented-gpu-runbook.md`
+  card the gate runs on, so it stays out of `versions.env`. `specs/rented-gpu-runbook.md`
   carries the card-to-arch table and expects it to be set per run.
