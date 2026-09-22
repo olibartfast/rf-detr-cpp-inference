@@ -8,7 +8,7 @@ Read these before starting work; this file covers commands, the specs cover inte
 - [specs/gpu-pipeline.md](specs/gpu-pipeline.md) — GPU design constraints; the 8-rule model contract is the review checklist for any change to `src/gpu/`
 - [specs/features/](specs/features/) — one directory per phase of work: `requirements.md`, `plan.md`, `validation.md`
 - [specs/rented-gpu-runbook.md](specs/rented-gpu-runbook.md) — the operational half of [gpu-verify](.claude/skills/gpu-verify/SKILL.md): renting a box, running `scripts/run_gate.sh` on it unattended, collecting results
-- [specs/opencode-workflow.md](specs/opencode-workflow.md) — the reasoner/planner/implementer delegation setup in `.opencode/`; it sits beside this file's workflow, it does not replace it
+- [specs/delegation-workflow.md](specs/delegation-workflow.md) — the harness-agnostic reasoner/planner/implementer delegation setup (OpenCode, Claude Code, Codex CLI, or anything else that can host the four primitives); it sits beside this file's workflow, it does not replace it
 
 `docs/` is for users of the inference application; instructions aimed at whoever (or whatever) *works on* this repository live here in `specs/`, beside the skills in `.claude/skills/`.
 
