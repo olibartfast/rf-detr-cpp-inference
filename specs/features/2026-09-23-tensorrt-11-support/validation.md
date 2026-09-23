@@ -1,6 +1,6 @@
 # Validation: TensorRT 11 support
 
-Validated on 2026-09-23, branch `claude/focused-dirac-wxgnu7`, without a GPU.
+Validated on 2026-09-23, branch `feature/tensorrt-11-support`, without a GPU.
 
 Headers: NVIDIA/TensorRT OSS tags `v10.13.3` and `v11.3` (`include/`); CUDA 13.0 headers and
 `nvcc` from the `nvidia-cuda-runtime`, `nvidia-cuda-nvcc`, `nvidia-cuda-crt` and
