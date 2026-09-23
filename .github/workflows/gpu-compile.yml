@@ -37,6 +37,11 @@ jobs:
             options: -DUSE_DALI=OFF -DUSE_CUDA_POSTPROCESS=ON
           - name: TensorRT + full GPU pipeline
             options: -DUSE_GPU_PIPELINE=ON
+          # Forward compat: the same full build against TENSORRT_COMPAT_VERSION
+          # (TensorRT 11), whose API dropped weak typing and BuilderFlag::kFP16.
+          - name: TensorRT 11 (compat) + full GPU pipeline
+            options: -DUSE_GPU_PIPELINE=ON
+            trt_headers: compat
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-deps
@@ -48,9 +53,12 @@ jobs:
           # versions.env and versions.sh determine the TensorRT/DALI versions the
           # staging script resolves, so both must key the cache or a version bump
           # would silently reuse the previously staged headers.
-          key: gpu-headers-${{ hashFiles('scripts/ci/stage_gpu_headers.sh', 'scripts/versions.sh', 'versions.env') }}
+          # The compat job stages a different TensorRT, so it keys its own cache.
+          key: gpu-headers-${{ matrix.trt_headers || 'pinned' }}-${{ hashFiles('scripts/ci/stage_gpu_headers.sh', 'scripts/versions.sh', 'versions.env') }}
 
       - name: Stage TensorRT and DALI headers
+        env:
+          TRT_HEADERS: ${{ matrix.trt_headers || 'pinned' }}
         run: ./scripts/ci/stage_gpu_headers.sh
 
       # The toolkit must be the one versions.env pins, since stage_gpu_headers.sh
@@ -71,9 +79,16 @@ jobs:
 
       - name: Configure
         run: |
+          trt_root="$HOME/dependencies/tensorrt-headers"
+          trt_version_args=()
+          if [[ "${{ matrix.trt_headers }}" == compat ]]; then
+            source scripts/versions.sh
+            trt_root="$HOME/dependencies/tensorrt-compat-headers"
+            trt_version_args=(-DTENSORRT_VERSION="${TENSORRT_COMPAT_VERSION}")
+          fi
           cmake -S . -B build -G Ninja \
             -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON ${{ matrix.options }} \
-            -DTENSORRT_ROOTDIR="$HOME/dependencies/tensorrt-headers" \
+            -DTENSORRT_ROOTDIR="${trt_root}" "${trt_version_args[@]}" \
             -DDALI_ROOT="$HOME/dependencies/dali-headers" \
             -DCMAKE_BUILD_TYPE=Release -DWERROR=ON \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache

@@ -69,13 +69,14 @@ chosen by which file you pass to `-f` (there is no bare `Dockerfile`):
 - Either option with the ONNX Runtime backend is a configure-time `FATAL_ERROR`
 - Runtime flags (default off): `--gpu-preprocess`, `--gpu-postprocess` (segmentation only), `--dali-pipeline-dir <dir>` (default `data/dali`)
 - Regenerate `.dali` pipelines for a new resolution: `./scripts/generate_dali_pipelines.sh <res>` (needs `--gpus all` Docker); 432 and 576 are checked in
-- GPU unit tests (`test_gpu_postprocess.cpp`) `GTEST_SKIP()` without a CUDA device; like TensorRT, CI compiles but does not execute GPU paths — `gpu-compile.yml` builds all four `USE_DALI`/`USE_CUDA_POSTPROCESS` combinations with `-DWERROR=ON` against headers staged by `scripts/ci/stage_gpu_headers.sh`, so a compile break is a red PR, not a surprise on metered hardware. Behaviour still has to be tested manually with [gpu-verify](.claude/skills/gpu-verify/SKILL.md)
+- GPU unit tests (`test_gpu_postprocess.cpp`) `GTEST_SKIP()` without a CUDA device; like TensorRT, CI compiles but does not execute GPU paths — `gpu-compile.yml` builds all four `USE_DALI`/`USE_CUDA_POSTPROCESS` combinations with `-DWERROR=ON` against headers staged by `scripts/ci/stage_gpu_headers.sh`, plus the full pipeline against TensorRT 11 headers (`TENSORRT_COMPAT_VERSION`, `TRT_HEADERS=compat`), so a compile break is a red PR, not a surprise on metered hardware. Behaviour still has to be tested manually with [gpu-verify](.claude/skills/gpu-verify/SKILL.md)
 - On a rented GPU box, `./scripts/run_gate.sh` drives the executable part of that checklist unattended and reports the rest as `UNRUN`; it arms a deadline watchdog and stops the instance when done. Env knobs: `CUDA_ARCH` (default `89`), `DEADLINE_HOURS`, `SKIP_DEFAULT_PATH`, `SELF_STOP`, `MODEL`, `VIDEO`. End-to-end procedure — choosing an instance, export prep, setup script, collecting results: [specs/rented-gpu-runbook.md](specs/rented-gpu-runbook.md)
 - Design constraints: [specs/gpu-pipeline.md](specs/gpu-pipeline.md) — remaining phases: [specs/roadmap.md](specs/roadmap.md)
 
 ## Dependency Versions
 
 Current export package: `rfdetr[onnx]==1.10.1`; the authoritative pin is in `versions.env`.
+TensorRT: pinned 10.x (`TENSORRT_VERSION`); the backend also supports 11.x, compile-checked against `TENSORRT_COMPAT_VERSION`. Keep every TensorRT API difference behind `NV_TENSORRT_MAJOR`, never drop the 10.x branch without a spec.
 **[`versions.env`](versions.env) is the single source of truth for every third-party pin.** Never
 hardcode a version anywhere else.
 - CMake reads it via `cmake/versions.cmake` (included before `cmake/deps/Deps.cmake`); each pin is a `CACHE STRING`, so `-DTENSORRT_VERSION=…` overrides it.

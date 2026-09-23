@@ -5,6 +5,27 @@ Notable user-visible changes to this project and compatibility updates for upstr
 
 ## [Unreleased]
 
+### Added
+
+- TensorRT 11.x support in the TensorRT backend, keeping 10.x (the pinned `TENSORRT_VERSION`,
+  10.13.3.9) unchanged. TensorRT 11 removed weak typing and `BuilderFlag::kFP16`, which made the
+  backend fail to compile; the flag is now set on 10.x only. On 11.x an engine built from an
+  `.onnx` takes the model's own precision, so an FP16 engine needs an FP16-converted ONNX — see
+  "TensorRT 11 and FP16" in `docs/export.md`. Existing `.engine` files must be rebuilt after
+  switching TensorRT versions.
+- `gpu-compile.yml` compiles the full GPU pipeline against TensorRT 11 headers as well.
+  `versions.env` gains `TENSORRT_COMPAT_VERSION=11.3.0.99`, compile-checked only;
+  `scripts/ci/stage_gpu_headers.sh` stages it with `TRT_HEADERS=compat` from the NVIDIA/TensorRT
+  OSS repository.
+
+### Changed
+
+- The TensorRT backend rejects an engine whose inputs or outputs are not float32, instead of
+  copying float32-sized buffers into them. rfdetr exports are float32 throughout; this guards a
+  reduced-precision ONNX converted without keeping its I/O types.
+- `export_trt.sh` passes `trtexec --fp16` only when the container's `trtexec` still accepts it
+  (TensorRT 11 removed the flag).
+
 ## [v0.5.1] - 2026-09-19
 
 ### Changed

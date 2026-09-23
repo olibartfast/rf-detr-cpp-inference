@@ -179,7 +179,7 @@ backend is CPU-only as shipped — are in
 | C++ compiler | Clang 15+ or GCC 12+ (C++20) | everything |
 | CMake | 3.12+ (3.17+ for the ExecuTorch source fallback) | everything |
 | **ONNX Runtime** | **1.21.0** | default backend — downloaded automatically |
-| **TensorRT** | **10.13.3.9** + CUDA Toolkit **13.0** series | TensorRT backend (CUDA installed manually) |
+| **TensorRT** | **10.13.3.9** + CUDA Toolkit **13.0** series (11.x also supported, compile-checked against 11.3.0.99) | TensorRT backend (CUDA installed manually) |
 | **ExecuTorch** | **v1.4.0** | ExecuTorch backend |
 | NVIDIA DALI | 1.51.2 (staged from `nvcr.io/nvidia/tritonserver:25.12-py3`) | `-DUSE_DALI=ON` |
 | FFmpeg / SDL2 | 5.x+ / 2.x (Conan pins 6.1 / 2.28.5) | default media backend — apt takes whatever the system has |
@@ -256,7 +256,7 @@ Three GitHub Actions workflows run on every push/PR to `master` and `develop`:
 |----------|------|-------------|
 | **C++ Lint & Build** | `lint.yml` | Version sync, format check, clang-tidy, cppcheck, build with `-DWERROR=ON` |
 | **Build & Test** | `ci.yml` | Build with benchmarks, run unit tests, run benchmarks, run unit tests under ASan+UBSan |
-| **GPU Backend Compile** | `gpu-compile.yml` | Compiles the TensorRT backend and both GPU halves with `-DWERROR=ON`, across all four `USE_DALI`/`USE_CUDA_POSTPROCESS` combinations |
+| **GPU Backend Compile** | `gpu-compile.yml` | Compiles the TensorRT backend and both GPU halves with `-DWERROR=ON`, across all four `USE_DALI`/`USE_CUDA_POSTPROCESS` combinations, plus the full pipeline against TensorRT 11 headers |
 
 CI compiles the GPU paths but cannot execute them — see
 [CI coverage and its limits](docs/advanced-usage.md#ci-coverage-and-its-limits).

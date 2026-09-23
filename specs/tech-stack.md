@@ -37,7 +37,7 @@ Exactly one is compiled in.
 | Backend | Version | Pin location | Device | Model format |
 |---------|---------|--------------|--------|--------------|
 | ONNX Runtime (default) | 1.21.0 | `versions.env` → `ONNX_RUNTIME_VERSION` | **CPU only** | `.onnx` |
-| TensorRT | 10.13.3.9 | `versions.env` → `TENSORRT_VERSION` | NVIDIA GPU | `.engine`, `.trt`, `.onnx` |
+| TensorRT | 10.13.3.9 (11.x also supported) | `versions.env` → `TENSORRT_VERSION`; compat major `TENSORRT_COMPAT_VERSION` (11.3.0.99) | NVIDIA GPU | `.engine`, `.trt`, `.onnx` |
 | ExecuTorch | v1.4.0 | `versions.env` → `EXECUTORCH_VERSION` | CPU (XNNPACK or portable) | `.pte` |
 
 `TENSORRT_VERSION` is the full four-component number. NVIDIA truncates it differently per
@@ -50,7 +50,7 @@ artefact, so the loaders *derive* the rest rather than pinning them separately:
 | `TRITON_IMAGE`, `TENSORRT_IMAGE` | `…:25.12-py3` | `versions.sh` only | container-based staging and export |
 
 - **ONNX Runtime** downloads the official CPU archive selected from the *target* platform (`CMAKE_SYSTEM_NAME` / `CMAKE_SYSTEM_PROCESSOR`), covering Linux x64/aarch64 and Windows x64/arm64. Other targets require a compatible provided prefix or package-manager build; catalog loading permits them when ONNX Runtime is disabled. It registers no execution provider, so even a CUDA build runs on CPU.
-- **TensorRT** implies CUDA Toolkit **13.x**, which must be installed manually.
+- **TensorRT** implies CUDA Toolkit **13.x**, which must be installed manually. The backend supports both the pinned 10.x and 11.x, selected at compile time by `NV_TENSORRT_MAJOR`. `TENSORRT_COMPAT_VERSION` is compile-checked only — no build, image or download ships it. TensorRT 11 is strongly typed only: an `.onnx` build takes the model's own precision (FP16 needs a converted ONNX), where 10.x sets `BuilderFlag::kFP16`. Engine I/O must be float32 on both.
 - **ExecuTorch** requires a prefix built with `EXECUTORCH_BUILD_KERNELS_OPTIMIZED=ON` (it defaults `OFF`): `.pte` files from rfdetr 1.9.1+ call `aten::linear.out`, registered only by `optimized_native_cpu_ops_lib`. The linked delegate must match the one baked into the `.pte`.
 
 ## Media and GPU stack
@@ -103,7 +103,7 @@ These are enforced at configure time or by the runtime — not style preferences
 |----------|------|
 | `ci.yml` — Build & Test | Build & Unit Tests (+ benchmarks), Sanitizers (ASan+UBSan), ThreadSanitizer, Valgrind Memcheck |
 | `lint.yml` — C++ Lint & Build | Version Sync (`scripts/check_version_sync.sh`), Format Check, Clang-Tidy, Cppcheck, Build with Strict Warnings (`-DWERROR=ON`) |
-| `gpu-compile.yml` — GPU Backend Compile | Compile-only matrix, `-DWERROR=ON`: TensorRT alone, +DALI, +CUDA postprocess, +both. Builds `rfdetr_inference_lib` only — the staged shared objects are stubs, so no target that links is reachable |
+| `gpu-compile.yml` — GPU Backend Compile | Compile-only matrix, `-DWERROR=ON`: TensorRT alone, +DALI, +CUDA postprocess, +both, and +both against `TENSORRT_COMPAT_VERSION` headers (from the NVIDIA/TensorRT OSS tag). Builds `rfdetr_inference_lib` only — the staged shared objects are stubs, so no target that links is reachable |
 | `deps-modes.yml` — Dependency Modes | `workflow_dispatch` only; matrix over apt / conan / vcpkg |
 
 All three push/PR workflows (`ci.yml`, `lint.yml`, `gpu-compile.yml`) trigger on `master` and `develop`. Integration tests are not run by CI.

@@ -143,6 +143,7 @@ cmake --build build --parallel
 - Libraries are configured with RPATH - no need to set `LD_LIBRARY_PATH`
 - The executable will use TensorRT for inference
 - Requires CUDA 13.x installed manually for the bundled TensorRT 10.13.3.9 build
+- TensorRT 11.x also works: `-DTENSORRT_ROOTDIR=<11.x prefix> -DTENSORRT_VERSION=<its version>`. It has no FP16 builder flag, so convert the ONNX to FP16 first for an FP16 engine ([export guide](export.md#tensorrt-11-and-fp16))
 - Pre-built `.engine` or `.trt` files are loaded directly, skipping ONNX-to-TensorRT conversion
 
 ## Build with ExecuTorch Backend
