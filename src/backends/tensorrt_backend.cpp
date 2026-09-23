@@ -110,6 +110,14 @@ std::vector<int64_t> TensorRTBackend::initialize(const std::filesystem::path &mo
         auto dims = engine_->getTensorShape(name);
         auto io_mode = engine_->getTensorIOMode(name);
         bool is_input = (io_mode == nvinfer1::TensorIOMode::kINPUT);
+        // Every buffer below is sized and copied as float32. A reduced-precision ONNX
+        // (the TensorRT 11 route to FP16) must keep its graph I/O in float32, or the
+        // copies would silently read and write the wrong number of bytes.
+        if (engine_->getTensorDataType(name) != nvinfer1::DataType::kFLOAT) {
+            throw std::runtime_error(std::string("TensorRT binding '") + name +
+                                     "' is not float32; convert the model to FP16 with its I/O kept in "
+                                     "float32 (see docs/export.md)");
+        }
 #else
         // TensorRT 8.x API
         const char *name = engine_->getBindingName(i);
@@ -228,7 +236,15 @@ bool TensorRTBackend::build_engine_from_onnx(const std::filesystem::path &model_
 #endif
 
     // Enable FP16 mode if supported
-#if NV_TENSORRT_MAJOR >= 10
+#if NV_TENSORRT_MAJOR >= 11
+    // TensorRT 11 removed weak typing together with BuilderFlag::kFP16: every network is
+    // strongly typed, so each layer runs in the precision the ONNX graph declares. An FP32
+    // export builds an FP32 engine; FP16 comes from converting the ONNX beforehand
+    // (docs/export.md, "TensorRT 11 and FP16").
+    std::cout << "[TensorRT] Strongly typed build: engine precision follows the ONNX model "
+                 "(convert it to FP16 beforehand for an FP16 engine)"
+              << std::endl;
+#elif NV_TENSORRT_MAJOR == 10
     // TensorRT 10 deprecated platformHasFastFp16() (every GPU it supports has fast FP16) and
     // BuilderFlag::kFP16 (superseded by strongly-typed networks). We keep the weakly-typed
     // builder so an FP32 ONNX still gets FP16 kernels, and kFP16 is the only way to ask for

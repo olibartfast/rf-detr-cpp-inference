@@ -70,6 +70,14 @@ manually — the bundled TensorRT archive is built against it.
 - A pre-built `.engine` or `.trt` is loaded directly, skipping ONNX-to-TensorRT conversion.
   Passing an `.onnx` instead builds an engine and caches it beside the model — convenient for
   a first run, but the conversion cost is paid once per model and machine.
+- **TensorRT 11.x** is supported as well as the pinned 10.x; point `-DTENSORRT_ROOTDIR` at an 11.x
+  prefix and pass the matching `-DTENSORRT_VERSION`. CI compile-checks the backend against
+  `TENSORRT_COMPAT_VERSION` (11.3.0.99). TensorRT 11 builds strongly typed engines only: on 10.x
+  an `.onnx` gets an FP16 engine through the FP16 builder flag, on 11.x the engine takes the
+  ONNX model's own precision — convert it first for FP16 ([export guide](export.md#tensorrt-11-and-fp16)).
+- Every engine input and output must be float32; the backend rejects an engine that is not.
+- Engines are tied to the TensorRT version that built them — rebuild cached `.engine` files
+  after switching TensorRT versions.
 - It is also the only backend that can drive the [GPU pipeline](#the-gpu-pipeline-at-runtime):
   DALI writes into, and the CUDA kernels read from, the inference engine's device buffers, and
   only this backend exposes device pointers and a CUDA stream.
@@ -486,7 +494,7 @@ The video driver's own knobs live in `VideoPipelineConfig` (`src/video_pipeline.
 |----------|------|-------------|
 | **C++ Lint & Build** | `lint.yml` | Version sync, Dockerfile shared blocks, format check, clang-tidy, cppcheck, build with `-DWERROR=ON` |
 | **Build & Test** | `ci.yml` | Build with benchmarks, run unit tests, run benchmarks, run unit tests under ASan+UBSan |
-| **GPU Backend Compile** | `gpu-compile.yml` | Compiles the TensorRT backend and both GPU halves with `-DWERROR=ON`, across all four `USE_DALI`/`USE_CUDA_POSTPROCESS` combinations |
+| **GPU Backend Compile** | `gpu-compile.yml` | Compiles the TensorRT backend and both GPU halves with `-DWERROR=ON`, across all four `USE_DALI`/`USE_CUDA_POSTPROCESS` combinations, plus the full pipeline against TensorRT 11 headers |
 | **Dependency Modes** | `deps-modes.yml` | `workflow_dispatch` only; matrix over apt / conan / vcpkg |
 
 All three push/PR workflows trigger on `master` and `develop`.

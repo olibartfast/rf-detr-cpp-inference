@@ -24,6 +24,12 @@
 #
 # Then configure with -DTENSORRT_ROOTDIR=<dest>/tensorrt-headers
 #                     -DDALI_ROOT=<dest>/dali-headers
+#
+# TRT_HEADERS=compat stages TENSORRT_COMPAT_VERSION instead, into
+# <dest>/tensorrt-compat-headers, from the public headers in the NVIDIA/TensorRT OSS
+# repository (tag v<major>.<minor>). That is the forward-compat compile gate: it
+# proves the backend still builds against the next TensorRT major before anything
+# pins it. Configure with -DTENSORRT_ROOTDIR=<dest>/tensorrt-compat-headers.
 set -euo pipefail
 
 # TENSORRT_DEB_VERSION is derived as ${TENSORRT_VERSION}-1+cuda${CUDA_VERSION};
@@ -37,7 +43,15 @@ CUDA_REPO="https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x
 DALI_INDEX="https://pypi.nvidia.com/nvidia-dali-cuda120"
 
 DEST="${1:-${HOME}/dependencies}"
-TRT_DIR="${DEST}/tensorrt-headers"
+TRT_HEADERS="${TRT_HEADERS:-pinned}"
+case "${TRT_HEADERS}" in
+    pinned) TRT_DIR="${DEST}/tensorrt-headers" ;;
+    compat) TRT_DIR="${DEST}/tensorrt-compat-headers" ;;
+    *)
+        echo "error: TRT_HEADERS must be 'pinned' or 'compat', got '${TRT_HEADERS}'" >&2
+        exit 1
+        ;;
+esac
 DALI_DIR="${DEST}/dali-headers"
 
 tmp="$(mktemp -d)"
@@ -53,6 +67,18 @@ stub_lib() {
 
 if [[ -f "${TRT_DIR}/include/NvInfer.h" ]]; then
     echo "TensorRT headers already staged at ${TRT_DIR}"
+elif [[ "${TRT_HEADERS}" == compat ]]; then
+    # 11.3.0.99 -> v11.3, the tag scheme of github.com/NVIDIA/TensorRT.
+    trt_tag="v$(printf '%s' "${TENSORRT_COMPAT_VERSION}" | cut -d. -f1-2)"
+    echo "Staging TensorRT ${TENSORRT_COMPAT_VERSION} headers (OSS ${trt_tag}) -> ${TRT_DIR}"
+    # Sparse, blobless: only include/ is ever downloaded, not the plugin and sample trees.
+    git -c advice.detachedHead=false clone --quiet --depth 1 --branch "${trt_tag}" --filter=blob:none --sparse \
+        https://github.com/NVIDIA/TensorRT.git "${tmp}/trt-oss"
+    git -C "${tmp}/trt-oss" sparse-checkout set include
+    mkdir -p "${TRT_DIR}"
+    cp -a "${tmp}/trt-oss/include" "${TRT_DIR}/"
+    stub_lib "${TRT_DIR}/lib/libnvinfer.so"
+    stub_lib "${TRT_DIR}/lib/libnvonnxparser.so"
 else
     echo "Staging TensorRT ${TENSORRT_DEB_VERSION} headers -> ${TRT_DIR}"
     for pkg in libnvinfer-headers-dev libnvonnxparsers-dev; do
