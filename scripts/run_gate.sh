@@ -138,7 +138,7 @@ probe_tensorrt() {
         return
     fi
 
-    # TensorRT 10.x does not put the numbers on NV_TENSORRT_*: those expand to
+    # TensorRT may not put the numbers on NV_TENSORRT_*: those can expand to
     # TRT_<part>_ENTERPRISE, which is where the literal lives. Reading $3 blindly
     # yields "TRT_MAJOR_ENTERPRISE" and writes that into environment.txt, which
     # step 7 copies into the CHANGELOG. Resolve one level of indirection.

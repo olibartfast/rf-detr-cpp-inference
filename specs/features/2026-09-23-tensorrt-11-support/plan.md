@@ -30,3 +30,14 @@ Pin bump (requirements 8–11, added 2026-09-24):
     from sibling wheel directories that ldd cannot see. `dockerfile.trt`'s `dali-fetch` stage and
     `scripts/fetch_dali.sh` flatten them next to `libdali.so`, keeping `DALI_ROOT` a single
     directory; DALI 1.x (no `nvimgcodec/`) is staged as before.
+
+One version only (requirements 12–15, added 2026-09-26):
+
+13. Remove the three extra pins, the `TRT_HEADERS` staging modes, the compat/legacy matrix entries
+    and their `check_version_sync.sh` expectations.
+14. Resolve every `NV_TENSORRT_MAJOR` conditional in `tensorrt_backend.{hpp,cpp}` to the 11.x
+    branch; add the `< 11` `#error`; `TensorRT.cmake` keeps the 11.x archive name and errors below 11.
+15. `export_trt.sh` drops the `--fp16` probe; `fetch_dali.sh` and `dockerfile.trt` drop the
+    DALI 1.x guard; Docker gate on all eight `dockerfile.trt` combinations.
+16. Prose: README, `docs/{advanced-usage,building,export}.md`, `AGENTS.md`, `specs/tech-stack.md`,
+    `CHANGELOG.md`.

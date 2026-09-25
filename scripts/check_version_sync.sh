@@ -93,16 +93,10 @@ expect README.md "ONNX_RUNTIME_VERSION" "${ONNX_RUNTIME_VERSION}" \
     "^\| \*\*ONNX Runtime\*\* \| \*\*$(lit "${ONNX_RUNTIME_VERSION}")\*\* \|"
 expect README.md "TENSORRT_VERSION" "${TENSORRT_VERSION}" \
     "^\| \*\*TensorRT\*\* \| \*\*$(lit "${TENSORRT_VERSION}")\*\* \+ CUDA Toolkit \*\*$(lit "${CUDA_VERSION}")\*\* series"
-expect README.md "TENSORRT_LEGACY_VERSION" "${TENSORRT_LEGACY_VERSION}" \
-    "^\| \*\*TensorRT\*\* \|.*compile-checked against $(lit "${TENSORRT_LEGACY_VERSION}")[;)]"
-expect README.md "TENSORRT_COMPAT_VERSION" "${TENSORRT_COMPAT_VERSION}" \
-    "^\| \*\*TensorRT\*\* \|.*also against $(lit "${TENSORRT_COMPAT_VERSION}")\)"
 expect README.md "EXECUTORCH_VERSION" "${EXECUTORCH_VERSION}" \
     "^\| \*\*ExecuTorch\*\* \| \*\*$(lit "${EXECUTORCH_VERSION}")\*\* \|"
 expect README.md "DALI_VERSION" "${DALI_VERSION}" \
     "^\| NVIDIA DALI \| $(lit "${DALI_VERSION}") \(staged from .nvcr\.io/nvidia/tritonserver:$(lit "${NGC_CONTAINER_TAG}")-py3."
-expect README.md "DALI_LEGACY_VERSION" "${DALI_LEGACY_VERSION}" \
-    "^\| NVIDIA DALI \|.*compile-checked against $(lit "${DALI_LEGACY_VERSION}")\)"
 expect README.md "FFMPEG_VERSION/SDL_VERSION" "${FFMPEG_VERSION}/${SDL_VERSION}" \
     "^\| FFmpeg / SDL2 \|.*Conan pins $(lit "${FFMPEG_VERSION}") / $(lit "${SDL_VERSION}")\)"
 expect README.md "OPENCV_VERSION" "${OPENCV_VERSION}" \

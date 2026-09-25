@@ -85,7 +85,7 @@ RUN mkdir -p /staging/dali
 # /staging/dali. .libs/ is not optional — libdali.so carries ~24 vendored
 # DT_NEEDED entries (libjpeg, ffmpeg, aws-sdk, ...) resolved at load time via
 # RUNPATH $ORIGIN/.libs, so it must ship in the same relative position as here.
-# DALI 2.x also dlopen()s nvImageCodec (the image decoder) and its codec libraries
+# DALI also dlopen()s nvImageCodec (the image decoder) and its codec libraries
 # from sibling wheel directories; ldd cannot see them, and without them
 # --gpu-preprocess fails at decode time. They are flattened next to libdali.so,
 # which the $ORIGIN entries of DALI's and the codec extensions' RUNPATHs reach.
@@ -99,13 +99,11 @@ RUN NV_DIR=/opt/tritonserver/backends/dali/wheel/dali/nvidia && \
     cp -a "${WHEEL_DIR}/libdali.so" "${WHEEL_DIR}/libdali_core.so" \
           "${WHEEL_DIR}/libdali_kernels.so" "${WHEEL_DIR}/libdali_operators.so" \
           /staging/dali/ && \
-    if [ -d "${NV_DIR}/nvimgcodec" ]; then \
-        cp -a "${NV_DIR}/nvimgcodec/libnvimgcodec.so.0" "${NV_DIR}/nvimgcodec/extensions" \
-              /staging/dali/ && \
-        for lib_dir in cu13/lib libnvcomp/lib64 nvjpeg2k/lib nvtiff/lib; do \
-            cp -a "${NV_DIR}/${lib_dir}"/*.so* /staging/dali/ || exit 1; \
-        done; \
-    fi
+    cp -a "${NV_DIR}/nvimgcodec/libnvimgcodec.so.0" "${NV_DIR}/nvimgcodec/extensions" \
+          /staging/dali/ && \
+    for lib_dir in cu13/lib libnvcomp/lib64 nvjpeg2k/lib nvtiff/lib; do \
+        cp -a "${NV_DIR}/${lib_dir}"/*.so* /staging/dali/ || exit 1; \
+    done
 
 FROM dali-none AS dali-off
 FROM dali-fetch AS dali-dali

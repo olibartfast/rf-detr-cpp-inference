@@ -72,13 +72,9 @@ the archive `TensorRT-Enterprise-….tar.zst`; that is the standard TensorRT, no
 - A pre-built `.engine` or `.trt` is loaded directly, skipping ONNX-to-TensorRT conversion.
   Passing an `.onnx` instead builds an engine and caches it beside the model — convenient for
   a first run, but the conversion cost is paid once per model and machine.
-- **TensorRT 10.x** is still supported alongside the pinned 11.x; point `-DTENSORRT_ROOTDIR` at a
-  10.x prefix and pass the matching `-DTENSORRT_VERSION` (and `-DCUDA_VERSION` for its CUDA
-  series). CI compile-checks the backend against `TENSORRT_LEGACY_VERSION` (10.x, with
-  `DALI_LEGACY_VERSION`) and against the newer `TENSORRT_COMPAT_VERSION`. TensorRT 11 builds
-  strongly typed engines only: on 11.x the engine takes the ONNX model's own precision — convert
-  it first for FP16 ([export guide](export.md#tensorrt-11-and-fp16)); on 10.x an `.onnx` gets an
-  FP16 engine through the FP16 builder flag.
+- **TensorRT 11 only**: older releases are rejected at configure and compile time. TensorRT 11
+  builds strongly typed engines only, so the engine takes the ONNX model's own precision —
+  convert it first for FP16 ([export guide](export.md#tensorrt-11-and-fp16)).
 - Every engine input and output must be float32; the backend rejects an engine that is not.
 - Engines are tied to the TensorRT version that built them — rebuild cached `.engine` files
   after switching TensorRT versions.

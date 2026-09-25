@@ -144,7 +144,7 @@ cmake --build build --parallel
 - The executable will use TensorRT for inference
 - Requires the CUDA Toolkit series `CUDA_VERSION` pins, installed manually, for the bundled TensorRT build
 - TensorRT 11.x has no FP16 builder flag, so convert the ONNX to FP16 first for an FP16 engine ([export guide](export.md#tensorrt-11-and-fp16))
-- TensorRT 10.x still works: `-DTENSORRT_ROOTDIR=<10.x prefix> -DTENSORRT_VERSION=<its version> -DCUDA_VERSION=<its CUDA series>`
+- Only TensorRT 11 is supported; an older `-DTENSORRT_VERSION` is a configure-time error
 - Pre-built `.engine` or `.trt` files are loaded directly, skipping ONNX-to-TensorRT conversion
 
 ## Build with ExecuTorch Backend

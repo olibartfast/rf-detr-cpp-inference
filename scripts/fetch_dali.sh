@@ -34,24 +34,21 @@ dest_name="$(basename "${DEST}")"
 # libdali.so has DT_NEEDED entries for ~24 vendored libraries (libjpeg, ffmpeg,
 # aws-sdk, ...) that RUNPATH resolves through $ORIGIN/.libs.
 #
-# DALI 2.x also dlopen()s nvImageCodec (the image decoder) and its codec libraries
+# DALI also dlopen()s nvImageCodec (the image decoder) and its codec libraries
 # from sibling wheel directories. ldd cannot see them, and without them
 # --gpu-preprocess fails at decode time, so they are flattened next to libdali.so,
 # where the $ORIGIN entries of DALI's and the codec extensions' RUNPATHs reach them.
-# DALI 1.x has no nvimgcodec/ directory and vendors everything into .libs/.
 docker run --rm -v "${dest_parent}:/out" "${TRITON_IMAGE}" \
     sh -lc "cp -a ${WHEEL_DIR}/include /out/${dest_name}/ \
          && cp -a ${WHEEL_DIR}/.libs /out/${dest_name}/ \
          && cp -a ${WHEEL_DIR}/libdali.so ${WHEEL_DIR}/libdali_core.so \
                   ${WHEEL_DIR}/libdali_kernels.so ${WHEEL_DIR}/libdali_operators.so \
                   /out/${dest_name}/ \
-         && if [ -d ${NV_DIR}/nvimgcodec ]; then \
-                cp -a ${NV_DIR}/nvimgcodec/libnvimgcodec.so.0 ${NV_DIR}/nvimgcodec/extensions \
-                      /out/${dest_name}/ \
-                && for lib_dir in cu13/lib libnvcomp/lib64 nvjpeg2k/lib nvtiff/lib; do \
-                       cp -a ${NV_DIR}/\${lib_dir}/*.so* /out/${dest_name}/ || exit 1; \
-                   done; \
-            fi"
+         && cp -a ${NV_DIR}/nvimgcodec/libnvimgcodec.so.0 ${NV_DIR}/nvimgcodec/extensions \
+                  /out/${dest_name}/ \
+         && for lib_dir in cu13/lib libnvcomp/lib64 nvjpeg2k/lib nvtiff/lib; do \
+                cp -a ${NV_DIR}/\${lib_dir}/*.so* /out/${dest_name}/ || exit 1; \
+            done"
 
 if [[ ! -f "${DEST}/include/dali/c_api.h" ]]; then
     echo "error: ${DEST}/include/dali/c_api.h missing after extraction" >&2
