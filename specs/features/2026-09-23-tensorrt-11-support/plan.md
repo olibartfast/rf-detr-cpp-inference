@@ -26,3 +26,7 @@ Pin bump (requirements 8–11, added 2026-09-24):
     rfdetr-alignment skills.
 11. Docker gate on `dockerfile.trt` (26.08 images) and gpu-verify on the local RTX 3060 Laptop,
     including the checked-in `.dali` pipelines under DALI 2.2.0.
+12. DALI 2.x `dlopen()`s nvImageCodec and its codec libraries (nvJPEG, nvCOMP, nvJPEG2000, nvTIFF)
+    from sibling wheel directories that ldd cannot see. `dockerfile.trt`'s `dali-fetch` stage and
+    `scripts/fetch_dali.sh` flatten them next to `libdali.so`, keeping `DALI_ROOT` a single
+    directory; DALI 1.x (no `nvimgcodec/`) is staged as before.

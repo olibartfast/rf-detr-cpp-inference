@@ -31,6 +31,10 @@ Notable user-visible changes to this project and compatibility updates for upstr
   `TensorRT-Enterprise-<v>-Linux-x86_64-cuda-<cuda>-Release-external.tar.zst` (10.x keeps the old
   `.tar.gz` name). "Enterprise" is NVIDIA's name for standard TensorRT from 11.x, under the same
   free license.
+- DALI staging (`dockerfile.trt` and `scripts/fetch_dali.sh`) also copies nvImageCodec and its
+  codec libraries next to `libdali.so`: DALI 2.x loads them with `dlopen()`, and without them
+  `--gpu-preprocess` fails with `dlopen libnvimgcodec.so failed!`. Re-run `fetch_dali.sh` into an
+  empty directory to replace a DALI 1.x prefix.
 - CI header staging takes the DALI wheel from the `cuda130` index and looks up its file name, since
   the manylinux tag differs between DALI 1.x and 2.x.
 - Pinned versions are stated only in `versions.env` and restated only where a file cannot read it.
