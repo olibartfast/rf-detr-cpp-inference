@@ -70,9 +70,9 @@ stale pipeline file fails loudly rather than silently degrading results.
 
 ## Version pinning
 DALI libraries and pipeline serialization both come from the same pinned
-container, `nvcr.io/nvidia/tritonserver:25.12-py3` (override with
+container, `nvcr.io/nvidia/tritonserver:<NGC_CONTAINER_TAG>-py3` (override with
 `TRITON_IMAGE=...` on both scripts), keeping the DALI/CUDA/TensorRT triple
-consistent with the TensorRT 10.13.3.9 / CUDA 13.x pin above.
+consistent with the `TENSORRT_VERSION` / `CUDA_VERSION` pins in `versions.env`.
 
 ## Video Processing
 Video files are processed using a **four-stage ring buffer pipeline** that maximizes throughput with zero frame copies between stages:

@@ -139,11 +139,12 @@ cmake --build build --parallel
 ```
 
 **What happens**:
-- TensorRT 10.13.3.9 is automatically downloaded if not found
+- The TensorRT pinned by `TENSORRT_VERSION` in [`versions.env`](../versions.env) is automatically downloaded if not found
 - Libraries are configured with RPATH - no need to set `LD_LIBRARY_PATH`
 - The executable will use TensorRT for inference
-- Requires CUDA 13.x installed manually for the bundled TensorRT 10.13.3.9 build
-- TensorRT 11.x also works: `-DTENSORRT_ROOTDIR=<11.x prefix> -DTENSORRT_VERSION=<its version>`. It has no FP16 builder flag, so convert the ONNX to FP16 first for an FP16 engine ([export guide](export.md#tensorrt-11-and-fp16))
+- Requires the CUDA Toolkit series `CUDA_VERSION` pins, installed manually, for the bundled TensorRT build
+- TensorRT 11.x has no FP16 builder flag, so convert the ONNX to FP16 first for an FP16 engine ([export guide](export.md#tensorrt-11-and-fp16))
+- TensorRT 10.x still works: `-DTENSORRT_ROOTDIR=<10.x prefix> -DTENSORRT_VERSION=<its version> -DCUDA_VERSION=<its CUDA series>`
 - Pre-built `.engine` or `.trt` files are loaded directly, skipping ONNX-to-TensorRT conversion
 
 ## Build with ExecuTorch Backend
@@ -162,12 +163,13 @@ cmake --build build --parallel
 
 ### Building the ExecuTorch install prefix
 
-ExecuTorch **v1.4.0** is the pinned C++ runtime. The `rfdetr[executorch]==1.10.1`
-extra allows ExecuTorch `>=1.3,<2.0` and does not guarantee that version; `.pte` schema
+`EXECUTORCH_VERSION` in [`versions.env`](../versions.env) is the pinned C++ runtime. The
+pinned `rfdetr[executorch]` extra allows ExecuTorch `>=1.3,<2.0` and does not guarantee that version; `.pte` schema
 compatibility across ExecuTorch versions is not guaranteed.
 
 ```bash
-git clone --depth 1 -b v1.4.0 https://github.com/pytorch/executorch.git
+source scripts/versions.sh   # exports EXECUTORCH_VERSION from versions.env
+git clone --depth 1 -b "${EXECUTORCH_VERSION}" https://github.com/pytorch/executorch.git
 cd executorch && git submodule update --init --recursive --depth 1
 
 # ExecuTorch runs operator codegen through PYTHON_EXECUTABLE during its own
@@ -219,7 +221,7 @@ link against one C++ runtime.
 
 **What happens**:
 - `EXECUTORCH_ROOTDIR` is added to `CMAKE_PREFIX_PATH` and resolved with `find_package(executorch CONFIG)`
-- If no install prefix is found, the build falls back to compiling ExecuTorch v1.4.0 from source with the optimized kernels enabled (slow; needs a Python interpreter with ExecuTorch's build-time dependencies, since ExecuTorch runs flatbuffers codegen during its own configure)
+- If no install prefix is found, the build falls back to compiling the pinned ExecuTorch from source with the optimized kernels enabled (slow; needs a Python interpreter with ExecuTorch's build-time dependencies, since ExecuTorch runs flatbuffers codegen during its own configure)
 - `-DEXECUTORCH_DELEGATE=xnnpack` (default) or `portable` selects the delegate library to link, which must match the delegate the `.pte` was exported with — a mismatch fails at run time, not at link time
 - At load the backend verifies the program returns `dets` before `labels`, since ExecuTorch outputs are an unnamed tuple and postprocessing addresses them positionally
 

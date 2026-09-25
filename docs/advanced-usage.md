@@ -38,19 +38,20 @@ prints is specialized to whichever backend it was built with.
 
 ### ONNX Runtime (default)
 
-Version **1.21.0**. The official CPU archive is downloaded automatically, selected from the
-**target** OS and architecture (`CMAKE_SYSTEM_NAME` / `CMAKE_SYSTEM_PROCESSOR`) — so
-cross-compiling picks the target's archive rather than the host's:
+The version is `ONNX_RUNTIME_VERSION` in [`versions.env`](../versions.env). The official CPU
+archive is downloaded automatically, selected from the **target** OS and architecture
+(`CMAKE_SYSTEM_NAME` / `CMAKE_SYSTEM_PROCESSOR`) — so cross-compiling picks the target's
+archive rather than the host's:
 
 | Target | Archive |
 |--------|---------|
-| Linux x86_64 / amd64 | `onnxruntime-linux-x64-1.21.0.tgz` |
-| Linux aarch64 / arm64 | `onnxruntime-linux-aarch64-1.21.0.tgz` |
-| Windows x86_64 / amd64 | `onnxruntime-win-x64-1.21.0.zip` |
-| Windows arm64 | `onnxruntime-win-arm64-1.21.0.zip` |
+| Linux x86_64 / amd64 | `onnxruntime-linux-x64-<version>.tgz` |
+| Linux aarch64 / arm64 | `onnxruntime-linux-aarch64-<version>.tgz` |
+| Windows x86_64 / amd64 | `onnxruntime-win-x64-<version>.zip` |
+| Windows arm64 | `onnxruntime-win-arm64-<version>.zip` |
 
 That table lists only the *automatic* downloads. Other targets supply a compatible build
-through `-DONNXRUNTIME_ROOTDIR=<prefix>` or a package manager (`onnxruntime/1.21.0` for Conan,
+through `-DONNXRUNTIME_ROOTDIR=<prefix>` or a package manager (`onnxruntime/<version>` for Conan,
 `onnxruntime` for vcpkg). Loading the dependency catalog does not reject those targets when
 ONNX Runtime is disabled; an enabled backend fails resolution only when no provider can
 supply it.
@@ -61,20 +62,23 @@ until the backend is extended to register one. For GPU inference, use TensorRT.
 
 ### TensorRT
 
-Version **10.13.3.9**, downloaded automatically during the build if not found. It needs the
-**CUDA Toolkit 13.0** series (`CUDA_VERSION` in `versions.env`), which must be installed
-manually — the bundled TensorRT archive is built against it.
+The version is `TENSORRT_VERSION` in [`versions.env`](../versions.env), downloaded automatically
+during the build if not found. It needs the CUDA Toolkit series `CUDA_VERSION` pins, which must
+be installed manually — the bundled TensorRT archive is built against it. (From 11.x NVIDIA names
+the archive `TensorRT-Enterprise-….tar.zst`; that is the standard TensorRT, not a paid edition.)
 
 - Linux with an NVIDIA GPU only.
 - TensorRT libraries are configured with RPATH, so no `LD_LIBRARY_PATH` is needed.
 - A pre-built `.engine` or `.trt` is loaded directly, skipping ONNX-to-TensorRT conversion.
   Passing an `.onnx` instead builds an engine and caches it beside the model — convenient for
   a first run, but the conversion cost is paid once per model and machine.
-- **TensorRT 11.x** is supported as well as the pinned 10.x; point `-DTENSORRT_ROOTDIR` at an 11.x
-  prefix and pass the matching `-DTENSORRT_VERSION`. CI compile-checks the backend against
-  `TENSORRT_COMPAT_VERSION` (11.3.0.99). TensorRT 11 builds strongly typed engines only: on 10.x
-  an `.onnx` gets an FP16 engine through the FP16 builder flag, on 11.x the engine takes the
-  ONNX model's own precision — convert it first for FP16 ([export guide](export.md#tensorrt-11-and-fp16)).
+- **TensorRT 10.x** is still supported alongside the pinned 11.x; point `-DTENSORRT_ROOTDIR` at a
+  10.x prefix and pass the matching `-DTENSORRT_VERSION` (and `-DCUDA_VERSION` for its CUDA
+  series). CI compile-checks the backend against `TENSORRT_LEGACY_VERSION` (10.x, with
+  `DALI_LEGACY_VERSION`) and against the newer `TENSORRT_COMPAT_VERSION`. TensorRT 11 builds
+  strongly typed engines only: on 11.x the engine takes the ONNX model's own precision — convert
+  it first for FP16 ([export guide](export.md#tensorrt-11-and-fp16)); on 10.x an `.onnx` gets an
+  FP16 engine through the FP16 builder flag.
 - Every engine input and output must be float32; the backend rejects an engine that is not.
 - Engines are tied to the TensorRT version that built them — rebuild cached `.engine` files
   after switching TensorRT versions.
@@ -86,8 +90,8 @@ Build steps: [building.md](building.md#build-with-tensorrt-backend).
 
 ### ExecuTorch
 
-Version **v1.4.0**, resolved from an install prefix via `-DEXECUTORCH_ROOTDIR`, otherwise
-built from source (slow — and it needs a Python interpreter carrying ExecuTorch's build
+The version is `EXECUTORCH_VERSION` in [`versions.env`](../versions.env), resolved from an install
+prefix via `-DEXECUTORCH_ROOTDIR`, otherwise built from source (slow — and it needs a Python interpreter carrying ExecuTorch's build
 dependencies, since a bare `python3` cannot `import torchgen`).
 
 - Model format is `.pte`, exported by `rfdetr[executorch]` 1.9.0 or newer.
@@ -167,7 +171,7 @@ What each half resolves: the CUDA Toolkit comes from CMake's `FindCUDAToolkit`, 
 header-only, bundled with the toolkit — is used by the postprocessing kernels. DALI is
 ROOT-only: NVIDIA ships no standalone C++ DALI distribution, so `./scripts/fetch_dali.sh`
 extracts the C API libraries and headers from a pinned Triton container
-(`nvcr.io/nvidia/tritonserver:25.12-py3`) into `~/dependencies/dali`, which is what you point
+(`nvcr.io/nvidia/tritonserver:<NGC_CONTAINER_TAG>-py3`) into `~/dependencies/dali`, which is what you point
 `-DDALI_ROOT` at.
 
 ### Build type and diagnostics
@@ -243,11 +247,12 @@ every pin is overridable in place, and neither loader clobbers a value already s
 ```bash
 # CMake pins take -D
 cmake -S . -B build -DONNX_RUNTIME_VERSION=1.22.0
-cmake -S . -B build -DTENSORRT_VERSION=10.14.1.48
+# A TensorRT release ships for one CUDA series, so a TensorRT override usually needs both
+cmake -S . -B build -DTENSORRT_VERSION=10.14.1.48 -DCUDA_VERSION=13.0
 
 # Shell-script pins take the environment
 TRITON_IMAGE=nvcr.io/nvidia/tritonserver:26.01-py3 ./scripts/fetch_dali.sh
-TENSORRT_VERSION=10.14.1.48 ./scripts/ci/stage_gpu_headers.sh
+TENSORRT_VERSION=10.14.1.48 CUDA_VERSION=13.0 ./scripts/ci/stage_gpu_headers.sh
 ```
 
 Some coordinates are **derived**, not stored — do not add variables for them.
@@ -260,10 +265,11 @@ To bump a pin for real, edit the one line in `versions.env` and then run:
 ./scripts/check_version_sync.sh
 ```
 
-It reports the four formats that cannot read a file — the backend Dockerfiles' `ARG` defaults,
-`conanfile.txt`, `deploy/requirements.txt`, and the `deploy/export_*.py` opset defaults — and
-fails until they match. CI runs it as the `Version Sync` job. The prose in `README.md` and
-`docs/` is required but **not** machine-checked, so reconcile it by hand. Full procedure:
+It reports the five formats that cannot read a file — the backend Dockerfiles' `ARG` defaults,
+`conanfile.txt`, `deploy/requirements.txt`, the `deploy/export_*.py` opset defaults, and the
+two version tables in `README.md` — and fails until they match. CI runs it as the
+`Version Sync` job. No other prose states a pinned version: `docs/` and `specs/` name the
+`versions.env` variable instead, so a bump needs no prose edits. Full procedure:
 [Bumping a version](../specs/tech-stack.md#bumping-a-version).
 
 ---

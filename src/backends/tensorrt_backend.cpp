@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <iterator>
+#include <numeric>
 #include <stdexcept>
 
 namespace rfdetr::backend {
@@ -164,10 +166,8 @@ std::vector<int64_t> TensorRTBackend::initialize(const std::filesystem::path &mo
 
     // Allocate host output buffers
     for (const auto &shape : output_shapes_) {
-        size_t size = 1;
-        for (const auto dim : shape) {
-            size *= static_cast<size_t>(dim);
-        }
+        const size_t size = std::accumulate(shape.begin(), shape.end(), size_t{1},
+                                            [](size_t acc, int64_t dim) { return acc * static_cast<size_t>(dim); });
         host_output_buffers_.emplace_back(size);
     }
 
@@ -373,9 +373,9 @@ std::vector<void *> TensorRTBackend::run_inference(std::span<const float> input_
 
     // Return pointers to host buffers
     std::vector<void *> output_ptrs;
-    for (auto &buffer : host_output_buffers_) {
-        output_ptrs.push_back(buffer.data());
-    }
+    output_ptrs.reserve(host_output_buffers_.size());
+    std::transform(host_output_buffers_.begin(), host_output_buffers_.end(), std::back_inserter(output_ptrs),
+                   [](auto &buffer) -> void * { return buffer.data(); });
 
     return output_ptrs;
 }
@@ -390,10 +390,9 @@ void TensorRTBackend::run_inference_device(const void *input_device, const std::
     // pointer back; skip the self-copy in that case.
     void *const binding = device_buffers_[static_cast<size_t>(input_binding_index_)];
     if (input_device != binding) {
-        size_t input_bytes = sizeof(float);
-        for (const auto dim : input_shape) {
-            input_bytes *= static_cast<size_t>(dim);
-        }
+        const size_t input_bytes =
+            std::accumulate(input_shape.begin(), input_shape.end(), sizeof(float),
+                            [](size_t acc, int64_t dim) { return acc * static_cast<size_t>(dim); });
         if (cudaMemcpyAsync(binding, input_device, input_bytes, cudaMemcpyDeviceToDevice, stream_) != cudaSuccess) {
             throw std::runtime_error("Failed to copy device input into the TensorRT input binding");
         }

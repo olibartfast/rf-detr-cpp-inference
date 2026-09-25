@@ -12,3 +12,17 @@
 5. Docs: `docs/export.md` "TensorRT 11 and FP16", `docs/advanced-usage.md`, `docs/building.md`,
    README versions table, `specs/tech-stack.md`, `AGENTS.md`, `CHANGELOG.md` (no GPU).
 6. Validate per `validation.md`; the runtime half is UNRUN until a gpu-verify pass on 11.x.
+
+Pin bump (requirements 8–11, added 2026-09-24):
+
+7. `TensorRT.cmake`: pick the archive name by `TENSORRT_VERSION` major; check both URL forms
+   resolve and configure through the download path with the cached 11.2.1.2 archive.
+8. `versions.env` + `dockerfile.trt` `ARG` defaults to the 26.08 stack; `*_LEGACY_VERSION` pins.
+9. `stage_gpu_headers.sh`: `TRT_HEADERS=legacy` (TensorRT from apt, `+cuda<v>` suffix looked up in
+   the repo index; DALI legacy wheel); DALI wheel name looked up from the `cuda130` index since the
+   manylinux tag differs between 1.x and 2.x. `gpu-compile.yml`: legacy matrix entry.
+10. Prose: replace pinned values with variable names; extend `check_version_sync.sh` to the README
+    tables; update `AGENTS.md`, `specs/tech-stack.md`, `specs/mission.md`, the release and
+    rfdetr-alignment skills.
+11. Docker gate on `dockerfile.trt` (26.08 images) and gpu-verify on the local RTX 3060 Laptop,
+    including the checked-in `.dali` pipelines under DALI 2.2.0.

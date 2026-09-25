@@ -27,9 +27,15 @@
 #
 # TRT_HEADERS=compat stages TENSORRT_COMPAT_VERSION instead, into
 # <dest>/tensorrt-compat-headers, from the public headers in the NVIDIA/TensorRT OSS
-# repository (tag v<major>.<minor>). That is the forward-compat compile gate: it
-# proves the backend still builds against the next TensorRT major before anything
-# pins it. Configure with -DTENSORRT_ROOTDIR=<dest>/tensorrt-compat-headers.
+# repository. That is the forward-compat compile gate: it proves the backend still
+# builds against a newer TensorRT before anything pins it. Configure with
+# -DTENSORRT_ROOTDIR=<dest>/tensorrt-compat-headers.
+#
+# TRT_HEADERS=legacy is the backward-compat gate: the previous stack,
+# TENSORRT_LEGACY_VERSION (apt headers, into <dest>/tensorrt-legacy-headers) with
+# DALI_LEGACY_VERSION (into <dest>/dali-legacy-headers), so the TensorRT 10.x and
+# DALI 1.x branches keep compiling after the pin moved past them. Configure with
+# -DTENSORRT_ROOTDIR=<dest>/tensorrt-legacy-headers -DDALI_ROOT=<dest>/dali-legacy-headers.
 set -euo pipefail
 
 # TENSORRT_DEB_VERSION is derived as ${TENSORRT_VERSION}-1+cuda${CUDA_VERSION};
@@ -40,19 +46,25 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../versions.sh"
 
 CUDA_REPO="https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64"
-DALI_INDEX="https://pypi.nvidia.com/nvidia-dali-cuda120"
+DALI_INDEX="https://pypi.nvidia.com/nvidia-dali-cuda130"
 
 DEST="${1:-${HOME}/dependencies}"
 TRT_HEADERS="${TRT_HEADERS:-pinned}"
 case "${TRT_HEADERS}" in
     pinned) TRT_DIR="${DEST}/tensorrt-headers" ;;
     compat) TRT_DIR="${DEST}/tensorrt-compat-headers" ;;
+    legacy) TRT_DIR="${DEST}/tensorrt-legacy-headers" ;;
     *)
-        echo "error: TRT_HEADERS must be 'pinned' or 'compat', got '${TRT_HEADERS}'" >&2
+        echo "error: TRT_HEADERS must be 'pinned', 'compat' or 'legacy', got '${TRT_HEADERS}'" >&2
         exit 1
         ;;
 esac
-DALI_DIR="${DEST}/dali-headers"
+if [[ "${TRT_HEADERS}" == legacy ]]; then
+    DALI_DIR="${DEST}/dali-legacy-headers"
+    DALI_VERSION="${DALI_LEGACY_VERSION}"
+else
+    DALI_DIR="${DEST}/dali-headers"
+fi
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "${tmp}"' EXIT
@@ -68,7 +80,9 @@ stub_lib() {
 if [[ -f "${TRT_DIR}/include/NvInfer.h" ]]; then
     echo "TensorRT headers already staged at ${TRT_DIR}"
 elif [[ "${TRT_HEADERS}" == compat ]]; then
-    # 11.3.0.99 -> v11.3, the tag scheme of github.com/NVIDIA/TensorRT.
+    # 11.3.0.99 -> v11.3, the tag scheme of github.com/NVIDIA/TensorRT for 11.x. (10.x
+    # tags are v<major>.<minor>.<patch> and keep NvOnnxParser.h in a submodule, which is
+    # why the legacy gate stages from apt instead.)
     trt_tag="v$(printf '%s' "${TENSORRT_COMPAT_VERSION}" | cut -d. -f1-2)"
     echo "Staging TensorRT ${TENSORRT_COMPAT_VERSION} headers (OSS ${trt_tag}) -> ${TRT_DIR}"
     # Sparse, blobless: only include/ is ever downloaded, not the plugin and sample trees.
@@ -80,10 +94,22 @@ elif [[ "${TRT_HEADERS}" == compat ]]; then
     stub_lib "${TRT_DIR}/lib/libnvinfer.so"
     stub_lib "${TRT_DIR}/lib/libnvonnxparser.so"
 else
-    echo "Staging TensorRT ${TENSORRT_DEB_VERSION} headers -> ${TRT_DIR}"
+    deb_version="${TENSORRT_DEB_VERSION}"
+    if [[ "${TRT_HEADERS}" == legacy ]]; then
+        # The legacy TensorRT was built for an older CUDA than CUDA_VERSION, so take its
+        # newest +cuda<v> build from the repo index instead of pinning a second CUDA.
+        deb_version="$(curl -fsSL "${CUDA_REPO}/Packages.gz" | gunzip \
+            | grep -o "libnvinfer-headers-dev_${TENSORRT_LEGACY_VERSION}-1+cuda[0-9.]*_amd64" \
+            | sed -e 's/^libnvinfer-headers-dev_//' -e 's/_amd64$//' | sort -V | tail -n1)"
+        if [[ -z "${deb_version}" ]]; then
+            echo "error: no TensorRT ${TENSORRT_LEGACY_VERSION} headers in ${CUDA_REPO}" >&2
+            exit 1
+        fi
+    fi
+    echo "Staging TensorRT ${deb_version} headers -> ${TRT_DIR}"
     for pkg in libnvinfer-headers-dev libnvonnxparsers-dev; do
         curl -fsSL -o "${tmp}/${pkg}.deb" \
-            "${CUDA_REPO}/${pkg}_${TENSORRT_DEB_VERSION}_amd64.deb"
+            "${CUDA_REPO}/${pkg}_${deb_version}_amd64.deb"
         dpkg-deb -x "${tmp}/${pkg}.deb" "${tmp}/trt-root"
     done
     mkdir -p "${TRT_DIR}/include"
@@ -96,7 +122,14 @@ if [[ -f "${DALI_DIR}/include/dali/c_api.h" ]]; then
     echo "DALI headers already staged at ${DALI_DIR}"
 else
     echo "Staging DALI ${DALI_VERSION} headers -> ${DALI_DIR}"
-    wheel="nvidia_dali_cuda120-${DALI_VERSION}-py3-none-manylinux2014_x86_64.whl"
+    # The manylinux tag changes between releases (1.x manylinux2014, 2.x manylinux_2_28),
+    # so take the x86_64 wheel name from the index rather than spelling it out.
+    wheel="$(curl -fsSL "${DALI_INDEX}/" \
+        | grep -o "nvidia_dali_cuda130-${DALI_VERSION}-py3-none-[a-z0-9_]*x86_64\.whl" | head -n1)"
+    if [[ -z "${wheel}" ]]; then
+        echo "error: no x86_64 DALI ${DALI_VERSION} wheel at ${DALI_INDEX}" >&2
+        exit 1
+    fi
     curl -fsSL -o "${tmp}/${wheel}" "${DALI_INDEX}/${wheel}"
     unzip -q "${tmp}/${wheel}" 'nvidia/dali/include/*' -d "${tmp}/dali-root"
     mkdir -p "${DALI_DIR}"

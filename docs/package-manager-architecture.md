@@ -91,7 +91,7 @@ deps_declare(ExecuTorch
     APT_IMPORTED_TARGETS     "executorch;extension_module_static;..."
     PROVIDED_ACQUIRE         FETCHCONTENT      # 2nd: clone + build from source
     PROVIDED_FC_REPO         "https://github.com/pytorch/executorch.git"
-    PROVIDED_FC_TAG          "v1.4.0"
+    PROVIDED_FC_TAG          "${EXECUTORCH_VERSION}"
     PROVIDED_FC_SUBMODULES   RECURSE
     PROVIDED_FC_OPTIONS      "EXECUTORCH_BUILD_XNNPACK=ON;..."
 )
@@ -114,9 +114,9 @@ unused by the existing `GTest` / `GoogleBenchmark` entries:
 
 | dependency | apt mode | conan mode | vcpkg mode |
 |---|---|---|---|
-| ONNX Runtime 1.21.0 | provided-download | provided-download | provided-download |
-| TensorRT 10.13.3.9 | provided-download | provided-download | provided-download |
-| ExecuTorch v1.4.0 | apt-find_package, else provided-FetchContent | same | same |
+| ONNX Runtime | provided-download | provided-download | provided-download |
+| TensorRT | provided-download | provided-download | provided-download |
+| ExecuTorch | apt-find_package, else provided-FetchContent | same | same |
 | OpenCV | apt | **conan** | vcpkg (slow) |
 | FFmpeg | apt | **conan** | **vcpkg** |
 | SDL2 | apt | **conan** | **vcpkg** |
@@ -149,7 +149,7 @@ chained as a fallback for system packages (Threads).
 which handler + version resolved each dependency:
 
 ```json
-{"dependencies":{"OnnxRuntime":{"handler":"provided","version":"1.21.0"},...}}
+{"dependencies":{"OnnxRuntime":{"handler":"provided","version":"<ONNX_RUNTIME_VERSION>"},...}}
 ```
 
 ## Conan CMakeDeps-only mode

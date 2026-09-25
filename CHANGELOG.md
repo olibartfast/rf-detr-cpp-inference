@@ -7,8 +7,7 @@ Notable user-visible changes to this project and compatibility updates for upstr
 
 ### Added
 
-- TensorRT 11.x support in the TensorRT backend, keeping 10.x (the pinned `TENSORRT_VERSION`,
-  10.13.3.9) unchanged. TensorRT 11 removed weak typing and `BuilderFlag::kFP16`, which made the
+- TensorRT 11.x support in the TensorRT backend, keeping 10.x working. TensorRT 11 removed weak typing and `BuilderFlag::kFP16`, which made the
   backend fail to compile; the flag is now set on 10.x only. On 11.x an engine built from an
   `.onnx` takes the model's own precision, so an FP16 engine needs an FP16-converted ONNX — see
   "TensorRT 11 and FP16" in `docs/export.md`. Existing `.engine` files must be rebuilt after
@@ -17,9 +16,28 @@ Notable user-visible changes to this project and compatibility updates for upstr
   `versions.env` gains `TENSORRT_COMPAT_VERSION=11.3.0.99`, compile-checked only;
   `scripts/ci/stage_gpu_headers.sh` stages it with `TRT_HEADERS=compat` from the NVIDIA/TensorRT
   OSS repository.
+- Backward-compat CI job: `gpu-compile.yml` compiles the full GPU pipeline against the previous
+  stack, `TENSORRT_LEGACY_VERSION=10.13.3.9` with `DALI_LEGACY_VERSION=1.51.2` (both new in
+  `versions.env`), via `TRT_HEADERS=legacy` in `scripts/ci/stage_gpu_headers.sh`.
 
 ### Changed
 
+- **Pinned GPU stack moved to NGC 26.08** (`nvcr.io/nvidia/tensorrt:26.08-py3`): TensorRT
+  10.13.3.9 → **11.2.1.2**, CUDA 13.0 → **13.3**, `NGC_CONTAINER_TAG` 25.12 → **26.08**, DALI
+  1.51.2 → **2.2.0**. `dockerfile.trt` builds on the 26.08 images. Rebuild cached `.engine` files;
+  an `.onnx` now builds an FP32 engine unless converted to FP16 first (TensorRT 11 has no FP16
+  builder flag).
+- The TensorRT download handles NVIDIA's 11.x archive naming,
+  `TensorRT-Enterprise-<v>-Linux-x86_64-cuda-<cuda>-Release-external.tar.zst` (10.x keeps the old
+  `.tar.gz` name). "Enterprise" is NVIDIA's name for standard TensorRT from 11.x, under the same
+  free license.
+- CI header staging takes the DALI wheel from the `cuda130` index and looks up its file name, since
+  the manylinux tag differs between DALI 1.x and 2.x.
+- Pinned versions are stated only in `versions.env` and restated only where a file cannot read it.
+  `docs/` and `specs/` now name the variable (`TENSORRT_VERSION`, …) instead of repeating its value,
+  and commands read it via `source scripts/versions.sh`; `check_version_sync.sh` now also verifies
+  the README version tables, so a bump no longer needs hand-edited prose.
+- The `trtexec` recipes in `docs/export.md` target TensorRT 11 (no `--fp16`).
 - The TensorRT backend rejects an engine whose inputs or outputs are not float32, instead of
   copying float32-sized buffers into them. rfdetr exports are float32 throughout; this guards a
   reduced-precision ONNX converted without keeping its I/O types.

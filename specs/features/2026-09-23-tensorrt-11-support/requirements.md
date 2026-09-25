@@ -32,8 +32,25 @@ Upstream rfdetr 1.10.1 has the same FP16 problem in its native TensorRT export
 6. `export_trt.sh` works on containers with either `trtexec`.
 7. Docs explain the 11.x FP16 route (ModelOpt AutoCast with `--keep_io_types`).
 
+## Pin bump to the 26.08 stack (added 2026-09-24)
+
+Originally out of scope; brought in on request. The pinned stack moves to what
+`nvcr.io/nvidia/tensorrt:26.08-py3` ships, with the previous stack kept compiling.
+
+8. `versions.env` pins `TENSORRT_VERSION=11.2.1.2`, `CUDA_VERSION=13.3` (the CUDA series NVIDIA
+   builds 11.2.1.2 for), `NGC_CONTAINER_TAG=26.08` and `DALI_VERSION=2.2.0` (the DALI in
+   `tritonserver:26.08-py3`); `dockerfile.trt` follows through its `ARG` defaults.
+9. Backward compatibility: TensorRT 10.x and DALI 1.x remain supported. `versions.env` gains
+   `TENSORRT_LEGACY_VERSION=10.13.3.9` and `DALI_LEGACY_VERSION=1.51.2`, and `gpu-compile.yml`
+   compiles the full GPU pipeline against them (`TRT_HEADERS=legacy`) on every PR.
+10. The TensorRT download works for both majors: `cmake/deps/packages/TensorRT.cmake` derives the
+    10.x `….tar.gz` or 11.x `TensorRT-Enterprise-…-Release-external.tar.zst` archive name from
+    `TENSORRT_VERSION`.
+11. No prose outside the README version tables states a pinned value; `docs/` and `specs/` name the
+    `versions.env` variable, commands read it through `scripts/versions.sh`, and
+    `check_version_sync.sh` verifies the README tables.
+
 ## Out of scope
 
-- Bumping `TENSORRT_VERSION`, `NGC_CONTAINER_TAG` or `dockerfile.trt` to 11.x. That is a separate
-  pin bump that needs the gpu-verify gate on real hardware, including FP16-converted parity.
 - An in-repo FP16 conversion script (would add an unverified `nvidia-modelopt` pin).
+- Dropping TensorRT 10.x or DALI 1.x.
