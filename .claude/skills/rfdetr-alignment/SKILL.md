@@ -50,7 +50,7 @@ commitments). Fixing one alone is the failure mode this rule exists to prevent. 
 | What | Where |
 |------|-------|
 | `rfdetr[onnx]` version | `deploy/requirements.txt` — the only pinned pip requirement |
-| Version statement | `specs/tech-stack.md` export-tooling row, and `specs/mission.md` "currently **X.Y.Z**" |
+| Version statement | `RFDETR_VERSION` in `versions.env` (restated in `deploy/requirements.txt` and the README tables; `check_version_sync.sh` verifies both) |
 | Export guidance | `docs/export.md` |
 | Any container tag that moves with it | `scripts/fetch_dali.sh`, `scripts/generate_dali_pipelines.sh`, `export_trt.sh` — the same tag lives in all three |
 
@@ -60,8 +60,10 @@ Per the Spec Sync rule in `AGENTS.md`:
 
 - [ ] `README.md` updated in the **same change** whenever code, build options, backend versions,
       Docker images, or export packages move
-- [ ] README statements verified against `CMakeLists.txt`, `CMakePresets.json`,
-      `deploy/requirements.txt`, `dockerfile.*`, `docs/export.md`
+- [ ] `RFDETR_VERSION` bumped in `versions.env` and `./scripts/check_version_sync.sh` passes (it
+      covers `deploy/requirements.txt` and the README tables; other prose names the variable)
+- [ ] Remaining README statements verified against `CMakeLists.txt`, `CMakePresets.json`,
+      `dockerfile.*`, `docs/export.md`
 - [ ] `CHANGELOG.md` entry under `[Unreleased]`: a heading naming the release, a link to the
       upstream release tag, prose on what changed upstream and why it does or does not reach C++,
       and a per-file change table

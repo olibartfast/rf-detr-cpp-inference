@@ -36,10 +36,10 @@ These disagree today and must be made to agree as part of the release:
 | `vcpkg.json` | `0.1.0` |
 | `README.md` badge | `0.4.0` |
 
-Pick the release version, set all three, and note the reconciliation in the CHANGELOG. Also check
-the known pin duplications in `specs/tech-stack.md`: TensorRT is pinned in
-`cmake/deps/packages/TensorRT.cmake:9` **and** hardcoded in `dockerfile.trt`; the Triton container tag
-appears in `scripts/fetch_dali.sh`, `scripts/generate_dali_pipelines.sh`, and `export_trt.sh`.
+Pick the release version, set all three, and note the reconciliation in the CHANGELOG. Dependency
+pins live only in `versions.env`: run `./scripts/check_version_sync.sh`, which verifies every
+restatement (Dockerfile `ARG`s, `conanfile.txt`, `deploy/requirements.txt`, export defaults, the
+README version tables), and see "Known pin duplications" in `specs/tech-stack.md`.
 
 ## Step 3 — Spec Sync checklist
 
@@ -47,12 +47,12 @@ From `AGENTS.md`. Every box is mandatory:
 
 - [ ] `README.md` updated in the same change as any code, build-option, backend-version, Docker, or
       export-package move
-- [ ] README dependency and version statements verified against `CMakeLists.txt`,
-      `CMakePresets.json`, `deploy/requirements.txt`, `dockerfile.*`, `docs/export.md`
+- [ ] `./scripts/check_version_sync.sh` passes (README version tables and every other restatement)
+- [ ] README build options and backend constraints verified against `CMakeLists.txt`,
+      `CMakePresets.json`, `dockerfile.*`, `docs/export.md`
 - [ ] README lists current C++ library/runtime versions, CMake options, backend constraints, and
       the pip packages used for export tooling
 - [ ] `specs/tech-stack.md` matches the files that own each pin
-- [ ] `specs/mission.md` upstream-version line is current
 - [ ] Any completed roadmap phase is ticked `[x]` and its heading marked `(Complete)`
 - [ ] If the release intentionally needs no README change, the reason is written in `CHANGELOG.md`
 

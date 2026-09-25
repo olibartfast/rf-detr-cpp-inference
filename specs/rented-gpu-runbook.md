@@ -77,7 +77,7 @@ have checked-in `.dali` pipelines. Anything else needs
 
 ```bash
 python3.11 -m venv rfdetr_venv && source rfdetr_venv/bin/activate
-pip install rfdetr[onnx]==1.10.1
+pip install -r deploy/requirements.txt   # the pinned rfdetr[onnx]
 python deploy/export_segmentation.py --model_type medium --input_size 432
 ```
 
@@ -136,7 +136,7 @@ cd ~/rfdetr_inference && git checkout develop
 
 # ~25 GB image pulled to extract ~1 GB of DALI. Drop it afterwards.
 ./scripts/fetch_dali.sh
-docker image rm nvcr.io/nvidia/tritonserver:25.12-py3 || true
+(source scripts/versions.sh && docker image rm "${TRITON_IMAGE}") || true
 
 touch ~/SETUP_DONE
 ```
