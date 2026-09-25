@@ -45,3 +45,24 @@ Headers: NVIDIA/TensorRT OSS tags `v10.13.3` and `v11.3` (`include/`); CUDA 13.0
   same run with no workaround. `fetch_dali.sh` into a fresh directory stages the flattened layout.
 - UNRUN: the gpu-verify parity tolerances, compute-sanitizer and benchmarks over a video; the
   432 pipelines.
+
+## One version only — 2026-09-26, local machine
+
+- PASS: `-DWERROR=ON -DUSE_GPU_PIPELINE=ON` full build against the TensorRT 11.2.1.2 tarball and the
+  staged DALI prefix; unit tests pass.
+- PASS (negative): `-DTENSORRT_VERSION=10.13.3.9` stops at configure (`only TensorRT 11 is
+  supported`); compiling against the 10.13.3.9 headers stops at the `#error` in
+  `tensorrt_backend.hpp`.
+- PASS: `fetch_dali.sh` into a fresh directory stages nvImageCodec and the codec libraries without
+  the removed DALI 1.x guard.
+- PASS: clang-format-18, cppcheck, `check_version_sync.sh`, `check_dockerfile_parity.sh`;
+  clang-tidy-18 reports only warnings that were already there (`WarningsAsErrors` is empty).
+- PASS: `dockerfile.trt` builds for all eight `MEDIA_BACKEND` × `GPU_PIPELINE` combinations, with
+  the DALI 1.x guard removed from the `dali-fetch` stage.
+- PASS: `--gpus all` in the `ffmpeg`/`on` image (RTX 3060 Laptop) — detection (CPU path) from
+  `rfdetr-nano-1101.onnx` and segmentation with `--gpu-preprocess --gpu-postprocess` from
+  `rfdetr-seg-nano-576.onnx` both find dog, bicycle, car and motorbike on `data/dog.jpg`. The
+  segmentation run logs `nvtiffStreamCreate` failing (code 6) for the TIFF decoder; the input is a
+  JPEG and the result is unaffected, and the staged files are the same as before this change.
+- UNRUN: shellcheck (not installed); `gpu-compile.yml` (runs on the PR); `export_trt.sh` without
+  `--fp16` on a GPU.

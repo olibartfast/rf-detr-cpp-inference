@@ -93,21 +93,13 @@ std::vector<int64_t> TensorRTBackend::initialize(const std::filesystem::path &mo
         throw std::runtime_error("Failed to create TensorRT execution context");
     }
 
-// Get input/output binding information
-// Note: getNbBindings() was deprecated in TensorRT 8.5 and removed in 10.0
-// For TensorRT 10+, we use getNbIOTensors()
-#if NV_TENSORRT_MAJOR >= 10
+    // Get input/output tensor information
     const int num_bindings = engine_->getNbIOTensors();
-#else
-    const int num_bindings = engine_->getNbBindings();
-#endif
     std::cout << "[TensorRT] Model has " << num_bindings << " bindings" << std::endl;
 
     std::vector<int64_t> detected_shape = input_shape;
 
     for (int i = 0; i < num_bindings; ++i) {
-#if NV_TENSORRT_MAJOR >= 10
-        // TensorRT 10+ API
         const char *name = engine_->getIOTensorName(i);
         auto dims = engine_->getTensorShape(name);
         auto io_mode = engine_->getTensorIOMode(name);
@@ -120,12 +112,6 @@ std::vector<int64_t> TensorRTBackend::initialize(const std::filesystem::path &mo
                                      "' is not float32; convert the model to FP16 with its I/O kept in "
                                      "float32 (see docs/export.md)");
         }
-#else
-        // TensorRT 8.x API
-        const char *name = engine_->getBindingName(i);
-        auto dims = engine_->getBindingDimensions(i);
-        bool is_input = engine_->bindingIsInput(i);
-#endif
 
         std::cout << "  Binding " << i << ": " << name << (is_input ? " (input)" : " (output)") << " - Shape: [";
         for (int j = 0; j < dims.nbDims; ++j) {
@@ -187,15 +173,8 @@ bool TensorRTBackend::build_engine_from_onnx(const std::filesystem::path &model_
         return false;
     }
 
-// Create network with explicit batch semantics.
-// TensorRT 10 deprecated kEXPLICIT_BATCH: explicit batch is the only supported mode there,
-// so createNetworkV2 takes no flag.
-#if NV_TENSORRT_MAJOR >= 10
+    // Explicit batch is the only mode, so createNetworkV2 takes no flag.
     const uint32_t network_flags = 0U;
-#else
-    const uint32_t network_flags =
-        1U << static_cast<uint32_t>(nvinfer1::NetworkDefinitionCreationFlag::kEXPLICIT_BATCH);
-#endif
     auto network =
         std::unique_ptr<nvinfer1::INetworkDefinition, TensorRTDeleter>(builder->createNetworkV2(network_flags));
     if (!network) {
@@ -227,16 +206,9 @@ bool TensorRTBackend::build_engine_from_onnx(const std::filesystem::path &model_
         return false;
     }
 
-// Set memory pool limit for workspace (1GB)
-// Note: setMaxWorkspaceSize() was deprecated in TensorRT 8.4 and removed in 10.0
-#if NV_TENSORRT_MAJOR >= 10 || (NV_TENSORRT_MAJOR == 8 && NV_TENSORRT_MINOR >= 4)
+    // Set memory pool limit for workspace (1GB)
     config->setMemoryPoolLimit(nvinfer1::MemoryPoolType::kWORKSPACE, 1ULL << 30);
-#else
-    config->setMaxWorkspaceSize(1ULL << 30);
-#endif
 
-    // Enable FP16 mode if supported
-#if NV_TENSORRT_MAJOR >= 11
     // TensorRT 11 removed weak typing together with BuilderFlag::kFP16: every network is
     // strongly typed, so each layer runs in the precision the ONNX graph declares. An FP32
     // export builds an FP32 engine; FP16 comes from converting the ONNX beforehand
@@ -244,22 +216,6 @@ bool TensorRTBackend::build_engine_from_onnx(const std::filesystem::path &model_
     std::cout << "[TensorRT] Strongly typed build: engine precision follows the ONNX model "
                  "(convert it to FP16 beforehand for an FP16 engine)"
               << std::endl;
-#elif NV_TENSORRT_MAJOR == 10
-    // TensorRT 10 deprecated platformHasFastFp16() (every GPU it supports has fast FP16) and
-    // BuilderFlag::kFP16 (superseded by strongly-typed networks). We keep the weakly-typed
-    // builder so an FP32 ONNX still gets FP16 kernels, and kFP16 is the only way to ask for
-    // that -- hence the localized suppression rather than a migration.
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    config->setFlag(nvinfer1::BuilderFlag::kFP16);
-#pragma GCC diagnostic pop
-    std::cout << "[TensorRT] FP16 mode enabled" << std::endl;
-#else
-    if (builder->platformHasFastFp16()) {
-        config->setFlag(nvinfer1::BuilderFlag::kFP16);
-        std::cout << "[TensorRT] FP16 mode enabled" << std::endl;
-    }
-#endif
 
     // Build engine
     std::cout << "[TensorRT] Building engine... This may take a few minutes." << std::endl;
@@ -308,12 +264,7 @@ bool TensorRTBackend::deserialize_engine(const std::filesystem::path &engine_pat
         return false;
     }
 
-#if NV_TENSORRT_MAJOR >= 10
-    // TensorRT 10+ removed the nullptr parameter
     engine_.reset(runtime_->deserializeCudaEngine(buffer.data(), size));
-#else
-    engine_.reset(runtime_->deserializeCudaEngine(buffer.data(), size, nullptr));
-#endif
     if (!engine_) {
         std::cerr << "Failed to deserialize engine" << std::endl;
         return false;
@@ -324,9 +275,7 @@ bool TensorRTBackend::deserialize_engine(const std::filesystem::path &engine_pat
 }
 
 void TensorRTBackend::enqueue() {
-// Note: executeV2() was deprecated in TensorRT 8.5 and removed in 10.0
-#if NV_TENSORRT_MAJOR >= 10
-    // TensorRT 10+ uses enqueueV3 with tensor addresses set via setTensorAddress
+    // enqueueV3 takes tensor addresses set via setTensorAddress
     for (int i = 0; i < static_cast<int>(device_buffers_.size()); ++i) {
         const char *name = engine_->getIOTensorName(i);
         context_->setTensorAddress(name, device_buffers_[static_cast<size_t>(i)]);
@@ -334,12 +283,6 @@ void TensorRTBackend::enqueue() {
     if (!context_->enqueueV3(stream_)) {
         throw std::runtime_error("TensorRT inference execution failed");
     }
-#else
-    // TensorRT 8.x API
-    if (!context_->enqueueV2(device_buffers_.data(), stream_, nullptr)) {
-        throw std::runtime_error("TensorRT inference execution failed");
-    }
-#endif
 }
 
 std::vector<void *> TensorRTBackend::run_inference(std::span<const float> input_data,

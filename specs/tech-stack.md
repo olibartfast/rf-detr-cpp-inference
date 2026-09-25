@@ -38,7 +38,7 @@ Exactly one is compiled in.
 | Backend | Version | Pin location | Device | Model format |
 |---------|---------|--------------|--------|--------------|
 | ONNX Runtime (default) | `ONNX_RUNTIME_VERSION` | `versions.env` | **CPU only** | `.onnx` |
-| TensorRT | `TENSORRT_VERSION` (11.x; 10.x still supported) | `versions.env`; compile-checked also against `TENSORRT_LEGACY_VERSION` (10.x) and `TENSORRT_COMPAT_VERSION` (newer) | NVIDIA GPU | `.engine`, `.trt`, `.onnx` |
+| TensorRT | `TENSORRT_VERSION` (11.x only) | `versions.env` | NVIDIA GPU | `.engine`, `.trt`, `.onnx` |
 | ExecuTorch | `EXECUTORCH_VERSION` | `versions.env` | CPU (XNNPACK or portable) | `.pte` |
 
 `TENSORRT_VERSION` is the full four-component number. NVIDIA truncates it differently per
@@ -50,15 +50,12 @@ artefact, so the loaders *derive* the rest rather than pinning them separately:
 | `TENSORRT_DEB_VERSION` | `<TENSORRT_VERSION>-1+cuda<CUDA_VERSION>` | `versions.sh` only | apt packages CI stages headers from |
 | `TRITON_IMAGE`, `TENSORRT_IMAGE` | `nvcr.io/nvidia/{tritonserver,tensorrt}:<NGC_CONTAINER_TAG>-py3` | `versions.sh` only | container-based staging and export |
 
-The TensorRT download name is derived too, by `cmake/deps/packages/TensorRT.cmake`: 10.x archives
-are `TensorRT-<v>.Linux.x86_64-gnu.cuda-<cuda>.tar.gz`, 11.x archives
+The TensorRT download name is derived too, by `cmake/deps/packages/TensorRT.cmake`:
 `TensorRT-Enterprise-<v>-Linux-x86_64-cuda-<cuda>-Release-external.tar.zst` ("Enterprise" is
-NVIDIA's name for standard TensorRT from 11.x, under the same license). The legacy CI job takes
-the `+cuda<v>` suffix of `TENSORRT_LEGACY_VERSION`'s packages from the apt index rather than a
-second CUDA pin.
+NVIDIA's name for standard TensorRT from 11.x, under the same license).
 
 - **ONNX Runtime** downloads the official CPU archive selected from the *target* platform (`CMAKE_SYSTEM_NAME` / `CMAKE_SYSTEM_PROCESSOR`), covering Linux x64/aarch64 and Windows x64/arm64. Other targets require a compatible provided prefix or package-manager build; catalog loading permits them when ONNX Runtime is disabled. It registers no execution provider, so even a CUDA build runs on CPU.
-- **TensorRT** implies the CUDA Toolkit series `CUDA_VERSION` pins, which must be installed manually. The backend supports both the pinned 11.x and 10.x, selected at compile time by `NV_TENSORRT_MAJOR`. `TENSORRT_LEGACY_VERSION` and `TENSORRT_COMPAT_VERSION` are compile-checked only — no build, image or download ships them. TensorRT 11 is strongly typed only: an `.onnx` build takes the model's own precision (FP16 needs a converted ONNX), where 10.x sets `BuilderFlag::kFP16`. Engine I/O must be float32 on both.
+- **TensorRT** implies the CUDA Toolkit series `CUDA_VERSION` pins, which must be installed manually. The backend supports TensorRT 11 only (`NV_TENSORRT_MAJOR < 11` is a compile error, `TENSORRT_VERSION < 11` a configure error). TensorRT 11 is strongly typed only: an `.onnx` build takes the model's own precision (FP16 needs a converted ONNX). Engine I/O must be float32.
 - **ExecuTorch** requires a prefix built with `EXECUTORCH_BUILD_KERNELS_OPTIMIZED=ON` (it defaults `OFF`): `.pte` files from rfdetr 1.9.1+ call `aten::linear.out`, registered only by `optimized_native_cpu_ops_lib`. The linked delegate must match the one baked into the `.pte`.
 
 ## Media and GPU stack
@@ -67,7 +64,7 @@ second CUDA pin.
 |-------|--------|---------|-------|
 | Media (default) | FFmpeg + SDL2 + stb | unpinned in CMake | pkg-config; conan pins `FFMPEG_VERSION`, `SDL_VERSION` |
 | Media (alternative) | OpenCV 4.x | unpinned | `-DUSE_OPENCV=ON`; replaces FFmpeg, SDL2 **and** stb. `OPENCV_VERSION` tracks only the commented swap instruction in `conanfile.txt`, not a live pin |
-| GPU preprocessing | NVIDIA DALI | `DALI_VERSION` (2.x; CI header staging only), `DALI_LEGACY_VERSION` (1.x, legacy CI job) | Staged from `TRITON_IMAGE` (`NGC_CONTAINER_TAG`) via `scripts/fetch_dali.sh` — NVIDIA ships no standalone C++ distribution |
+| GPU preprocessing | NVIDIA DALI | `DALI_VERSION` (2.x only; CI header staging) | Staged from `TRITON_IMAGE` (`NGC_CONTAINER_TAG`) via `scripts/fetch_dali.sh` — NVIDIA ships no standalone C++ distribution |
 | GPU postprocessing | CUDA Toolkit + CUB | `CUDA_VERSION` | `FindCUDAToolkit`; `CMAKE_CUDA_ARCHITECTURES` defaults to `CUDA_ARCHITECTURES` |
 
 Only resolutions **432** and **576** have checked-in `.dali` pipelines (`data/dali/`). Others must be regenerated with `./scripts/generate_dali_pipelines.sh <res>`.
@@ -111,7 +108,7 @@ These are enforced at configure time or by the runtime — not style preferences
 |----------|------|
 | `ci.yml` — Build & Test | Build & Unit Tests (+ benchmarks), Sanitizers (ASan+UBSan), ThreadSanitizer, Valgrind Memcheck |
 | `lint.yml` — C++ Lint & Build | Version Sync (`scripts/check_version_sync.sh`), Format Check, Clang-Tidy, Cppcheck, Build with Strict Warnings (`-DWERROR=ON`) |
-| `gpu-compile.yml` — GPU Backend Compile | Compile-only matrix, `-DWERROR=ON`: TensorRT alone, +DALI, +CUDA postprocess, +both, and +both against `TENSORRT_COMPAT_VERSION` headers (from the NVIDIA/TensorRT OSS tag). Builds `rfdetr_inference_lib` only — the staged shared objects are stubs, so no target that links is reachable |
+| `gpu-compile.yml` — GPU Backend Compile | Compile-only matrix, `-DWERROR=ON`: TensorRT alone, +DALI, +CUDA postprocess, +both, all against the pinned `TENSORRT_VERSION`/`DALI_VERSION` headers. Builds `rfdetr_inference_lib` only — the staged shared objects are stubs, so no target that links is reachable |
 | `deps-modes.yml` — Dependency Modes | `workflow_dispatch` only; matrix over apt / conan / vcpkg |
 
 All three push/PR workflows (`ci.yml`, `lint.yml`, `gpu-compile.yml`) trigger on `master` and `develop`. Integration tests are not run by CI.

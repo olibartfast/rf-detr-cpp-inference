@@ -1,4 +1,4 @@
-# TensorRT 11 support (10.x retained)
+# TensorRT 11 support
 
 TensorRT 11 is out (11.0 through 11.3 at the time of writing). This change makes the TensorRT
 backend build and run on 11.x without dropping 10.x, which stays the pinned `TENSORRT_VERSION`.
@@ -50,7 +50,21 @@ Originally out of scope; brought in on request. The pinned stack moves to what
     `versions.env` variable, commands read it through `scripts/versions.sh`, and
     `check_version_sync.sh` verifies the README tables.
 
+## One version only (added 2026-09-26)
+
+Requested: one pinned TensorRT and one pinned DALI, nothing else compiled or checked. This
+supersedes requirements 1, 2, 6, 9 and 10 above.
+
+12. `versions.env` has no `TENSORRT_COMPAT_VERSION`, `TENSORRT_LEGACY_VERSION` or
+    `DALI_LEGACY_VERSION`; `stage_gpu_headers.sh` has no `TRT_HEADERS` modes and `gpu-compile.yml`
+    no compat/legacy jobs. CI compile-checks the pinned `TENSORRT_VERSION`/`DALI_VERSION` only.
+13. The backend supports TensorRT 11 only: every `NV_TENSORRT_MAJOR` branch for 8.x–10.x is gone,
+    `tensorrt_backend.hpp` fails to compile on `NV_TENSORRT_MAJOR < 11`, and `TensorRT.cmake`
+    fails to configure on `TENSORRT_VERSION < 11` (11.x archive name only).
+14. `export_trt.sh` never passes `--fp16`; `fetch_dali.sh` and `dockerfile.trt`'s `dali-fetch`
+    stage copy the DALI 2.x layout (nvImageCodec) unconditionally.
+15. Docs, `AGENTS.md`, `specs/tech-stack.md` and the README tables state no 10.x / DALI 1.x support.
+
 ## Out of scope
 
 - An in-repo FP16 conversion script (would add an unverified `nvidia-modelopt` pin).
-- Dropping TensorRT 10.x or DALI 1.x.

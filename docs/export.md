@@ -348,8 +348,6 @@ docker run --rm -it --gpus=all \
 ```
 
 The recipes target the pinned TensorRT 11, which has no `--fp16`: see the next section for FP16.
-On a TensorRT 10.x `trtexec`, add `--fp16` for an FP16 engine; `export_trt.sh` passes it only
-when the container's `trtexec` accepts it.
 
 ### TensorRT 11 and FP16
 
@@ -357,7 +355,6 @@ TensorRT 11 removed weak typing, and with it `BuilderFlag::kFP16` and `trtexec -
 network is strongly typed: each layer runs in the precision the ONNX graph declares. rfdetr exports
 are float32, so on TensorRT 11 — through `trtexec`, `model.export(format="tensorrt")`, or the C++
 backend building from an `.onnx` — you get an **FP32 engine** unless the ONNX is converted first.
-Both TensorRT 10.x and 11.x are supported by the C++ backend; only the route to FP16 differs.
 
 Convert the ONNX to mixed precision with NVIDIA ModelOpt AutoCast, **keeping the graph inputs and
 outputs in float32** — the C++ backend exchanges float32 buffers with the engine and refuses to
@@ -373,8 +370,7 @@ python -m modelopt.onnx.autocast \
 ```
 
 Then build from `model_fp16.onnx` as usual — `trtexec --onnx=model_fp16.onnx --saveEngine=…`
-without `--fp16`, or pass it straight to `inference_app`. On TensorRT 10.x none of this is needed:
-the backend and `export_trt.sh` still set the FP16 builder flag on a float32 export.
+without `--fp16`, or pass it straight to `inference_app`.
 
 > [!NOTE]
 > TensorRT optimization works for both detection and segmentation models. The C++ inference engine supports ONNX Runtime, TensorRT, and ExecuTorch backends with compile-time backend selection — exactly one is compiled in.

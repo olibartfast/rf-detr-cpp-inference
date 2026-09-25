@@ -7,18 +7,19 @@ Notable user-visible changes to this project and compatibility updates for upstr
 
 ### Added
 
-- TensorRT 11.x support in the TensorRT backend, keeping 10.x working. TensorRT 11 removed weak typing and `BuilderFlag::kFP16`, which made the
-  backend fail to compile; the flag is now set on 10.x only. On 11.x an engine built from an
+- TensorRT 11.x support in the TensorRT backend. TensorRT 11 removed weak typing and
+  `BuilderFlag::kFP16`, which made the backend fail to compile. An engine built from an
   `.onnx` takes the model's own precision, so an FP16 engine needs an FP16-converted ONNX — see
   "TensorRT 11 and FP16" in `docs/export.md`. Existing `.engine` files must be rebuilt after
   switching TensorRT versions.
-- `gpu-compile.yml` compiles the full GPU pipeline against TensorRT 11 headers as well.
-  `versions.env` gains `TENSORRT_COMPAT_VERSION=11.3.0.99`, compile-checked only;
-  `scripts/ci/stage_gpu_headers.sh` stages it with `TRT_HEADERS=compat` from the NVIDIA/TensorRT
-  OSS repository.
-- Backward-compat CI job: `gpu-compile.yml` compiles the full GPU pipeline against the previous
-  stack, `TENSORRT_LEGACY_VERSION=10.13.3.9` with `DALI_LEGACY_VERSION=1.51.2` (both new in
-  `versions.env`), via `TRT_HEADERS=legacy` in `scripts/ci/stage_gpu_headers.sh`.
+
+### Removed
+
+- **TensorRT 8.x–10.x and DALI 1.x support.** The backend now requires TensorRT 11
+  (`NV_TENSORRT_MAJOR < 11` is a compile error, `TENSORRT_VERSION < 11` a configure error), and
+  only the pinned `TENSORRT_VERSION`/`DALI_VERSION` are staged and compile-checked in CI.
+  `export_trt.sh` no longer passes `--fp16`, and DALI staging (`fetch_dali.sh`, `dockerfile.trt`)
+  expects the DALI 2.x layout.
 
 ### Changed
 
@@ -27,16 +28,14 @@ Notable user-visible changes to this project and compatibility updates for upstr
   1.51.2 → **2.2.0**. `dockerfile.trt` builds on the 26.08 images. Rebuild cached `.engine` files;
   an `.onnx` now builds an FP32 engine unless converted to FP16 first (TensorRT 11 has no FP16
   builder flag).
-- The TensorRT download handles NVIDIA's 11.x archive naming,
-  `TensorRT-Enterprise-<v>-Linux-x86_64-cuda-<cuda>-Release-external.tar.zst` (10.x keeps the old
-  `.tar.gz` name). "Enterprise" is NVIDIA's name for standard TensorRT from 11.x, under the same
+- The TensorRT download uses NVIDIA's 11.x archive naming,
+  `TensorRT-Enterprise-<v>-Linux-x86_64-cuda-<cuda>-Release-external.tar.zst`. "Enterprise" is NVIDIA's name for standard TensorRT from 11.x, under the same
   free license.
 - DALI staging (`dockerfile.trt` and `scripts/fetch_dali.sh`) also copies nvImageCodec and its
   codec libraries next to `libdali.so`: DALI 2.x loads them with `dlopen()`, and without them
   `--gpu-preprocess` fails with `dlopen libnvimgcodec.so failed!`. Re-run `fetch_dali.sh` into an
   empty directory to replace a DALI 1.x prefix.
-- CI header staging takes the DALI wheel from the `cuda130` index and looks up its file name, since
-  the manylinux tag differs between DALI 1.x and 2.x.
+- CI header staging takes the DALI wheel from the `cuda130` index and looks up its file name.
 - Pinned versions are stated only in `versions.env` and restated only where a file cannot read it.
   `docs/` and `specs/` now name the variable (`TENSORRT_VERSION`, …) instead of repeating its value,
   and commands read it via `source scripts/versions.sh`; `check_version_sync.sh` now also verifies

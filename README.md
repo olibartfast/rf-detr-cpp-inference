@@ -179,9 +179,9 @@ backend is CPU-only as shipped — are in
 | C++ compiler | Clang 15+ or GCC 12+ (C++20) | everything |
 | CMake | 3.12+ (3.17+ for the ExecuTorch source fallback) | everything |
 | **ONNX Runtime** | **1.21.0** | default backend — downloaded automatically |
-| **TensorRT** | **11.2.1.2** + CUDA Toolkit **13.3** series (10.x still supported, compile-checked against 10.13.3.9; also against 11.3.0.99) | TensorRT backend (CUDA installed manually) |
+| **TensorRT** | **11.2.1.2** + CUDA Toolkit **13.3** series | TensorRT backend (CUDA installed manually) |
 | **ExecuTorch** | **v1.4.0** | ExecuTorch backend |
-| NVIDIA DALI | 2.2.0 (staged from `nvcr.io/nvidia/tritonserver:26.08-py3`; 1.x still compile-checked against 1.51.2) | `-DUSE_DALI=ON` |
+| NVIDIA DALI | 2.2.0 (staged from `nvcr.io/nvidia/tritonserver:26.08-py3`) | `-DUSE_DALI=ON` |
 | FFmpeg / SDL2 | 5.x+ / 2.x (Conan pins 6.1 / 2.28.5) | default media backend — apt takes whatever the system has |
 | OpenCV | 4.x (Conan coordinate 4.8.1) | `-DUSE_OPENCV=ON` |
 | GoogleTest | 1.12.1 (auto-fetched) | tests |
