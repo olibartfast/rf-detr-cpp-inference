@@ -187,6 +187,22 @@ format assumes.
 | Write restriction | `tools:` in the frontmatter (omit `Edit`/`Write` for `reasoner`), plus `permissions.deny` globs in `.claude/settings.json` |
 | Delegation | the `Agent` tool — a subagent file is only reachable through it |
 
+The roles this repository has been driven with are user-level subagents in
+`~/.claude/agents/` (not checked in), and they split `reasoner` in two:
+
+| Contract role | Subagent | Model | Tools |
+|---------------|----------|-------|-------|
+| `reasoner` (design decisions) | `architect` | `claude-fable-5-1` | full, including `Edit`/`Write` |
+| `reasoner` (accept/reject verdicts) | `reviewer` | `claude-opus-5-5` | `Read`, `Grep`, `Glob`, `Bash`; `Edit`/`Write` disallowed |
+| `planner` | `planner` | `claude-opus-5-5` | full |
+| `implementer` | `implementer` | `claude-sonnet-5` | `WebFetch`/`WebSearch` disallowed, `maxTurns: 12` |
+
+`reviewer` is the read-only half the brief asks for. `architect` is not: it can
+write, so its read-only status is by convention, and a diff it produces goes
+through `reviewer` like any other. `planner` likewise has no `src/` deny, so the
+judge step, not the sandbox, keeps it from doing the worker's job. When the model
+line-up changes, update the `model:` lines and this table together.
+
 `AGENTS.md` is already loaded via [`CLAUDE.md`](../CLAUDE.md). Repo procedures
 that predate this file are skills under `.claude/skills/` — `feature-spec`,
 `release`, `rfdetr-alignment`, `gpu-verify` — and they are the same checklists
