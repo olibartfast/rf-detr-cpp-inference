@@ -24,3 +24,24 @@ Headers: NVIDIA/TensorRT OSS tags `v10.13.3` and `v11.3` (`include/`); CUDA 13.0
   any pin bump.
 - UNRUN: Docker builds — no `dockerfile.*`, Docker build argument or Docker-used pin changed
   (`TENSORRT_COMPAT_VERSION` is read by CI staging only).
+
+## Pin bump — 2026-09-25, local RTX 3060 Laptop (driver 610.43.02, CUDA 13.3)
+
+- PASS: clang-format-18, clang-tidy-18, cppcheck (the `lint.yml` flags; the backend's raw loops
+  moved to `std::accumulate`/`std::transform`), `check_version_sync.sh`,
+  `check_dockerfile_parity.sh`.
+- PASS: `-DWERROR=ON` builds against the TensorRT 11.2.1.2 tarball (56 unit tests) and 10.13.3.9
+  with `-DUSE_GPU_PIPELINE=ON` and a DALI 1.51.2 prefix (72 unit tests). Host `nvcc` was 12.0,
+  not the pinned CUDA.
+- PASS: `dockerfile.trt` builds for all eight `MEDIA_BACKEND` × `GPU_PIPELINE` combinations on
+  the 26.08 images.
+- PASS: `--gpus all` in the `ffmpeg`/`on` image — engines built from `rfdetr-nano-1101.onnx` and
+  `rfdetr-seg-nano-576.onnx` on TensorRT 11.2.1.2; on `data/dog.jpg` detection and segmentation
+  (CPU path) find dog, bicycle, car and motorbike.
+- FAIL, fixed (plan step 12): `--gpu-preprocess` aborted with `dlopen libnvimgcodec.so failed!`.
+  With nvImageCodec staged, `--gpu-preprocess`, `--gpu-postprocess` and both together give the
+  same four classes as the CPU path (score deltas ≤ 0.011), using the checked-in 576 `.dali`
+  pipelines unchanged. After rebuilding, the `ffmpeg` and `opencv` × `dali`/`on` images pass the
+  same run with no workaround. `fetch_dali.sh` into a fresh directory stages the flattened layout.
+- UNRUN: the gpu-verify parity tolerances, compute-sanitizer and benchmarks over a video; the
+  432 pipelines.
