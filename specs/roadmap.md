@@ -120,6 +120,24 @@ The [`release`](../.claude/skills/release/SKILL.md) workflow. Gated on Phases 1�
 
 ---
 
+## Phase 6 — CUDA preprocessing, DALI removed
+
+Make the GPU pipeline CUDA end to end: our own fused preprocessing kernel and nvJPEG replace DALI,
+and DALI (with its nvImageCodec staging) leaves the tree. Builds on the TensorRT 11 / DALI 2.x
+stack merged in PR #16.
+
+Spec: [`features/2026-09-25-cuda-preprocess/`](features/2026-09-25-cuda-preprocess/) — tolerances
+and the gate live in its `validation.md`.
+
+- [ ] Fused CUDA preprocessing kernel behind `USE_CUDA_PREPROCESS`, frame-path parity ≤ `1e-5`
+- [ ] nvJPEG decode for JPEG, stb + upload fallback for other formats
+- [ ] Orchestrator, CLI and tests moved off DALI; `--dali-pipeline-dir` removed
+- [ ] DALI removed: sources, `.dali` pipelines, staging scripts, pins, Docker stages, CI staging
+- [ ] Constitution, README, AGENTS and docs updated
+- [ ] Gate on real hardware — the [`gpu-verify`](../.claude/skills/gpu-verify/SKILL.md) workflow
+
+---
+
 ## Deferred
 
 Not started, each for a recorded reason. Reopening one is a decision, not a task.
