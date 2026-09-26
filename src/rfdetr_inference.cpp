@@ -568,7 +568,7 @@ bool RFDETRInference::gpu_postprocess_active() const noexcept {
 #endif
 }
 
-#if defined(USE_CUDA_POSTPROCESS) || defined(USE_DALI)
+#if defined(USE_CUDA_POSTPROCESS) || defined(USE_CUDA_PREPROCESS) || defined(USE_DALI)
 
 void RFDETRInference::ensure_gpu_ready() {
     if (gpu_ready_) {
@@ -796,4 +796,4 @@ void RFDETRInference::postprocess_segmentation_outputs_gpu(float scale_w, float 
 #endif
 }
 
-#endif // USE_CUDA_POSTPROCESS || USE_DALI
+#endif // USE_CUDA_POSTPROCESS || USE_CUDA_PREPROCESS || USE_DALI

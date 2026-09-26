@@ -129,7 +129,7 @@ stack merged in PR #16.
 Spec: [`features/2026-09-25-cuda-preprocess/`](features/2026-09-25-cuda-preprocess/) — tolerances
 and the gate live in its `validation.md`.
 
-- [ ] Fused CUDA preprocessing kernel behind `USE_CUDA_PREPROCESS`, frame-path parity ≤ `1e-5`
+- [x] Fused CUDA preprocessing kernel behind `USE_CUDA_PREPROCESS`, frame-path parity ≤ `1e-5` — max `1.1e-6`, no `-fmad=false`
 - [ ] nvJPEG decode for JPEG, stb + upload fallback for other formats
 - [ ] Orchestrator, CLI and tests moved off DALI; `--dali-pipeline-dir` removed
 - [ ] DALI removed: sources, `.dali` pipelines, staging scripts, pins, Docker stages, CI staging

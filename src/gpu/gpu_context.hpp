@@ -1,6 +1,6 @@
 #pragma once
 
-#if defined(USE_CUDA_POSTPROCESS) || defined(USE_DALI)
+#if defined(USE_CUDA_POSTPROCESS) || defined(USE_CUDA_PREPROCESS) || defined(USE_DALI)
 
 #include <cstddef>
 #include <string>
@@ -21,7 +21,7 @@ using StreamHandle = void *;
 [[nodiscard]] std::string device_name(int device_id = 0);
 
 /// Owns a device selection and one non-default CUDA stream. Every GPU stage —
-/// DALI output copy, TensorRT enqueue, postprocessing kernels — runs on this
+/// preprocessing, TensorRT enqueue, postprocessing kernels — runs on this
 /// stream, so no stage needs to synchronise against another.
 class GpuContext {
   public:
@@ -76,4 +76,4 @@ void stream_synchronize(StreamHandle stream);
 
 } // namespace rfdetr::gpu
 
-#endif // USE_CUDA_POSTPROCESS || USE_DALI
+#endif // USE_CUDA_POSTPROCESS || USE_CUDA_PREPROCESS || USE_DALI
