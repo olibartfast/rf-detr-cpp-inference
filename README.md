@@ -67,7 +67,7 @@ The model is not shipped with the repo; export one from the `rfdetr` Python pack
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install "rfdetr[onnx]==1.10.1"
+pip install -r deploy/requirements.txt   # the pinned rfdetr[onnx]
 python deploy/export_detection.py --model_type nano     # -> output/rfdetr-nano.onnx
 ```
 
@@ -146,7 +146,7 @@ configure-time error.
 | **ExecuTorch** | `.pte` | On-device / edge deployment | `-DUSE_ONNX_RUNTIME=OFF -DUSE_EXECUTORCH=ON -DEXECUTORCH_ROOTDIR=<prefix>` |
 
 ```bash
-# TensorRT (NVIDIA GPU) — CUDA 13.0 must already be installed
+# TensorRT (NVIDIA GPU) — the CUDA Toolkit series CUDA_VERSION pins must already be installed
 cmake -S . -B build -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON -DCMAKE_BUILD_TYPE=Release
 
 # ExecuTorch (CPU, .pte) — needs an install prefix
@@ -179,9 +179,9 @@ backend is CPU-only as shipped — are in
 | C++ compiler | Clang 15+ or GCC 12+ (C++20) | everything |
 | CMake | 3.12+ (3.17+ for the ExecuTorch source fallback) | everything |
 | **ONNX Runtime** | **1.21.0** | default backend — downloaded automatically |
-| **TensorRT** | **10.13.3.9** + CUDA Toolkit **13.0** series | TensorRT backend (CUDA installed manually) |
+| **TensorRT** | **11.2.1.2** + CUDA Toolkit **13.3** series | TensorRT backend (CUDA installed manually) |
 | **ExecuTorch** | **v1.4.0** | ExecuTorch backend |
-| NVIDIA DALI | 1.51.2 (staged from `nvcr.io/nvidia/tritonserver:25.12-py3`) | `-DUSE_DALI=ON` |
+| NVIDIA DALI | 2.2.0 (staged from `nvcr.io/nvidia/tritonserver:26.08-py3`) | `-DUSE_DALI=ON` |
 | FFmpeg / SDL2 | 5.x+ / 2.x (Conan pins 6.1 / 2.28.5) | default media backend — apt takes whatever the system has |
 | OpenCV | 4.x (Conan coordinate 4.8.1) | `-DUSE_OPENCV=ON` |
 | GoogleTest | 1.12.1 (auto-fetched) | tests |
@@ -195,9 +195,11 @@ backend is CPU-only as shipped — are in
 | `rfdetr[executorch]` | `==1.10.1` | `.pte` export — check `pip show executorch` matches the pinned v1.4.0 runtime |
 | `rfdetr[tensorrt]` | `==1.10.1` | in-process engine builds (`tensorrt` + `polygraphy`) |
 
-The `ARG` defaults in the backend Dockerfiles, `conanfile.txt`, `deploy/requirements.txt`, and
-the `deploy/export_*.py` opset defaults cannot read a file, so they restate these values;
-`./scripts/check_version_sync.sh` (CI job `Version Sync`) fails when they drift. See
+These two tables are the only prose that states pinned versions; everything else in `docs/`
+and `specs/` points at `versions.env`. The tables, the `ARG` defaults in the backend Dockerfiles,
+`conanfile.txt`, `deploy/requirements.txt`, and the `deploy/export_*.py` opset defaults cannot
+read a file, so they restate these values; `./scripts/check_version_sync.sh` (CI job
+`Version Sync`) fails when any of them drifts. See
 [Bumping a version](specs/tech-stack.md#bumping-a-version).
 
 ---
@@ -256,7 +258,7 @@ Three GitHub Actions workflows run on every push/PR to `master` and `develop`:
 |----------|------|-------------|
 | **C++ Lint & Build** | `lint.yml` | Version sync, format check, clang-tidy, cppcheck, build with `-DWERROR=ON` |
 | **Build & Test** | `ci.yml` | Build with benchmarks, run unit tests, run benchmarks, run unit tests under ASan+UBSan |
-| **GPU Backend Compile** | `gpu-compile.yml` | Compiles the TensorRT backend and both GPU halves with `-DWERROR=ON`, across all four `USE_DALI`/`USE_CUDA_POSTPROCESS` combinations |
+| **GPU Backend Compile** | `gpu-compile.yml` | Compiles the TensorRT backend and both GPU halves with `-DWERROR=ON`, across all four `USE_DALI`/`USE_CUDA_POSTPROCESS` combinations, plus the full pipeline against TensorRT 11 headers |
 
 CI compiles the GPU paths but cannot execute them — see
 [CI coverage and its limits](docs/advanced-usage.md#ci-coverage-and-its-limits).

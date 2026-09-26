@@ -24,8 +24,9 @@ backend — see the file's header for the full matrix.
 > **ExecuTorch images build the ExecuTorch C++ runtime from source** (there is no distro
 > or registry package), so the first build is slow — it clones ExecuTorch with recursive
 > submodules and installs a CPU-only `torch` wheel for the operator codegen. Pin a
-> different runtime with `--build-arg EXECUTORCH_VERSION=<tag>`; it defaults to `v1.4.0`
-> to match the exporter used by `rfdetr[executorch]==1.10.1`, and enables the optimized
+> different runtime with `--build-arg EXECUTORCH_VERSION=<tag>`; it defaults to
+> `EXECUTORCH_VERSION` from `versions.env`, to match the exporter the pinned
+> `rfdetr[executorch]` resolves, and enables the optimized
 > kernel set that 1.9.1+ `.pte` files need. The build applies the
 > upstream `extension_evalue_util` install fix automatically. ExecuTorch links
 > statically, so the runtime image ships no extra shared libraries and needs no GPU.
@@ -71,7 +72,7 @@ docker run --gpus all -v $(pwd)/data:/data -v $(pwd)/exports:/exports rfdetr-trt
 ```
 
 > The ONNX Runtime and ExecuTorch images are multi-stage and slim (Ubuntu 24.04 runtime). The
-> TensorRT images use the `nvcr.io/nvidia/tensorrt:25.12-py3` base for the bundled
+> TensorRT images use the `nvcr.io/nvidia/tensorrt:<NGC_CONTAINER_TAG>-py3` base for the bundled
 > CUDA/TensorRT runtime, and pull the DALI staging image only when `GPU_PIPELINE=dali|on`.
 >
 > **Both base images must stay Ubuntu 24.04.** The FFmpeg runtime library names baked into the
@@ -98,7 +99,8 @@ configure skips the clone):
 
 ```bash
 # On a connected machine, cloning the pinned tag (GTEST_VERSION in versions.env):
-git clone --depth 1 --branch release-1.12.1 \
+source scripts/versions.sh
+git clone --depth 1 --branch "release-${GTEST_VERSION}" \
   https://github.com/google/googletest.git third_party/googletest
 # Or reuse a source tree an earlier local build already fetched:
 cp -r build/_deps/gtest-src third_party/googletest

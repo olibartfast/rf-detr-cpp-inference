@@ -10,9 +10,9 @@
 #include <cuda_runtime_api.h>
 #include <memory>
 
-// Check TensorRT version compatibility
-#if NV_TENSORRT_MAJOR < 8
-#error "TensorRT 8.0 or newer is required"
+// Only TensorRT 11 (TENSORRT_VERSION in versions.env) is supported.
+#if NV_TENSORRT_MAJOR < 11
+#error "TensorRT 11 or newer is required"
 #endif
 
 namespace rfdetr::backend {
@@ -21,13 +21,7 @@ namespace rfdetr::backend {
 struct TensorRTDeleter {
     template <typename T> void operator()(T *obj) const {
         if (obj) {
-#if NV_TENSORRT_MAJOR >= 10
-            // TensorRT 10+ uses proper RAII, just delete
             delete obj;
-#else
-            // TensorRT 8.x and 9.x use destroy()
-            obj->destroy();
-#endif
         }
     }
 };
