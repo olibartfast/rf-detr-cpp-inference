@@ -5,6 +5,48 @@ Notable user-visible changes to this project and compatibility updates for upstr
 
 ## [Unreleased]
 
+### Added
+
+- TensorRT 11.x support in the TensorRT backend. TensorRT 11 removed weak typing and
+  `BuilderFlag::kFP16`, which made the backend fail to compile. An engine built from an
+  `.onnx` takes the model's own precision, so an FP16 engine needs an FP16-converted ONNX — see
+  "TensorRT 11 and FP16" in `docs/export.md`. Existing `.engine` files must be rebuilt after
+  switching TensorRT versions.
+
+### Removed
+
+- **TensorRT 8.x–10.x and DALI 1.x support.** The backend now requires TensorRT 11
+  (`NV_TENSORRT_MAJOR < 11` is a compile error, `TENSORRT_VERSION < 11` a configure error), and
+  only the pinned `TENSORRT_VERSION`/`DALI_VERSION` are staged and compile-checked in CI.
+  `export_trt.sh` no longer passes `--fp16`, and DALI staging (`fetch_dali.sh`, `dockerfile.trt`)
+  expects the DALI 2.x layout.
+
+### Changed
+
+- **Pinned GPU stack moved to NGC 26.08** (`nvcr.io/nvidia/tensorrt:26.08-py3`): TensorRT
+  10.13.3.9 → **11.2.1.2**, CUDA 13.0 → **13.3**, `NGC_CONTAINER_TAG` 25.12 → **26.08**, DALI
+  1.51.2 → **2.2.0**. `dockerfile.trt` builds on the 26.08 images. Rebuild cached `.engine` files;
+  an `.onnx` now builds an FP32 engine unless converted to FP16 first (TensorRT 11 has no FP16
+  builder flag).
+- The TensorRT download uses NVIDIA's 11.x archive naming,
+  `TensorRT-Enterprise-<v>-Linux-x86_64-cuda-<cuda>-Release-external.tar.zst`. "Enterprise" is NVIDIA's name for standard TensorRT from 11.x, under the same
+  free license.
+- DALI staging (`dockerfile.trt` and `scripts/fetch_dali.sh`) also copies nvImageCodec and its
+  codec libraries next to `libdali.so`: DALI 2.x loads them with `dlopen()`, and without them
+  `--gpu-preprocess` fails with `dlopen libnvimgcodec.so failed!`. Re-run `fetch_dali.sh` into an
+  empty directory to replace a DALI 1.x prefix.
+- CI header staging takes the DALI wheel from the `cuda130` index and looks up its file name.
+- Pinned versions are stated only in `versions.env` and restated only where a file cannot read it.
+  `docs/` and `specs/` now name the variable (`TENSORRT_VERSION`, …) instead of repeating its value,
+  and commands read it via `source scripts/versions.sh`; `check_version_sync.sh` now also verifies
+  the README version tables, so a bump no longer needs hand-edited prose.
+- The `trtexec` recipes in `docs/export.md` target TensorRT 11 (no `--fp16`).
+- The TensorRT backend rejects an engine whose inputs or outputs are not float32, instead of
+  copying float32-sized buffers into them. rfdetr exports are float32 throughout; this guards a
+  reduced-precision ONNX converted without keeping its I/O types.
+- `export_trt.sh` passes `trtexec --fp16` only when the container's `trtexec` still accepts it
+  (TensorRT 11 removed the flag).
+
 ## [v0.5.1] - 2026-09-19
 
 ### Changed

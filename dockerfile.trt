@@ -59,8 +59,8 @@
 # Keep in sync with versions.env — see scripts/check_version_sync.sh.
 ARG MEDIA_BACKEND=ffmpeg
 ARG GPU_PIPELINE=off
-ARG TENSORRT_VERSION=10.13.3.9
-ARG NGC_CONTAINER_TAG=25.12
+ARG TENSORRT_VERSION=11.2.1.2
+ARG NGC_CONTAINER_TAG=26.08
 ARG DOCKER_BASE_IMAGE=ubuntu:24.04
 ARG CUDA_ARCHITECTURES=86
 
@@ -85,15 +85,25 @@ RUN mkdir -p /staging/dali
 # /staging/dali. .libs/ is not optional — libdali.so carries ~24 vendored
 # DT_NEEDED entries (libjpeg, ffmpeg, aws-sdk, ...) resolved at load time via
 # RUNPATH $ORIGIN/.libs, so it must ship in the same relative position as here.
+# DALI also dlopen()s nvImageCodec (the image decoder) and its codec libraries
+# from sibling wheel directories; ldd cannot see them, and without them
+# --gpu-preprocess fails at decode time. They are flattened next to libdali.so,
+# which the $ORIGIN entries of DALI's and the codec extensions' RUNPATHs reach.
 FROM nvcr.io/nvidia/tritonserver:${NGC_CONTAINER_TAG}-py3 AS dali-fetch
 ARG NGC_CONTAINER_TAG
-RUN WHEEL_DIR=/opt/tritonserver/backends/dali/wheel/dali/nvidia/dali && \
+RUN NV_DIR=/opt/tritonserver/backends/dali/wheel/dali/nvidia && \
+    WHEEL_DIR="${NV_DIR}/dali" && \
     mkdir -p /staging/dali && \
     cp -a "${WHEEL_DIR}/include" /staging/dali/ && \
     cp -a "${WHEEL_DIR}/.libs" /staging/dali/ && \
     cp -a "${WHEEL_DIR}/libdali.so" "${WHEEL_DIR}/libdali_core.so" \
           "${WHEEL_DIR}/libdali_kernels.so" "${WHEEL_DIR}/libdali_operators.so" \
-          /staging/dali/
+          /staging/dali/ && \
+    cp -a "${NV_DIR}/nvimgcodec/libnvimgcodec.so.0" "${NV_DIR}/nvimgcodec/extensions" \
+          /staging/dali/ && \
+    for lib_dir in cu13/lib libnvcomp/lib64 nvjpeg2k/lib nvtiff/lib; do \
+        cp -a "${NV_DIR}/${lib_dir}"/*.so* /staging/dali/ || exit 1; \
+    done
 
 FROM dali-none AS dali-off
 FROM dali-fetch AS dali-dali

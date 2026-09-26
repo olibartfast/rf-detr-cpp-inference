@@ -37,7 +37,7 @@ Exactly one backend is compiled in; enabling two is a configure-time error.
 - ExecuTorch (`.pte` models, rfdetr 1.9.0+):
   `cmake -S . -B build -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_EXECUTORCH=ON -DEXECUTORCH_ROOTDIR=<prefix> -DCMAKE_BUILD_TYPE=Release && cmake --build build --parallel`
   - `-DEXECUTORCH_DELEGATE=xnnpack|portable` (default `xnnpack`) must match the delegate the `.pte` was exported with.
-  - Without `EXECUTORCH_ROOTDIR` the build falls back to compiling ExecuTorch v1.4.0 from source, which is slow and needs a Python interpreter with ExecuTorch's build deps (`import torchgen`, i.e. the `torch` wheel — a bare `python3` fails).
+  - Without `EXECUTORCH_ROOTDIR` the build falls back to compiling the pinned ExecuTorch (`EXECUTORCH_VERSION`) from source, which is slow and needs a Python interpreter with ExecuTorch's build deps (`import torchgen`, i.e. the `torch` wheel — a bare `python3` fails).
   - The prefix must be built with `-DEXECUTORCH_BUILD_KERNELS_OPTIMIZED=ON` (defaults to `OFF`): `.pte` files from rfdetr 1.9.1+ call `aten::linear.out`, which only `optimized_native_cpu_ops_lib` registers. The build links that lib when present and warns + falls back to `portable_ops_lib` when not — exactly one op library, since duplicate kernel registration aborts at startup. See [docs/building.md](docs/building.md#building-the-executorch-install-prefix), "Building the ExecuTorch install prefix".
   - The `extension/evalue_util` install-path patch is only needed on v1.3.1 and older; v1.4.0 fixed it upstream.
 
@@ -75,14 +75,16 @@ chosen by which file you pass to `-f` (there is no bare `Dockerfile`):
 
 ## Dependency Versions
 
-Current export package: `rfdetr[onnx]==1.10.1`; the authoritative pin is in `versions.env`.
+Export package: `rfdetr[onnx]` at `RFDETR_VERSION`; every pin is in `versions.env`, and prose names the variable, not the value.
+TensorRT: pinned 11.x (`TENSORRT_VERSION`, the `nvcr.io/nvidia/tensorrt:<NGC_CONTAINER_TAG>-py3` stack) and DALI 2.x (`DALI_VERSION`). One version each: no older-release branches, no second compile-check pin — `tensorrt_backend.hpp` rejects `NV_TENSORRT_MAJOR < 11`.
 **[`versions.env`](versions.env) is the single source of truth for every third-party pin.** Never
 hardcode a version anywhere else.
 - CMake reads it via `cmake/versions.cmake` (included before `cmake/deps/Deps.cmake`); each pin is a `CACHE STRING`, so `-DTENSORRT_VERSION=…` overrides it.
 - Shell scripts read it via `source scripts/versions.sh`, which never clobbers a value already in the environment — `TRITON_IMAGE=… ./scripts/fetch_dali.sh` still works.
 - Some coordinates are derived, not stored — do not add variables for them. `cmake/versions.cmake` derives `TENSORRT_SHORT_VERSION` only (all CMake needs). `scripts/versions.sh` derives that plus `TENSORRT_DEB_VERSION`, `TRITON_IMAGE` and `TENSORRT_IMAGE`, which no CMake consumer uses.
-- Four formats cannot read a file — the backend Dockerfiles' `ARG` defaults, `conanfile.txt`, `deploy/requirements.txt`, and the argparse defaults in `deploy/export_*.py`. They restate the values; `./scripts/check_version_sync.sh` (the `Version Sync` job in `lint.yml`) fails when a restatement drifts.
-- **After editing `versions.env`, run `./scripts/check_version_sync.sh`**, then reconcile the prose in `README.md` and `docs/` — that text is required by Spec Sync but is not machine-checked.
+- Five formats cannot read a file — the backend Dockerfiles' `ARG` defaults, `conanfile.txt`, `deploy/requirements.txt`, the argparse defaults in `deploy/export_*.py`, and the two version tables in `README.md`. They restate the values; `./scripts/check_version_sync.sh` (the `Version Sync` job in `lint.yml`) fails when a restatement drifts.
+- **No other prose states a pinned value.** `docs/`, `specs/` and the rest of the README name the `versions.env` variable (`TENSORRT_VERSION`, …); commands read it with `source scripts/versions.sh`. Historical statements ("fixed in v1.4.0") are not pins and stay.
+- **After editing `versions.env`, run `./scripts/check_version_sync.sh`** and fix what it reports; no hand reconciliation of prose is needed.
 
 ## Dependency Resolution
 - ONNX Runtime automatic downloads cover Linux/Windows x64/arm64. Other targets may supply a compatible prefix or package-manager build; loading the catalog with ONNX disabled must not reject them.
@@ -91,12 +93,13 @@ hardcode a version anywhere else.
 - `-DDEPS_DEBUG=ON` logs which handler resolved each dependency
 
 ## Code Quality
+- **Mandatory pre-commit / pre-push gate:** before every `git commit` and again before every `git push`, run the cppcheck and lint commands below (clang-format check, clang-tidy, cppcheck — the same checks as the `lint.yml` jobs) and fix every finding. Do not commit or push while any of them fails. If a tool is not installed or cannot run on the current machine, record it as `UNRUN` with the exact reason in the commit message or PR description, never as passing. `pre-commit run --all-files` covers clang-format and cppcheck but **not** clang-tidy, so it does not satisfy this rule on its own.
 - Version pin sync: `./scripts/check_version_sync.sh`
 - Format check: `find src tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format-18 --dry-run --Werror`
 - Format apply: `find src tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format-18 -i`
 - Clang-tidy: 
   `cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`
-  `find src -name '*.cpp' | xargs clang-tidy-18 -p build`
+  `find src -name '*.cpp' ! -name 'tensorrt_backend.cpp' | xargs clang-tidy-18 -p build` (same exclusion as `lint.yml`; the default configure has no TensorRT headers)
 - Cppcheck: `cppcheck --enable=all --std=c++20 --suppress=missingIncludeSystem --suppress=unmatchedSuppression --suppress=unusedFunction --error-exitcode=1 -I src src/`
 - Strict warnings (CI): `-DWERROR=ON` at configure time
 
@@ -105,7 +108,7 @@ hardcode a version anywhere else.
 - Mandatory: before acting on any release, version-alignment, or dependency-sync request, read `AGENTS.md`, `README.md`, and `CHANGELOG.md`, then verify the named release against the official upstream project. Never assume that an upstream version is a local Git tag or infer the required scope from the version string alone; inspect the repository documentation and upstream release notes/diff first.
 - A change to `specs/mission.md` or `specs/tech-stack.md` must propagate in the **same commit** to `README.md`, `AGENTS.md`, and any open spec under `specs/features/`. The constitution and what it describes never diverge across commits.
 - Mandatory for every release or dependency-facing patch: update `README.md` in the same change when code, build options, backend versions, Docker images, or Python export packages change.
-- Verify README dependency/version statements against `versions.env` (the source of truth), then `CMakeLists.txt`, `CMakePresets.json`, `deploy/requirements.txt`, `dockerfile.*`, and `docs/export.md`.
+- README version tables are verified against `versions.env` by `./scripts/check_version_sync.sh`; check the rest of the README (build options, backend constraints) against `CMakeLists.txt`, `CMakePresets.json`, `dockerfile.*`, and `docs/export.md`.
 - README must list current C++ library/runtime versions, CMake options, backend constraints, and pip
   packages used for export tooling. `README.md` is the quick start and carries these at a glance (the
   `Versions at a Glance`, `Common Build Options` and `Choosing a Backend` sections); the exhaustive
