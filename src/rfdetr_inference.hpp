@@ -2,7 +2,7 @@
 #include "backends/inference_backend.hpp"
 #include "media.hpp"
 
-#if defined(USE_CUDA_POSTPROCESS) || defined(USE_DALI)
+#if defined(USE_CUDA_POSTPROCESS) || defined(USE_CUDA_PREPROCESS) || defined(USE_DALI)
 #include "gpu/gpu_context.hpp"
 #endif
 #ifdef USE_CUDA_POSTPROCESS
@@ -131,7 +131,7 @@ class RFDETRInference {
     [[nodiscard]] bool gpu_preprocess_active() const noexcept;
     [[nodiscard]] bool gpu_postprocess_active() const noexcept;
 
-#if defined(USE_CUDA_POSTPROCESS) || defined(USE_DALI)
+#if defined(USE_CUDA_POSTPROCESS) || defined(USE_CUDA_PREPROCESS) || defined(USE_DALI)
     /// Preprocess straight into the backend's input binding and run inference on
     /// the device, leaving outputs in device memory. Requires an active GPU
     /// preprocess path. `orig_h`/`orig_w` are reported back for box scaling.
@@ -173,7 +173,7 @@ class RFDETRInference {
     /// consumes, so a video run does not reallocate it per frame.
     std::vector<float> score_grid_;
 
-#if defined(USE_CUDA_POSTPROCESS) || defined(USE_DALI)
+#if defined(USE_CUDA_POSTPROCESS) || defined(USE_CUDA_PREPROCESS) || defined(USE_DALI)
     /// Lazily built on first use so a CPU-only run never touches the device.
     void ensure_gpu_ready();
 

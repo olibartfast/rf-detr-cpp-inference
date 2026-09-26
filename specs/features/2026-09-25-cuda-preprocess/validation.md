@@ -32,10 +32,10 @@ Tensor tolerances are max abs over the full `[1,3,432,432]` tensor against `*.pr
 
 | Check | Tolerance | Result |
 |-------|-----------|--------|
-| Frame path (`preprocess_bgr_device`), `small`/`wide`/`tall` | ≤ `1e-5` | |
+| Frame path (`preprocess_bgr_device`), `small`/`wide`/`tall` | ≤ `1e-5` | PASS 2026-09-27 (group A): `1.07e-6`/`1.07e-6`/`8.34e-7` |
 | PNG fallback path, `small`/`wide`/`tall` | ≤ `1e-5` | |
 | Encoded path (nvJPEG + kernel), `small`/`wide`/`tall` | ≤ `1e-1` | |
-| No letterbox on `wide` and `tall` | pass | |
+| No letterbox on `wide` and `tall` | pass | PASS 2026-09-27, frame path (encoded path: group B) |
 | End-to-end, `cpupre-gpupost` vs `cpu-cpu` | score `1e-3`, mask IoU ≥ `0.999` | |
 | End-to-end, `gpupre-cpupost` (nvJPEG) vs `cpu-cpu` | score `0.03`, mask IoU ≥ `0.95` | |
 | End-to-end, `gpu-gpu` vs `gpupre-cpupost` | score `1e-3`, mask IoU ≥ `0.999` | |
@@ -46,6 +46,25 @@ Tensor tolerances are max abs over the full `[1,3,432,432]` tensor against `*.pr
 
 Record the measured max delta for each tensor row, not only pass/fail, and whether `-fmad=false`
 was needed (requirements.md open question 1).
+
+### Group A record (2026-09-27)
+
+RTX 3060 Laptop (sm_86), driver 610.43.02, `rfdetr-trt-builder:26.08` (TensorRT 11.2.1.2, CUDA 13),
+clang-18, `-DWERROR=ON`.
+
+- **Open question 1 resolved: `-fmad=false` is not needed.** With nvcc's default FMA contraction the
+  frame path is within `1.1e-6` of the golden CPU tensors — ~8000× tighter than DALI's `8.8e-3`.
+- `GpuParityCudaPreprocess.EdgeGeometriesMatchCpu` (1×1, 1000×1, 7×333, exact 2× downscale,
+  1920×1080→576, 640×480→560) within `1e-5`; `RejectsInvalidArguments` runs without a device.
+- `compute-sanitizer --tool memcheck --leak-check full` on `GpuParityCudaPreprocess*`: 0 errors,
+  0 bytes leaked. `--tool racecheck` on `FrameMatchesGoldenCpu`: 0 hazards.
+- Builds: `USE_CUDA_PREPROCESS` alone, `USE_CUDA_PREPROCESS`+`USE_CUDA_POSTPROCESS`,
+  `USE_GPU_PIPELINE` (DALI + both), TensorRT alone — all `-DWERROR=ON`, 0 warnings.
+  `unit_tests` in the CUDA-only build: 61/61 pass.
+- In the `USE_GPU_PIPELINE` build, `GpuParityPreprocess.EncodedPathBounded` and
+  `.NoLetterboxBorders` (DALI encoded path) fail: that builder image predates `1d2b408` and its
+  `/opt/dali` lacks nvImageCodec, so DALI's decode `dlopen` fails. Not caused by this change; the
+  DALI frame-path test passes, and group D deletes these tests.
 
 ## Benchmarks (with a device)
 

@@ -1,6 +1,6 @@
 #include "gpu_context.hpp"
 
-#if defined(USE_CUDA_POSTPROCESS) || defined(USE_DALI)
+#if defined(USE_CUDA_POSTPROCESS) || defined(USE_CUDA_PREPROCESS) || defined(USE_DALI)
 
 #include "cuda_check.hpp"
 
@@ -105,4 +105,4 @@ void stream_synchronize(StreamHandle stream) { CUDA_CHECK(cudaStreamSynchronize(
 
 } // namespace rfdetr::gpu
 
-#endif // USE_CUDA_POSTPROCESS || USE_DALI
+#endif // USE_CUDA_POSTPROCESS || USE_CUDA_PREPROCESS || USE_DALI
