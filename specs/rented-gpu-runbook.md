@@ -72,8 +72,9 @@ copy results off as you go rather than at the end.
 ### 1. Export a segmentation model at 432
 
 Both details matter: `--gpu-postprocess` requires `--segmentation`, and only **432** and **576**
-have checked-in `.dali` pipelines. Anything else needs
-`./scripts/generate_dali_pipelines.sh <res>` and a `--gpus all` Docker host.
+have checked-in `.dali` pipelines for the DALI build the gate also runs. Anything else needs
+`./scripts/generate_dali_pipelines.sh <res>` and a `--gpus all` Docker host. The default CUDA
+preprocessor runs at any resolution.
 
 ```bash
 python3.11 -m venv rfdetr_venv && source rfdetr_venv/bin/activate
@@ -85,7 +86,7 @@ See [export.md](../docs/export.md) for the full matrix of export options.
 
 ### 2. Prepare a video of at least 1000 frames
 
-A single clean short run proves nothing about `daliOutputRelease` ordering — see
+A single clean short run proves nothing about stream ordering (and, for DALI, `daliOutputRelease`) — see
 [gpu-pipeline.md](gpu-pipeline.md).
 
 ```bash

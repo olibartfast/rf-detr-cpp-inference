@@ -11,6 +11,8 @@ Work this project has committed to, as a phased queue. Phases are ordered so eac
 - **v0.5.0 is released** — the rfdetr 1.9.1 and 1.9.2 alignments and the whole GPU pipeline shipped. Phases 1–5 are complete.
 - GPU pipeline: preprocessing and segmentation postprocessing **work end to end**; the test, build,
   and CI scaffolding (Phases 2–4) is complete and the parity gate has passed.
+- **Phase 6 is complete on `feature/phase-6-cuda-preprocess`**: CUDA preprocessing (kernel + nvJPEG)
+  is the default GPU preprocessor, with DALI kept as the configure-time alternative.
 
 Before starting any phase, run the [`feature-spec`](../.claude/skills/feature-spec/SKILL.md) workflow — every phase here qualifies as multi-session work, so each one gets a spec directory under [`features/`](features/) before code is written.
 
@@ -120,21 +122,21 @@ The [`release`](../.claude/skills/release/SKILL.md) workflow. Gated on Phases 1�
 
 ---
 
-## Phase 6 — CUDA preprocessing, DALI removed
+## Phase 6 — CUDA preprocessing, DALI as the alternative (Complete)
 
-Make the GPU pipeline CUDA end to end: our own fused preprocessing kernel and nvJPEG replace DALI,
-and DALI (with its nvImageCodec staging) leaves the tree. Builds on the TensorRT 11 / DALI 2.x
-stack merged in PR #16.
+Make the GPU pipeline CUDA end to end by default: our own fused preprocessing kernel and nvJPEG
+become the default GPU preprocessor. DALI stays as a configure-time alternative (`-DUSE_DALI=ON`),
+exclusive with the CUDA preprocessor. Builds on the TensorRT 11 / DALI 2.x stack merged in PR #16.
 
 Spec: [`features/2026-09-25-cuda-preprocess/`](features/2026-09-25-cuda-preprocess/) — tolerances
 and the gate live in its `validation.md`.
 
 - [x] Fused CUDA preprocessing kernel behind `USE_CUDA_PREPROCESS`, frame-path parity ≤ `1e-5` — max `1.1e-6`, no `-fmad=false`
-- [ ] nvJPEG decode for JPEG, stb + upload fallback for other formats
-- [ ] Orchestrator, CLI and tests moved off DALI; `--dali-pipeline-dir` removed
-- [ ] DALI removed: sources, `.dali` pipelines, staging scripts, pins, Docker stages, CI staging
-- [ ] Constitution, README, AGENTS and docs updated
-- [ ] Gate on real hardware — the [`gpu-verify`](../.claude/skills/gpu-verify/SKILL.md) workflow
+- [x] nvJPEG decode for JPEG, stb + upload fallback for other formats — encoded max `4.8e-2` (≤ `1e-1`), PNG fallback `1.1e-6`
+- [x] Orchestrator, CLI and tests drive either preprocessor; `--gpu-preprocess` uses the one compiled in
+- [x] DALI kept as the alternative: `USE_DALI` and `USE_CUDA_PREPROCESS` exclusive at configure; presets, Docker `GPU_PIPELINE` values and the CI matrix cover both
+- [x] Constitution, README, AGENTS and docs updated
+- [x] Gate on real hardware — the [`gpu-verify`](../.claude/skills/gpu-verify/SKILL.md) workflow, RTX 3060 Laptop, 2026-10-02 (`--display` playback UNRUN: no display)
 
 ---
 

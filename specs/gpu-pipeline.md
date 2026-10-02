@@ -2,14 +2,27 @@
 
 Standing constraints for the already-built code in `src/gpu/`. This is a contract, not a plan —
 read it before modifying anything under `src/gpu/` or the DALI pipelines in `data/dali/`. The
-remaining GPU *work* lives in [roadmap.md](roadmap.md) Phases 2–4.
+remaining GPU *work* lives in [roadmap.md](roadmap.md).
+
+GPU preprocessing has two implementations, chosen at configure time and never compiled together:
+our own CUDA kernel + nvJPEG (`USE_CUDA_PREPROCESS`, the default under `USE_GPU_PIPELINE`) and a
+serialized DALI pipeline (`USE_DALI`, the alternative). Both write the same tensor into the same
+binding on the same stream; everything downstream is shared.
 
 ## Architecture
 
 ```text
 image file (JPEG/PNG bytes)          video frame (BGR, host, from FFmpeg)
         |                                        |
-        v                                        v
+ USE_CUDA_PREPROCESS (default):                  |
+  header probe (nvjpegGetImageInfo)              |
+  JPEG  -> nvjpegDecode -> BGR (device)          |
+  other -> stb decode -> H2D BGR                 H2D BGR (grow-only buffer)
+        |                                        |
+        +--> preprocess_bgr_device kernel <------+
+             (bilinear stretch, BGR->RGB, /255, (v-mean)/std)
+                         |
+ USE_DALI (alternative):                         |
   DALI pipeline "encoded"                 DALI pipeline "frame"
   external_source IMAGE (cpu, uint8)      external_source FRAME (gpu, uint8, HWC)
   -> decoders.image(device="mixed")       -> color_space_conversion(BGR->RGB)
@@ -36,20 +49,20 @@ image file (JPEG/PNG bytes)          video frame (BGR, host, from FFmpeg)
                  CPU drawing (unchanged)
 ```
 
-One CUDA stream per inference context. DALI writes the input tensor, TensorRT consumes it, the postprocess kernels consume TensorRT's output bindings, and only the final packed results cross to the host. No intermediate synchronisation.
+One CUDA stream per inference context. The preprocessor (kernel or DALI) writes the input tensor, TensorRT consumes it, the postprocess kernels consume TensorRT's output bindings, and only the final packed results cross to the host. No intermediate synchronisation.
 
 ## Model contract
 
 RF-DETR does not behave like the CNN detectors most GPU pipeline code is written for. Each rule below is load-bearing: breaking one produces a **silently wrong result**, not a crash. This is the review checklist for any change to `src/gpu/`.
 
-1. **No letterbox.** Preprocessing is a plain stretch to `res×res` — independent `scale_x`, `scale_y`, no padding (`src/media.cpp:212-213`). No `fn.paste` in the DALI pipeline, and box decode stays `scale_w = orig_w / res`, `scale_h = orig_h / res`.
-2. **ImageNet normalisation, not `/255` alone.** `/255` then mean `{0.485, 0.456, 0.406}` / std `{0.229, 0.224, 0.225}`. Folded into DALI as `mean = m*255`, `std = s*255`.
+1. **No letterbox.** Preprocessing is a plain stretch to `res×res` — independent `scale_x`, `scale_y`, no padding (`src/media.cpp:212-213`), as upstream `rfdetr` does (`F.resize(t, [res, res], antialias=False)`). No `fn.paste` in the DALI pipeline, no padding in the CUDA kernel, and box decode stays `scale_w = orig_w / res`, `scale_h = orig_h / res`.
+2. **ImageNet normalisation, not `/255` alone.** `/255` then mean `{0.485, 0.456, 0.406}` / std `{0.229, 0.224, 0.225}`. The CUDA kernel keeps that order of operations (unfolded constants) to hold its `1e-5` gate; DALI folds them as `mean = m*255`, `std = s*255`.
 3. **DETR head — no NMS.** The model emits normalised `cxcywh` boxes; `num_queries` comes from tensor shapes, never a hardcoded 300. Candidates are ranked by sigmoid class scores and filtered without NMS.
 4. **Full per-query masks.** Segmentation output is `masks[1, num_queries, mask_h, mask_w]` — one complete mask per query, no prototype tensor and no coefficient dot product. All dimensions come from tensor shapes. The kernel is a straight bilinear resize of one `mask_h × mask_w` slice plus threshold; multiple selected classes for a query reuse that query's mask.
 5. **No sigmoid on masks.** The raw value is compared against `mask_threshold`, which defaults to `0.0` — a logit threshold. Applying sigmoid and comparing against 0.5 is equivalent only at those defaults and diverges at any other value. Keep the raw-logit comparison.
 6. **Shared global top-k selection.** Detection, segmentation, and keypoint CPU paths rank sigmoid scores over the flattened query/foreground-class grid, so one query can yield several detections. The configured background column is excluded before top-k. Examine at most `min(max_detections, num_queries * num_foreground)` ranked candidates, then retain only scores strictly greater than `threshold`; rejected candidates are not replaced from below the cap. GPU segmentation follows the same selection contract.
 7. **Compact foreground class indices.** Class IDs index the foreground columns after removing the configured background slot, then candidates outside the label list are dropped. `background_class_id` defaults to `0` (skip the first exported column), supports negative indices counted from the end, and accepts `std::nullopt` to keep every column. Subtracting one unconditionally is incorrect; CPU selection and the GPU kernel use the compact foreground index directly.
-8. **DALI hosts preprocessing only.** Postprocess kernels live directly in `src/gpu/` and are called by our own code. There is no external scheduler to satisfy, so wrapping them in DALI operators would cost the operator schema, pipeline serialisation, and plugin loading for no benefit.
+8. **Our own kernels by default; DALI is an alternative for preprocessing only.** The preprocessing kernel, the nvJPEG decoder and the postprocess kernels live directly in `src/gpu/` and are called by our own code. DALI, when chosen with `-DUSE_DALI=ON`, replaces only the preprocessing step. Postprocessing is never wrapped in DALI operators, which would cost the operator schema, pipeline serialisation, and plugin loading for no benefit.
 
 ## Packed output contract
 
@@ -68,21 +81,24 @@ RF-DETR does not behave like the CNN detectors most GPU pipeline code is written
 
 ## Correctness rules
 
-- **`daliOutputRelease` ordering.** Release **after** the TensorRT enqueue, never before. Getting this wrong hands DALI's buffer back to its pool while TensorRT is still reading it, producing intermittent garbage rather than a crash.
-- **`antialias=False` in the DALI resize.** DALI antialiases when downscaling by default; `preprocess_bgr_image` is a plain 4-tap bilinear sample. Without it, tensors diverge on every image larger than `res`, worst on the largest.
+- **CUDA preprocess mirrors the CPU arithmetic line for line** (`preprocess_bgr_image`, `normalize_image`): clamp the source coordinate before taking the sample index, keep the CPU's bilinear nesting, `/255` then `(v-mean)/std`. Change one, change both. Its frame-path gate is max abs `1e-5`.
+- **The nvJPEG decoder is per-instance and created on first use.** nvJPEG decode state is not thread-safe; only `run_gpu_image()` creates it, so the video path never does. JPEG vs not-JPEG is decided by `nvjpegGetImageInfo`, never by file extension.
+- **`daliOutputRelease` ordering (DALI builds).** Release **after** the TensorRT enqueue, never before. Getting this wrong hands DALI's buffer back to its pool while TensorRT is still reading it, producing intermittent garbage rather than a crash.
+- **`antialias=False` in the DALI resize (DALI builds).** DALI antialiases when downscaling by default; `preprocess_bgr_image` is a plain 4-tap bilinear sample. Without it, tensors diverge on every image larger than `res`, worst on the largest.
 - **`float` accumulation in the mask kernel, not `double`.** The CPU reference is `float`; matching it matters more than extra precision.
 - **Rank all foreground pairs, cap examined candidates, then apply the strict threshold.** Filtering can leave fewer than `max_detections` outputs; do not backfill. See model contract rule 6.
 - **Read shapes from tensors.** `mask_h`, `mask_w`, `num_queries`, `num_classes` come from the tensor shapes — never hardcode them, or the kernels lock to one engine.
 - **Finite equal-score ties use ascending flattened foreground index.** CPU `select_topk_multiclass` explicitly breaks ties by index. CUDA `decode_scores` initializes indices in ascending order and CUB `DeviceRadixSort::SortPairsDescending` is stable, preserving that order for equal scores. This does not assert CPU/GPU NaN ranking equality.
-- **Resize is a tolerance gate, never an equality gate.** DALI resize will not bit-match the CPU bilinear. Do not promise equality for resampling.
+- **Resize is a tolerance gate, never an equality gate.** DALI resize will not bit-match the CPU bilinear (`2e-2`); the CUDA kernel matches it to `1e-5`, not bit-exactly (FMA contraction). JPEG decode on the GPU (nvJPEG, in either preprocessor) differs from stb by up to `1e-1` in the tensor. Do not promise equality for resampling or decode.
 
 ## Risks
 
 | Risk | Mitigation |
 |------|------------|
-| DALI resize never bit-matches the CPU bilinear | Tolerance gate from the start; never promise equality for resampling |
-| DALI version coupled to CUDA/TensorRT versions | Container tag pinned; the triple is recorded in [tech-stack.md](tech-stack.md) |
+| DALI resize never bit-matches the CPU bilinear | Tolerance gate from the start; never promise equality for resampling. The default CUDA kernel holds `1e-5` |
+| DALI version coupled to CUDA/TensorRT versions | Container tag pinned; the triple is recorded in [tech-stack.md](tech-stack.md). The default CUDA preprocessor has no such coupling — nvJPEG ships in the toolkit |
+| nvJPEG default backend decodes Huffman on the host | Measured ~4 ms of the encoded path on a 1280×720 JPEG. The GPU-hybrid backend is a separate change if still-image throughput matters |
 | `daliOutputRelease` ordering bug | Explicit ordering rule above, plus a `compute-sanitizer` run in the [roadmap.md](roadmap.md) Phase 4 gate |
 | Kernels hardcode one engine's shapes | Shapes read from tensors; covered by the parity fixtures |
-| Single stream erases video-pipeline overlap | Ring-buffer size must be ≥ DALI's prefetch depth. Measure stream-per-slot against DALI's internal queueing rather than assuming |
+| Single stream erases video-pipeline overlap | Ring-buffer size must be ≥ DALI's prefetch depth in DALI builds. Measure stream-per-slot against the single stream rather than assuming |
 | CI cannot execute any of it | Compile in CI, `GTEST_SKIP()` at runtime, manual GPU gate — matches the existing TensorRT posture |
