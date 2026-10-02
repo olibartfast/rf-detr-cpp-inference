@@ -20,8 +20,8 @@ below by the checks for the alternative-preprocessor setup.
 - [x] Cppcheck: `cppcheck --enable=all --std=c++20 --suppress=missingIncludeSystem --suppress=unmatchedSuppression --suppress=unusedFunction --error-exitcode=1 -I src src/` (2026-10-02; also clean with the GPU defines on the changed sources)
 - [x] Default build and tests: `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build --parallel`,
       `ctest --test-dir build --output-on-failure -R UnitTests` (2026-10-02: all 10 ctest entries pass)
-- [ ] `gpu-compile.yml` green on every matrix entry (runs on the PR; the same six configurations
-      built locally, see the group C/D record): TensorRT alone, `+USE_CUDA_PREPROCESS`,
+- [x] `gpu-compile.yml` green on every matrix entry (2026-10-02, PR #17: all six entries and the
+      rest of CI, 15/15 checks, pass): TensorRT alone, `+USE_CUDA_PREPROCESS`,
       `+USE_DALI`, `+USE_CUDA_POSTPROCESS`, full pipeline (CUDA), full pipeline (DALI) — all
       `-DWERROR=ON` on the pinned TensorRT — and its exclusive-configure step
 
