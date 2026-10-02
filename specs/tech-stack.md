@@ -64,10 +64,11 @@ NVIDIA's name for standard TensorRT from 11.x, under the same license).
 |-------|--------|---------|-------|
 | Media (default) | FFmpeg + SDL2 + stb | unpinned in CMake | pkg-config; conan pins `FFMPEG_VERSION`, `SDL_VERSION` |
 | Media (alternative) | OpenCV 4.x | unpinned | `-DUSE_OPENCV=ON`; replaces FFmpeg, SDL2 **and** stb. `OPENCV_VERSION` tracks only the commented swap instruction in `conanfile.txt`, not a live pin |
-| GPU preprocessing | NVIDIA DALI | `DALI_VERSION` (2.x only; CI header staging) | Staged from `TRITON_IMAGE` (`NGC_CONTAINER_TAG`) via `scripts/fetch_dali.sh` — NVIDIA ships no standalone C++ distribution |
+| GPU preprocessing (default) | CUDA kernel + nvJPEG | `CUDA_VERSION` (nvJPEG ships in the toolkit; no pin of its own) | `-DUSE_CUDA_PREPROCESS=ON`; `CUDA::nvjpeg`, CI installs `libnvjpeg-dev-<cuda>` |
+| GPU preprocessing (alternative) | NVIDIA DALI | `DALI_VERSION` (2.x only; CI header staging) | `-DUSE_DALI=ON`, exclusive with the CUDA preprocessor. Staged from `TRITON_IMAGE` (`NGC_CONTAINER_TAG`) via `scripts/fetch_dali.sh` — NVIDIA ships no standalone C++ distribution |
 | GPU postprocessing | CUDA Toolkit + CUB | `CUDA_VERSION` | `FindCUDAToolkit`; `CMAKE_CUDA_ARCHITECTURES` defaults to `CUDA_ARCHITECTURES` |
 
-Only resolutions **432** and **576** have checked-in `.dali` pipelines (`data/dali/`). Others must be regenerated with `./scripts/generate_dali_pipelines.sh <res>`.
+The CUDA preprocessor runs at any resolution. For DALI, only resolutions **432** and **576** have checked-in `.dali` pipelines (`data/dali/`). Others must be regenerated with `./scripts/generate_dali_pipelines.sh <res>`.
 
 ## CMake options
 
@@ -78,19 +79,20 @@ Only resolutions **432** and **576** have checked-in `.dali` pipelines (`data/da
 | `USE_EXECUTORCH` | OFF | `:78` |
 | `USE_OPENCV` | OFF | `:79` |
 | `EXECUTORCH_DELEGATE` | `xnnpack` (or `portable`) | `:86` |
-| `USE_DALI` | OFF | `:118` |
-| `USE_CUDA_POSTPROCESS` | OFF | `:119` |
-| `USE_GPU_PIPELINE` | OFF (enables both above) | `:120` |
+| `USE_DALI` | OFF (alternative to `USE_CUDA_PREPROCESS`) | `:121` |
+| `USE_CUDA_PREPROCESS` | OFF | `:122` |
+| `USE_CUDA_POSTPROCESS` | OFF | `:123` |
+| `USE_GPU_PIPELINE` | OFF (enables `USE_CUDA_PREPROCESS`, or DALI if `USE_DALI` is given, plus `USE_CUDA_POSTPROCESS`) | `:124` |
 | `WERROR` | OFF | `:28` |
 | `SANITIZERS` (ASan+UBSan) | OFF | `:38` |
 | `STRICT_UBSAN` | OFF | `:39` |
 | `THREAD_SANITIZER` | OFF | `:40` |
-| `BENCHMARKS` | OFF | `:419` |
+| `BENCHMARKS` | OFF | `:482` |
 | `DEPS_MODE` | `apt` (`apt\|conan\|vcpkg\|auto`) | `cmake/deps/Deps.cmake:6` |
 | `DEPS_DEBUG` | OFF | `cmake/deps/Deps.cmake` |
 | `RFDETR_VERSIONS_ENV` | `<repo>/versions.env` | `cmake/versions.cmake` |
 
-`CMakePresets.json` provides six presets: `default`, `debug-sanitizers`, `debug-tsan`, `debug-strict-ubsan`, `debug-valgrind`, and `gpu-pipeline` (TensorRT + DALI + CUDA). ExecuTorch and OpenCV require explicit options.
+`CMakePresets.json` provides seven presets: `default`, `debug-sanitizers`, `debug-tsan`, `debug-strict-ubsan`, `debug-valgrind`, `gpu-pipeline` (TensorRT + CUDA preprocess + CUDA postprocess), and `gpu-pipeline-dali` (TensorRT + DALI preprocess + CUDA postprocess). ExecuTorch and OpenCV require explicit options.
 
 ## Constraints
 
@@ -98,9 +100,10 @@ These are enforced at configure time or by the runtime — not style preferences
 
 - Exactly one of `USE_ONNX_RUNTIME` / `USE_TENSORRT` / `USE_EXECUTORCH`. Two is a `FATAL_ERROR`.
 - The three sanitizer modes are mutually exclusive. Valgrind needs a plain Debug build — ASan and TSan conflict with it.
-- `USE_DALI` and `USE_CUDA_POSTPROCESS` require the TensorRT backend. Either with ONNX Runtime is a `FATAL_ERROR`.
+- `USE_CUDA_PREPROCESS`, `USE_DALI` and `USE_CUDA_POSTPROCESS` require the TensorRT backend. Any of them with ONNX Runtime is a `FATAL_ERROR`.
+- `USE_CUDA_PREPROCESS` and `USE_DALI` are alternative GPU preprocessors. Both together is a `FATAL_ERROR`.
 - `--gpu-postprocess` additionally requires `--segmentation`.
-- **CI runners have no GPU.** `gpu-compile.yml` *compiles* the TensorRT, DALI and CUDA paths under `-DWERROR=ON` against headers-only prefixes, but nothing links and nothing runs there; ExecuTorch is not built by CI at all. Behaviour — parity, sanitizers, benchmarks — you **must** verify manually: see [AGENTS.md](../AGENTS.md).
+- **CI runners have no GPU.** `gpu-compile.yml` *compiles* the TensorRT, DALI, nvJPEG and CUDA paths under `-DWERROR=ON` against headers-only prefixes, but nothing links and nothing runs there; ExecuTorch is not built by CI at all. Behaviour — parity, sanitizers, benchmarks — you **must** verify manually: see [AGENTS.md](../AGENTS.md).
 
 ## CI coverage
 
@@ -108,7 +111,7 @@ These are enforced at configure time or by the runtime — not style preferences
 |----------|------|
 | `ci.yml` — Build & Test | Build & Unit Tests (+ benchmarks), Sanitizers (ASan+UBSan), ThreadSanitizer, Valgrind Memcheck |
 | `lint.yml` — C++ Lint & Build | Version Sync (`scripts/check_version_sync.sh`), Format Check, Clang-Tidy, Cppcheck, Build with Strict Warnings (`-DWERROR=ON`) |
-| `gpu-compile.yml` — GPU Backend Compile | Compile-only matrix, `-DWERROR=ON`: TensorRT alone, +DALI, +CUDA postprocess, +both, all against the pinned `TENSORRT_VERSION`/`DALI_VERSION` headers. Builds `rfdetr_inference_lib` only — the staged shared objects are stubs, so no target that links is reachable |
+| `gpu-compile.yml` — GPU Backend Compile | Compile-only matrix, `-DWERROR=ON`: TensorRT alone, +CUDA preprocess, +DALI preprocess, +CUDA postprocess, full pipeline (CUDA), full pipeline (DALI), all against the pinned `TENSORRT_VERSION`/`DALI_VERSION` headers and the `CUDA_VERSION` toolkit; the TensorRT entry also checks that both preprocessors together fail at configure. Builds `rfdetr_inference_lib` only — the staged shared objects are stubs, so no target that links is reachable |
 | `deps-modes.yml` — Dependency Modes | `workflow_dispatch` only; matrix over apt / conan / vcpkg |
 
 All three push/PR workflows (`ci.yml`, `lint.yml`, `gpu-compile.yml`) trigger on `master` and `develop`. Integration tests are not run by CI.

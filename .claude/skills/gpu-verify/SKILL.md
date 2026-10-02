@@ -1,6 +1,6 @@
 ---
 name: gpu-verify
-description: Runs the manual GPU and alternate-backend verification that CI cannot — build the TensorRT/DALI/CUDA matrix, run the four pre/post combinations against the parity tolerances, compute-sanitizer a long video run, record benchmarks. Trigger when the user says "verify the GPU path", "run the GPU gate", "test TensorRT manually", "parity check", or invokes /gpu-verify.
+description: Runs the manual GPU and alternate-backend verification that CI cannot — build the TensorRT/CUDA/DALI matrix, run the four pre/post combinations against the parity tolerances, compute-sanitizer a long video run, record benchmarks. Trigger when the user says "verify the GPU path", "run the GPU gate", "test TensorRT manually", "parity check", or invokes /gpu-verify.
 ---
 
 # GPU Verify
@@ -15,10 +15,12 @@ Written for any coding agent; every step is a shell command a human can run.
 ## Prerequisites
 
 - NVIDIA GPU with the CUDA Toolkit installed manually (TensorRT implies CUDA 13.x)
-- DALI staged once: `./scripts/fetch_dali.sh` → `~/dependencies/dali`
+- The CUDA Toolkit's nvJPEG (`libnvjpeg-dev-<cuda>`), for the default CUDA preprocessor
+- DALI staged once, for the alternative preprocessor: `./scripts/fetch_dali.sh` → `~/dependencies/dali`
 - A `.engine` or `.onnx` model, plus a test image and a video of at least 1000 frames
-- Checked-in `.dali` pipelines exist for resolutions **432** and **576** only; anything else needs
-  `./scripts/generate_dali_pipelines.sh <res>` with `--gpus all` Docker
+- For DALI, checked-in `.dali` pipelines exist for resolutions **432** and **576** only; anything
+  else needs `./scripts/generate_dali_pipelines.sh <res>` with `--gpus all` Docker. The CUDA
+  preprocessor runs at any resolution
 
 On rented hardware, `./scripts/run_gate.sh` drives steps 1, 2, 4, 5 and 6 below unattended and
 reports the rest as `UNRUN`. Renting, preparing and collecting:
@@ -27,20 +29,27 @@ reports the rest as `UNRUN`. Renting, preparing and collecting:
 ## 1. Build the matrix
 
 ```bash
-# TensorRT + full GPU pipeline
+# TensorRT + full GPU pipeline (CUDA preprocessing + CUDA postprocessing)
 cmake -S . -B build-gpu -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON \
-      -DUSE_GPU_PIPELINE=ON -DDALI_ROOT=$HOME/dependencies/dali \
-      -DCMAKE_BUILD_TYPE=Release -DWERROR=ON
+      -DUSE_GPU_PIPELINE=ON -DCMAKE_BUILD_TYPE=Release -DWERROR=ON
 cmake --build build-gpu --parallel
+
+# The alternative: DALI preprocessing + CUDA postprocessing
+cmake -S . -B build-gpu-dali -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON \
+      -DUSE_GPU_PIPELINE=ON -DUSE_DALI=ON -DDALI_ROOT=$HOME/dependencies/dali \
+      -DCMAKE_BUILD_TYPE=Release -DWERROR=ON
+cmake --build build-gpu-dali --parallel
 ```
 
-Also confirm the halves build independently — `-DUSE_DALI=ON` alone (no nvcc needed) and
-`-DUSE_CUDA_POSTPROCESS=ON` alone — and that either one with `USE_ONNX_RUNTIME=ON` still fails at
-configure time with a `FATAL_ERROR`. That guard is an architectural commitment, not a nicety.
+Also confirm the halves build independently — `-DUSE_CUDA_PREPROCESS=ON` alone, `-DUSE_DALI=ON`
+alone (no nvcc needed) and `-DUSE_CUDA_POSTPROCESS=ON` alone — that any of them with
+`USE_ONNX_RUNTIME=ON` still fails at configure time with a `FATAL_ERROR`, and that
+`-DUSE_CUDA_PREPROCESS=ON -DUSE_DALI=ON` fails too. Those guards are architectural commitments,
+not niceties.
 
 ## 2. The four combinations
 
-Run every fixture in `tests/data/gpu_parity/` through all four:
+Run every fixture in `tests/data/gpu_parity/` through all four, in each GPU pipeline build:
 
 | Combination | Flags |
 |-------------|-------|
@@ -54,8 +63,10 @@ keypoint, deliberately ([specs/roadmap.md](../../../specs/roadmap.md) → Deferr
 
 ### Tolerances — every one is a number, none is negotiable
 
-- [ ] Preprocessed tensor: `max |Δ| ≤ 2e-2` (a tolerance gate, never equality — DALI resize will
-      not bit-match the CPU bilinear)
+- [ ] Preprocessed tensor, frame path: CUDA kernel `max |Δ| ≤ 1e-5`; DALI `max |Δ| ≤ 2e-2` (a
+      tolerance gate, never equality — DALI resize will not bit-match the CPU bilinear)
+- [ ] Preprocessed tensor, JPEG decoded on the GPU (nvJPEG, either preprocessor): `max |Δ| ≤ 1e-1`
+      — nvJPEG and stb are different decoders; CUDA PNG fallback `max |Δ| ≤ 1e-5`
 - [ ] Detection sets match on class and count, scores within `1e-3`
 - [ ] Box centres within 1 px
 - [ ] Mask IoU ≥ 0.999
@@ -76,7 +87,8 @@ compute-sanitizer --tool memcheck ./build-gpu/inference_app <model> <video> <lab
 ```
 
 - [ ] A **1000-frame** video run completes with no leak and **no `compute-sanitizer` findings**
-- [ ] Particular attention to `daliOutputRelease` ordering — release **after** the TensorRT enqueue.
+- [ ] Run it on the default (CUDA preprocessing) build, and on the DALI build when DALI changed
+- [ ] DALI builds: particular attention to `daliOutputRelease` ordering — release **after** the TensorRT enqueue.
       Getting it wrong produces intermittent garbage, not a crash, so a single clean short run
       proves nothing ([specs/gpu-pipeline.md](../../../specs/gpu-pipeline.md))
 
@@ -84,8 +96,8 @@ compute-sanitizer --tool memcheck ./build-gpu/inference_app <model> <video> <lab
 
 ```bash
 cmake -S . -B build-gpu-bench -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON \
-      -DUSE_GPU_PIPELINE=ON -DDALI_ROOT=$HOME/dependencies/dali \
-      -DCMAKE_BUILD_TYPE=Release -DBENCHMARKS=ON
+      -DUSE_GPU_PIPELINE=ON -DCMAKE_BUILD_TYPE=Release -DBENCHMARKS=ON
+# add -DUSE_DALI=ON -DDALI_ROOT=$HOME/dependencies/dali to time the DALI preprocessor instead
 cmake --build build-gpu-bench --parallel && ./build-gpu-bench/benchmarks
 ```
 

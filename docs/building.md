@@ -233,31 +233,48 @@ Export a model with [`deploy/export_executorch.py`](../deploy/export_executorch.
 > exported by hand. See
 > [backend-parity-segmentation-video.md](backend-parity-segmentation-video.md).
 
-## Build with the GPU Pipeline (TensorRT + DALI + CUDA)
-The GPU pipeline requires the TensorRT backend — DALI writes into, and the CUDA
-kernels read from, the inference engine's device buffers, and only the TensorRT
-backend exposes device pointers and a CUDA stream. Configuring it with the ONNX
-Runtime backend fails with an explicit error.
+## Build with the GPU Pipeline (TensorRT + CUDA)
+The GPU pipeline requires the TensorRT backend — the preprocessor writes into, and
+the CUDA kernels read from, the inference engine's device buffers, and only the
+TensorRT backend exposes device pointers and a CUDA stream. Configuring it with the
+ONNX Runtime backend fails with an explicit error.
 
 ```bash
-# 1. Stage the DALI C++ libraries (one-time; extracts from a pinned Triton container):
-./scripts/fetch_dali.sh                      # -> ~/dependencies/dali
-
-# 2. Configure with both GPU halves enabled:
+# CUDA preprocessing (kernel + nvJPEG) and CUDA postprocessing. Needs nvcc and the
+# CUDA Toolkit's nvJPEG (e.g. libnvjpeg-dev-<cuda>); nothing to stage.
 cmake -S . -B build -G Ninja \
   -DUSE_ONNX_RUNTIME=OFF \
   -DUSE_TENSORRT=ON \
   -DUSE_GPU_PIPELINE=ON \
-  -DDALI_ROOT=$HOME/dependencies/dali \
   -DCMAKE_BUILD_TYPE=Release
 
 cmake --build build --parallel
 ```
 
-The two halves are independent: `-DUSE_CUDA_POSTPROCESS=ON` alone builds the
-CUDA segmentation postprocessing (needs `nvcc`, no DALI), and `-DUSE_DALI=ON`
-alone builds the DALI preprocessing (plain C++ against the DALI C API, no
-`nvcc`). `-DUSE_GPU_PIPELINE=ON` turns on both. See [GPU Pipeline](architecture.md#gpu-pipeline) for how it works, and
+### DALI as the alternative preprocessor
+
+DALI can replace the CUDA kernel as the GPU preprocessor. The two are exclusive:
+enabling both is a configure-time error.
+
+```bash
+# 1. Stage the DALI C++ libraries (one-time; extracts from a pinned Triton container):
+./scripts/fetch_dali.sh                      # -> ~/dependencies/dali
+
+# 2. Configure the pipeline with DALI preprocessing + CUDA postprocessing:
+cmake -S . -B build -G Ninja \
+  -DUSE_ONNX_RUNTIME=OFF \
+  -DUSE_TENSORRT=ON \
+  -DUSE_GPU_PIPELINE=ON \
+  -DUSE_DALI=ON \
+  -DDALI_ROOT=$HOME/dependencies/dali \
+  -DCMAKE_BUILD_TYPE=Release
+```
+
+The halves are independent: `-DUSE_CUDA_POSTPROCESS=ON` alone builds the CUDA
+segmentation postprocessing (needs `nvcc`, no preprocessor), `-DUSE_CUDA_PREPROCESS=ON`
+alone builds the CUDA preprocessing (needs `nvcc` and nvJPEG), and `-DUSE_DALI=ON`
+alone builds the DALI preprocessing (plain C++ against the DALI C API, no `nvcc`).
+`-DUSE_GPU_PIPELINE=ON` turns on a preprocessor and the postprocessing. See [GPU Pipeline](architecture.md#gpu-pipeline) for how it works, and
 [Usage](usage.md#gpu-pipeline)
 for the runtime flags.
 

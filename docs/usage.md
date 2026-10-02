@@ -133,7 +133,7 @@ then.
 
 | Flag | Requires | Effect |
 |------|----------|--------|
-| `--gpu-preprocess` | `-DUSE_DALI=ON` | Decode/resize/normalize on the GPU with DALI |
+| `--gpu-preprocess` | `-DUSE_CUDA_PREPROCESS=ON` or `-DUSE_DALI=ON` | Decode/resize/normalize on the GPU with whichever preprocessor was compiled in (CUDA kernel + nvJPEG, or DALI) |
 | `--gpu-postprocess` | `-DUSE_CUDA_POSTPROCESS=ON` | Segmentation mask decode/resize/threshold in CUDA kernels; segmentation only |
 | `--dali-pipeline-dir <dir>` | `-DUSE_DALI=ON` | Where the serialized `.dali` pipeline files live (default `data/dali`) |
 
