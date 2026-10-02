@@ -79,7 +79,7 @@ the archive `TensorRT-Enterprise-….tar.zst`; that is the standard TensorRT, no
 - Engines are tied to the TensorRT version that built them — rebuild cached `.engine` files
   after switching TensorRT versions.
 - It is also the only backend that can drive the [GPU pipeline](#the-gpu-pipeline-at-runtime):
-  DALI writes into, and the CUDA kernels read from, the inference engine's device buffers, and
+  the GPU preprocessor writes into, and the CUDA kernels read from, the inference engine's device buffers, and
   only this backend exposes device pointers and a CUDA stream.
 
 Build steps: [building.md](building.md#build-with-tensorrt-backend).
@@ -153,18 +153,20 @@ another inference backend — enabling two is a configure-time error.
 
 | Option | Default | Effect |
 |--------|---------|--------|
-| `-DUSE_DALI=ON/OFF` | `OFF` | DALI GPU preprocessing; requires the TensorRT backend and `-DDALI_ROOT` |
+| `-DUSE_CUDA_PREPROCESS=ON/OFF` | `OFF` | CUDA GPU preprocessing (fused kernel + nvJPEG); requires the TensorRT backend, `nvcc` and nvJPEG |
+| `-DUSE_DALI=ON/OFF` | `OFF` | DALI GPU preprocessing, the alternative to `USE_CUDA_PREPROCESS`; requires the TensorRT backend and `-DDALI_ROOT` |
 | `-DUSE_CUDA_POSTPROCESS=ON/OFF` | `OFF` | CUDA segmentation postprocessing; requires the TensorRT backend and `nvcc` |
-| `-DUSE_GPU_PIPELINE=ON/OFF` | `OFF` | Convenience switch that enables both of the above |
+| `-DUSE_GPU_PIPELINE=ON/OFF` | `OFF` | Convenience switch: `USE_CUDA_PREPROCESS` (or DALI, if `-DUSE_DALI=ON` is also given) plus `USE_CUDA_POSTPROCESS` |
 | `-DDALI_ROOT=<path>` | — | Directory holding the staged DALI libraries/headers (from `./scripts/fetch_dali.sh`) |
-| `-DCMAKE_CUDA_ARCHITECTURES=<list>` | `86` (RTX 30-series) | CUDA architectures for the postprocessing kernels |
+| `-DCMAKE_CUDA_ARCHITECTURES=<list>` | `86` (RTX 30-series) | CUDA architectures for the preprocessing and postprocessing kernels |
 
-Either GPU option combined with the ONNX Runtime backend is a configure-time `FATAL_ERROR`.
-The two halves are independent — `-DUSE_DALI=ON` needs no `nvcc`, `-DUSE_CUDA_POSTPROCESS=ON`
-does.
+Any GPU option combined with the ONNX Runtime backend is a configure-time `FATAL_ERROR`, and so
+is enabling both `-DUSE_CUDA_PREPROCESS=ON` and `-DUSE_DALI=ON`. Preprocessing and
+postprocessing are independent — `-DUSE_DALI=ON` needs no `nvcc`, the CUDA options do.
 
-What each half resolves: the CUDA Toolkit comes from CMake's `FindCUDAToolkit`, and CUB —
-header-only, bundled with the toolkit — is used by the postprocessing kernels. DALI is
+What each half resolves: the CUDA Toolkit comes from CMake's `FindCUDAToolkit`, which also
+provides nvJPEG (`CUDA::nvjpeg`) for the CUDA preprocessor, and CUB — header-only, bundled with
+the toolkit — is used by the postprocessing kernels. DALI is
 ROOT-only: NVIDIA ships no standalone C++ DALI distribution, so `./scripts/fetch_dali.sh`
 extracts the C API libraries and headers from a pinned Triton container
 (`nvcr.io/nvidia/tritonserver:<NGC_CONTAINER_TAG>-py3`) into `~/dependencies/dali`, which is what you point
@@ -228,9 +230,9 @@ The targets themselves are in [development.md](development.md#valgrind--profilin
 
 ### Presets
 
-`CMakePresets.json` carries the default build, four diagnostic CPU presets, and `gpu-pipeline`
-for TensorRT + DALI + CUDA. ExecuTorch and OpenCV have no preset — pass their options
-explicitly.
+`CMakePresets.json` carries the default build, four diagnostic CPU presets, `gpu-pipeline` for
+TensorRT + CUDA preprocessing + CUDA postprocessing, and `gpu-pipeline-dali` for the same with
+DALI preprocessing. ExecuTorch and OpenCV have no preset — pass their options explicitly.
 
 ---
 
@@ -372,18 +374,24 @@ the default until you ask for otherwise.
 
 | Flag | Requires | Effect |
 |------|----------|--------|
-| `--gpu-preprocess` | built with `-DUSE_DALI=ON` | Decode/resize/normalize on the GPU with DALI |
+| `--gpu-preprocess` | built with `-DUSE_CUDA_PREPROCESS=ON` or `-DUSE_DALI=ON` | Decode/resize/normalize on the GPU, with whichever preprocessor was compiled in. CUDA: JPEGs decode with nvJPEG, other formats with stb on the CPU and are uploaded |
 | `--gpu-postprocess` | built with `-DUSE_CUDA_POSTPROCESS=ON` | Segmentation mask decode/resize/threshold in CUDA kernels; **segmentation only**, so pair it with `--segmentation` |
 | `--dali-pipeline-dir <dir>` | `-DUSE_DALI=ON` | Where the serialized `.dali` pipeline files live (default `data/dali`) |
 
-With `--gpu-preprocess`, the video pipeline's preprocess stage becomes a passthrough: DALI's
-`frame` pipeline runs on the backend's CUDA stream inside the inference stage, and the CPU cost
-of the bilinear resample leaves the pipeline entirely.
+With `--gpu-preprocess`, the video pipeline's preprocess stage becomes a passthrough: the CUDA
+kernel (or DALI's `frame` pipeline) runs on the backend's CUDA stream inside the inference stage,
+and the CPU cost of the bilinear resample leaves the pipeline entirely.
+
+On an RTX 3060 Laptop, from a 1280×720 source, the CUDA preprocessor took 0.55 ms per video frame
+against 6.8–11.9 ms for the CPU preprocess plus tensor upload (432–576), and 4.0 ms per JPEG
+image against 20–25 ms for stb decode plus CPU preprocess. Measured numbers and method:
+[the Phase 6 validation record](../specs/features/2026-09-25-cuda-preprocess/validation.md).
 
 ### A new input resolution
 
-The serialized `.dali` pipelines are resolution-specific, and **432** and **576** are checked
-in. For anything else, regenerate — this needs Docker with `--gpus all`:
+The CUDA preprocessor runs at any resolution. The serialized `.dali` pipelines are
+resolution-specific, and **432** and **576** are checked in. For anything else in a DALI build,
+regenerate — this needs Docker with `--gpus all`:
 
 ```bash
 ./scripts/generate_dali_pipelines.sh <res>
@@ -392,13 +400,13 @@ in. For anything else, regenerate — this needs Docker with `--gpus all`:
 ### CUDA architectures
 
 `-DCMAKE_CUDA_ARCHITECTURES` defaults to `86` (RTX 30-series). Set it to your card's
-capability — e.g. `89` for Ada — when building the postprocessing kernels. Note that
+capability — e.g. `89` for Ada — when building the CUDA kernels. Note that
 `scripts/run_gate.sh` deliberately defaults to `CUDA_ARCH=89`, matching the hardware the
 verification gate is usually rented on; it is not a pin.
 
 Design constraints and how each half works: [architecture.md](architecture.md#gpu-pipeline) and
 [specs/gpu-pipeline.md](../specs/gpu-pipeline.md). The build:
-[building.md](building.md#build-with-the-gpu-pipeline-tensorrt--dali--cuda). Verifying it on
+[building.md](building.md#build-with-the-gpu-pipeline-tensorrt--cuda). Verifying it on
 real hardware is a maintainer procedure, kept with the specs:
 [specs/rented-gpu-runbook.md](../specs/rented-gpu-runbook.md).
 
@@ -416,7 +424,7 @@ real hardware is a maintainer procedure, kept with the specs:
   backpressure is automatic. There is nothing to configure: the inference stage owns its own
   `RFDETRInference` instance and takes no locks on the hot path.
 - **Lower `--max-detections`** to shrink the ranked candidate set on crowded frames.
-- **Move preprocessing to the GPU** with `--gpu-preprocess` on a TensorRT + DALI build.
+- **Move preprocessing to the GPU** with `--gpu-preprocess` on a TensorRT GPU-pipeline build.
 - **Measure before changing anything.** Build with `-DBENCHMARKS=ON` and run `./build/benchmarks`;
   for a profile, `cmake --build build-valg --target callgrind` (read with `callgrind_annotate`)
   or the lower-overhead `perf record ./build/benchmarks`. Details:
@@ -496,7 +504,7 @@ The video driver's own knobs live in `VideoPipelineConfig` (`src/video_pipeline.
 |----------|------|-------------|
 | **C++ Lint & Build** | `lint.yml` | Version sync, Dockerfile shared blocks, format check, clang-tidy, cppcheck, build with `-DWERROR=ON` |
 | **Build & Test** | `ci.yml` | Build with benchmarks, run unit tests, run benchmarks, run unit tests under ASan+UBSan |
-| **GPU Backend Compile** | `gpu-compile.yml` | Compiles the TensorRT backend and both GPU halves with `-DWERROR=ON`, across all four `USE_DALI`/`USE_CUDA_POSTPROCESS` combinations, plus the full pipeline against TensorRT 11 headers |
+| **GPU Backend Compile** | `gpu-compile.yml` | Compiles the TensorRT backend and the GPU halves with `-DWERROR=ON` against TensorRT 11 headers: TensorRT alone, each GPU preprocessor (CUDA, DALI), CUDA postprocessing, and both full pipelines; also checks the two preprocessors are rejected together |
 | **Dependency Modes** | `deps-modes.yml` | `workflow_dispatch` only; matrix over apt / conan / vcpkg |
 
 All three push/PR workflows trigger on `master` and `develop`.

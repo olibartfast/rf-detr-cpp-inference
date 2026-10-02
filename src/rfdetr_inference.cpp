@@ -553,7 +553,7 @@ std::optional<std::filesystem::path> RFDETRInference::save_output_image(const rf
 // --- GPU pipeline -----------------------------------------------------------
 
 bool RFDETRInference::gpu_preprocess_active() const noexcept {
-#ifdef USE_DALI
+#if defined(USE_CUDA_PREPROCESS) || defined(USE_DALI)
     return config_.gpu_preprocess && backend_->supports_device_io() && rfdetr::gpu::device_available();
 #else
     return false;
@@ -568,7 +568,7 @@ bool RFDETRInference::gpu_postprocess_active() const noexcept {
 #endif
 }
 
-#if defined(USE_CUDA_POSTPROCESS) || defined(USE_DALI)
+#if defined(USE_CUDA_POSTPROCESS) || defined(USE_CUDA_PREPROCESS) || defined(USE_DALI)
 
 void RFDETRInference::ensure_gpu_ready() {
     if (gpu_ready_) {
@@ -581,7 +581,11 @@ void RFDETRInference::ensure_gpu_ready() {
         throw std::runtime_error("The GPU pipeline was requested but no CUDA device is available");
     }
 
-#ifdef USE_DALI
+#ifdef USE_CUDA_PREPROCESS
+    if (config_.gpu_preprocess) {
+        std::cout << "GPU preprocessing: CUDA (nvJPEG for JPEG, stb + upload otherwise)\n";
+    }
+#elif defined(USE_DALI)
     if (config_.gpu_preprocess) {
         const auto pipeline =
             config_.dali_pipeline_dir / ("preprocess_encoded_" + std::to_string(config_.resolution) + ".dali");
@@ -599,8 +603,65 @@ void RFDETRInference::ensure_gpu_ready() {
     gpu_ready_ = true;
 }
 
+#ifdef USE_CUDA_PREPROCESS
+void RFDETRInference::preprocess_device_frame(int height, int width) {
+    // Writes straight into the TensorRT input binding on the backend's stream, so
+    // the enqueue that follows sees the tensor without a synchronisation.
+    rfdetr::gpu::preprocess_bgr_device(static_cast<const std::uint8_t *>(frame_device_.get()), height, width,
+                                       backend_->get_input_device_ptr(), config_.resolution, config_.means,
+                                       config_.stds, backend_->device_stream());
+    backend_->run_inference_device(backend_->get_input_device_ptr(), input_shape_);
+}
+#endif
+
 void RFDETRInference::run_gpu_image(const std::filesystem::path &image_path, int &orig_h, int &orig_w) {
-#ifdef USE_DALI
+#ifdef USE_CUDA_PREPROCESS
+    ensure_gpu_ready();
+    if (!config_.gpu_preprocess) {
+        throw std::runtime_error("run_gpu_image called without GPU preprocessing enabled");
+    }
+    // Only still images decode JPEG, so a video run never creates the nvJPEG state.
+    if (!jpeg_decoder_) {
+        jpeg_decoder_ = std::make_unique<rfdetr::gpu::JpegDecoder>();
+    }
+
+    std::ifstream file(image_path, std::ios::binary | std::ios::ate);
+    if (!file) {
+        throw std::runtime_error("Failed to open image: " + image_path.string());
+    }
+    const auto size = static_cast<size_t>(file.tellg());
+    file.seekg(0, std::ios::beg);
+    encoded_bytes_.resize(size);
+    if (!file.read(reinterpret_cast<char *>(encoded_bytes_.data()), static_cast<std::streamsize>(size))) {
+        throw std::runtime_error("Failed to read image bytes: " + image_path.string());
+    }
+
+    auto *const stream = backend_->device_stream();
+
+    // The header decides, not the extension: a JPEG nvJPEG can turn into BGR is
+    // decoded on the device, so only the compressed bytes cross the bus. The
+    // image size comes from the same header read.
+    if (jpeg_decoder_->probe(encoded_bytes_)) {
+        const auto decoded = jpeg_decoder_->decode(encoded_bytes_, frame_device_, stream);
+        orig_h = decoded.height;
+        orig_w = decoded.width;
+    } else {
+        // Everything else (PNG, BMP, CMYK JPEG, ...) decodes on the host exactly as
+        // the CPU path does and is uploaded once; the kernel then runs as for video.
+        const auto image = rfdetr::media::load_image(image_path);
+        if (image.empty()) {
+            throw std::runtime_error("Failed to read image: " + image_path.string());
+        }
+        orig_h = image.height;
+        orig_w = image.width;
+        frame_device_.reserve(image.bytes());
+        rfdetr::gpu::copy_h2d(frame_device_.get(), image.data(), image.bytes(), stream);
+        // `image` is pageable host memory and goes out of scope here; a pageable
+        // cudaMemcpyAsync has staged it before returning, so that is safe.
+    }
+
+    preprocess_device_frame(orig_h, orig_w);
+#elif defined(USE_DALI)
     ensure_gpu_ready();
     if (!dali_encoded_) {
         throw std::runtime_error("run_gpu_image called without GPU preprocessing enabled");
@@ -640,12 +701,26 @@ void RFDETRInference::run_gpu_image(const std::filesystem::path &image_path, int
     (void)image_path;
     orig_h = 0;
     orig_w = 0;
-    throw std::runtime_error("Built without DALI support (-DUSE_DALI=ON)");
+    throw std::runtime_error("Built without GPU preprocessing (-DUSE_CUDA_PREPROCESS=ON or -DUSE_DALI=ON)");
 #endif
 }
 
 void RFDETRInference::run_gpu_frame(const rfdetr::media::Image &bgr_frame) {
-#ifdef USE_DALI
+#ifdef USE_CUDA_PREPROCESS
+    ensure_gpu_ready();
+    if (!config_.gpu_preprocess) {
+        throw std::runtime_error("run_gpu_frame called without GPU preprocessing enabled");
+    }
+    if (bgr_frame.empty()) {
+        throw std::runtime_error("run_gpu_frame received an empty frame");
+    }
+
+    // One H2D of the interleaved BGR bytes; everything after that stays on the
+    // device. The buffer is grow-only, so steady-state frames never allocate.
+    frame_device_.reserve(bgr_frame.bytes());
+    rfdetr::gpu::copy_h2d(frame_device_.get(), bgr_frame.data(), bgr_frame.bytes(), backend_->device_stream());
+    preprocess_device_frame(bgr_frame.height, bgr_frame.width);
+#elif defined(USE_DALI)
     ensure_gpu_ready();
     if (bgr_frame.empty()) {
         throw std::runtime_error("run_gpu_frame received an empty frame");
@@ -681,7 +756,7 @@ void RFDETRInference::run_gpu_frame(const rfdetr::media::Image &bgr_frame) {
     backend_->run_inference_device(input_binding, input_shape_);
 #else
     (void)bgr_frame;
-    throw std::runtime_error("Built without DALI support (-DUSE_DALI=ON)");
+    throw std::runtime_error("Built without GPU preprocessing (-DUSE_CUDA_PREPROCESS=ON or -DUSE_DALI=ON)");
 #endif
 }
 
@@ -796,4 +871,4 @@ void RFDETRInference::postprocess_segmentation_outputs_gpu(float scale_w, float 
 #endif
 }
 
-#endif // USE_CUDA_POSTPROCESS || USE_DALI
+#endif // USE_CUDA_POSTPROCESS || USE_CUDA_PREPROCESS || USE_DALI
