@@ -146,8 +146,8 @@ void VideoPipeline::preprocess_stage() {
     const auto &means = config_.inference_config.means;
     const auto &stds = config_.inference_config.stds;
 
-    // In GPU-preprocessing mode this stage is a passthrough: DALI runs on the
-    // backend's CUDA stream inside the infer stage, because the preprocessed
+    // In GPU-preprocessing mode this stage is a passthrough: the CUDA kernel (or
+    // DALI) runs on the backend's CUDA stream inside the infer stage, because the preprocessed
     // tensor is written directly into the inference input binding and splitting
     // that across threads would only add cross-stream synchronisation. The CPU
     // cost this stage used to carry (the bilinear resample) disappears entirely.

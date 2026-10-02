@@ -112,19 +112,30 @@ if(USE_EXECUTORCH AND NOT EXECUTORCH_DELEGATE MATCHES "^(xnnpack|portable)$")
 endif()
 
 # --- GPU Pipeline Options ----------------------------------------------------
-# Independent halves: GPU preprocessing (DALI, or the CUDA kernel replacing it)
-# and CUDA segmentation postprocessing. USE_GPU_PIPELINE is a convenience that
-# turns on all of them. All are OFF by default so the standard ONNX Runtime
-# build needs neither nvcc nor DALI.
-option(USE_DALI "Build with DALI GPU preprocessing" OFF)
-option(USE_CUDA_PREPROCESS "Build with CUDA GPU preprocessing" OFF)
+# Two independent halves: GPU preprocessing and CUDA segmentation postprocessing.
+# Preprocessing has two alternative implementations, chosen at configure time:
+# our own CUDA kernel + nvJPEG (USE_CUDA_PREPROCESS, the default) or a serialized
+# DALI pipeline (USE_DALI). Exactly one may be on. USE_GPU_PIPELINE turns on
+# both halves, with CUDA preprocessing unless USE_DALI is also given. All are
+# OFF by default so the standard ONNX Runtime build needs neither nvcc nor DALI.
+option(USE_DALI "Build with DALI GPU preprocessing (alternative to USE_CUDA_PREPROCESS)" OFF)
+option(USE_CUDA_PREPROCESS "Build with CUDA + nvJPEG GPU preprocessing" OFF)
 option(USE_CUDA_POSTPROCESS "Build with CUDA segmentation postprocessing" OFF)
-option(USE_GPU_PIPELINE "Enable USE_DALI, USE_CUDA_PREPROCESS and USE_CUDA_POSTPROCESS" OFF)
+option(USE_GPU_PIPELINE "Enable GPU preprocessing (CUDA, or DALI with -DUSE_DALI=ON) and USE_CUDA_POSTPROCESS" OFF)
 
 if(USE_GPU_PIPELINE)
-    set(USE_DALI ON)
-    set(USE_CUDA_PREPROCESS ON)
+    if(NOT USE_DALI)
+        set(USE_CUDA_PREPROCESS ON)
+    endif()
     set(USE_CUDA_POSTPROCESS ON)
+endif()
+
+if(USE_DALI AND USE_CUDA_PREPROCESS)
+    message(FATAL_ERROR
+        "USE_DALI and USE_CUDA_PREPROCESS are alternative GPU preprocessors; enable exactly one.\n"
+        "  CUDA kernel + nvJPEG (default): -DUSE_CUDA_PREPROCESS=ON\n"
+        "  DALI pipeline:                  -DUSE_DALI=ON -DDALI_ROOT=<dir>\n"
+        "With USE_GPU_PIPELINE=ON, passing -DUSE_DALI=ON selects DALI instead of the CUDA kernel.")
 endif()
 
 if((USE_DALI OR USE_CUDA_PREPROCESS OR USE_CUDA_POSTPROCESS) AND NOT USE_TENSORRT)
@@ -257,7 +268,9 @@ if(USE_DALI)
     list(APPEND RFDETR_SOURCES "${SOURCE_DIR}/gpu/dali_preprocessor.cpp")
 endif()
 if(USE_CUDA_PREPROCESS)
-    list(APPEND RFDETR_SOURCES "${SOURCE_DIR}/gpu/rfdetr_preprocess.cu")
+    list(APPEND RFDETR_SOURCES
+        "${SOURCE_DIR}/gpu/rfdetr_preprocess.cu"
+        "${SOURCE_DIR}/gpu/jpeg_decoder.cpp")
 endif()
 if(USE_CUDA_POSTPROCESS)
     list(APPEND RFDETR_SOURCES "${SOURCE_DIR}/gpu/rfdetr_postprocess.cu")
@@ -355,6 +368,16 @@ endif()
 if(USE_DALI OR USE_CUDA_PREPROCESS OR USE_CUDA_POSTPROCESS)
     target_link_libraries(rfdetr_inference_lib PUBLIC Deps::CUDAToolkit)
 endif()
+if(USE_CUDA_PREPROCESS)
+    # nvJPEG ships in the CUDA Toolkit, so it carries no pin of its own;
+    # FindCUDAToolkit defines the target when libnvjpeg is installed.
+    if(NOT TARGET CUDA::nvjpeg)
+        message(FATAL_ERROR
+            "USE_CUDA_PREPROCESS=ON needs nvJPEG (CUDA::nvjpeg), which was not found.\n"
+            "Install the toolkit's nvJPEG development package, e.g. libnvjpeg-dev-<cuda>.")
+    endif()
+    target_link_libraries(rfdetr_inference_lib PUBLIC CUDA::nvjpeg)
+endif()
 if(USE_DALI)
     target_link_libraries(rfdetr_inference_lib PUBLIC Deps::DALI)
 endif()
@@ -426,9 +449,9 @@ target_compile_definitions(unit_tests PRIVATE
 
 # --- Integration Tests ---
 set(INTEGRATION_TEST_SOURCES "${TEST_DIR}/integration/integration_test_rfdetr_inference.cpp")
-if(USE_GPU_PIPELINE)
+if((USE_DALI OR USE_CUDA_PREPROCESS) AND USE_CUDA_POSTPROCESS)
     # End-to-end GPU parity: the four pre/post combinations against a real engine.
-    # Skips at runtime without a model or a matching .dali pipeline.
+    # Skips at runtime without a model (or, for DALI, a matching .dali pipeline).
     list(APPEND INTEGRATION_TEST_SOURCES "${TEST_DIR}/integration/integration_test_gpu_parity.cpp")
 endif()
 add_executable(integration_tests ${INTEGRATION_TEST_SOURCES})
@@ -468,6 +491,11 @@ if(BENCHMARKS)
     target_include_directories(benchmarks PRIVATE "${TEST_DIR}/unit")
     target_compile_definitions(benchmarks PRIVATE GPU_PARITY_FIXTURE_DIR="${TEST_DIR}/data/gpu_parity"
                                                  GPU_PARITY_DALI_DIR="${CMAKE_SOURCE_DIR}/data/dali")
+    if(USE_CUDA_POSTPROCESS)
+        # bench_gpu_pipeline.cpp reuses MockDeviceBackend from gpu_test_utils.hpp,
+        # which includes <gtest/gtest.h>.
+        target_link_libraries(benchmarks PRIVATE Deps::GTest)
+    endif()
 endif()
 
 # Enable testing

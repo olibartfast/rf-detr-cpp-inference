@@ -10,6 +10,7 @@
 #include "gpu_test_utils.hpp"
 
 #ifdef USE_CUDA_PREPROCESS
+#include "gpu/jpeg_decoder.hpp"
 #include "gpu/rfdetr_preprocess.hpp"
 #endif
 
@@ -279,9 +280,48 @@ std::vector<float> cpu_preprocess_at(const rfdetr::media::Image &image, int reso
     return tensor;
 }
 
+std::vector<std::uint8_t> read_bytes(const std::filesystem::path &path) {
+    std::ifstream file(path, std::ios::binary | std::ios::ate);
+    if (!file) {
+        throw std::runtime_error("missing fixture file: " + path.string());
+    }
+    const auto size = static_cast<size_t>(file.tellg());
+    file.seekg(0, std::ios::beg);
+    std::vector<std::uint8_t> bytes(size);
+    if (!file.read(reinterpret_cast<char *>(bytes.data()), static_cast<std::streamsize>(size))) {
+        throw std::runtime_error("failed to read fixture file: " + path.string());
+    }
+    return bytes;
+}
+
+/// Encoded-path CUDA preprocess: nvJPEG decodes to BGR on the device, then the
+/// same kernel as the frame path runs, so decode is the only difference.
+std::vector<float> cuda_preprocess_encoded(const std::vector<std::uint8_t> &bytes, int resolution,
+                                           rfdetr::gpu::JpegDecoder &decoder, rfdetr::gpu::GpuContext &context) {
+    const std::array<float, 3> means{0.485F, 0.456F, 0.406F};
+    const std::array<float, 3> stds{0.229F, 0.224F, 0.225F};
+    const size_t count = 3 * static_cast<size_t>(resolution) * static_cast<size_t>(resolution);
+
+    rfdetr::gpu::DeviceBuffer frame;
+    const auto size = decoder.decode(bytes, frame, context.stream());
+    rfdetr::gpu::DeviceBuffer out(count * sizeof(float));
+    rfdetr::gpu::preprocess_bgr_device(static_cast<const std::uint8_t *>(frame.get()), size.height, size.width,
+                                       out.get(), resolution, means, stds, context.stream());
+
+    std::vector<float> tensor(count);
+    rfdetr::gpu::copy_d2h(tensor.data(), out.get(), count * sizeof(float), context.stream());
+    rfdetr::gpu::stream_synchronize(context.stream());
+    return tensor;
+}
+
 /// Frame-path tolerance: the kernel repeats the CPU arithmetic, so only FMA
 /// contraction and rounding may differ (specs/features/2026-09-25-cuda-preprocess).
 constexpr float kCudaFrameTolerance = 1e-5F;
+
+/// Encoded-path tolerance: nvJPEG and stb are different JPEG decoders (IDCT and
+/// chroma upsampling), measured at 0.050-0.069; the bound still catches a wrong
+/// channel order, mean/std or letterbox.
+constexpr float kCudaEncodedTolerance = 1e-1F;
 
 // Argument checks run before any CUDA call, so this needs no device.
 TEST(GpuParityCudaPreprocess, RejectsInvalidArguments) {
@@ -351,6 +391,7 @@ TEST(GpuParityCudaPreprocess, EdgeGeometriesMatchCpu) {
 TEST(GpuParityCudaPreprocess, NoLetterboxBorders) {
     SKIP_WITHOUT_GPU();
     rfdetr::gpu::GpuContext context(0);
+    rfdetr::gpu::JpegDecoder decoder;
     const int res = gpu_parity::kResolution;
 
     for (const char *name : {"wide", "tall"}) {
@@ -358,11 +399,85 @@ TEST(GpuParityCudaPreprocess, NoLetterboxBorders) {
         const auto image = rfdetr::media::load_image(fixture_file(name, ".jpg"));
         ASSERT_FALSE(image.empty());
 
-        const auto gpu = cuda_preprocess_frame(image, res, context);
+        const auto frame = cuda_preprocess_frame(image, res, context);
+        const auto encoded = cuda_preprocess_encoded(read_bytes(fixture_file(name, ".jpg")), res, decoder, context);
         for (int border = 0; border < 4; ++border) {
-            EXPECT_FALSE(border_is_constant(gpu, res, res, border))
-                << "GPU tensor border " << border << " is constant (letterbox suspected)";
+            EXPECT_FALSE(border_is_constant(frame, res, res, border))
+                << "frame-path tensor border " << border << " is constant (letterbox suspected)";
+            EXPECT_FALSE(border_is_constant(encoded, res, res, border))
+                << "encoded-path tensor border " << border << " is constant (letterbox suspected)";
         }
+    }
+}
+
+TEST(GpuParityCudaPreprocess, ProbeReadsJpegHeaderOnly) {
+    SKIP_WITHOUT_GPU();
+    rfdetr::gpu::JpegDecoder decoder;
+
+    for (const auto &spec : gpu_parity::kNaturalFixtures) {
+        SCOPED_TRACE(spec.name);
+        const auto image = rfdetr::media::load_image(fixture_file(spec.name, ".jpg"));
+        const auto size = decoder.probe(read_bytes(fixture_file(spec.name, ".jpg")));
+        ASSERT_TRUE(size.has_value());
+        EXPECT_EQ(size->width, image.width);
+        EXPECT_EQ(size->height, image.height);
+    }
+
+    // Not a JPEG: the orchestrator falls back to stb on an empty probe.
+    const std::vector<std::uint8_t> empty;
+    const std::vector<std::uint8_t> png_magic{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0, 0, 0, 0};
+    EXPECT_FALSE(decoder.probe(empty).has_value());
+    EXPECT_FALSE(decoder.probe(png_magic).has_value());
+
+    rfdetr::gpu::DeviceBuffer dst;
+    EXPECT_THROW(decoder.decode(png_magic, dst, nullptr), std::runtime_error);
+}
+
+TEST(GpuParityCudaPreprocess, EncodedMatchesGoldenCpu) {
+    SKIP_WITHOUT_GPU();
+    rfdetr::gpu::GpuContext context(0);
+    rfdetr::gpu::JpegDecoder decoder;
+
+    for (const auto &spec : gpu_parity::kNaturalFixtures) {
+        SCOPED_TRACE(spec.name);
+        const auto golden = gpu_parity::read_preprocessed(fixture_file(spec.name, ".preprocessed.bin"));
+        const auto gpu = cuda_preprocess_encoded(read_bytes(fixture_file(spec.name, ".jpg")), gpu_parity::kResolution,
+                                                 decoder, context);
+        ASSERT_EQ(gpu.size(), golden.size());
+
+        const float max_delta = max_abs_delta(golden, gpu);
+        std::cout << "[gpu-parity] " << spec.name << " cuda encoded max |delta| = " << max_delta << '\n';
+        EXPECT_LE(max_delta, kCudaEncodedTolerance) << "nvJPEG + CUDA preprocess diverged beyond the decoder gap";
+    }
+}
+
+// The non-JPEG fallback: stb decodes on the host, the frame is uploaded and the
+// frame-path kernel runs. PNG is lossless, so the pixels are exactly the ones
+// the golden tensor was made from and the frame tolerance applies.
+TEST(GpuParityCudaPreprocess, PngFallbackMatchesGoldenCpu) {
+    SKIP_WITHOUT_GPU();
+    rfdetr::gpu::GpuContext context(0);
+    rfdetr::gpu::JpegDecoder decoder;
+
+    for (const auto &spec : gpu_parity::kNaturalFixtures) {
+        SCOPED_TRACE(spec.name);
+        const auto source = rfdetr::media::load_image(fixture_file(spec.name, ".jpg"));
+        ASSERT_FALSE(source.empty());
+
+        const auto png = std::filesystem::temp_directory_path() / (std::string("gpu_parity_") + spec.name + ".png");
+        ASSERT_TRUE(rfdetr::media::save_image(source, png));
+        const auto bytes = read_bytes(png);
+        const auto image = rfdetr::media::load_image(png);
+        std::filesystem::remove(png);
+
+        EXPECT_FALSE(decoder.probe(bytes).has_value()) << "a PNG must take the stb fallback";
+        const auto golden = gpu_parity::read_preprocessed(fixture_file(spec.name, ".preprocessed.bin"));
+        const auto gpu = cuda_preprocess_frame(image, gpu_parity::kResolution, context);
+        ASSERT_EQ(gpu.size(), golden.size());
+
+        const float max_delta = max_abs_delta(golden, gpu);
+        std::cout << "[gpu-parity] " << spec.name << " cuda png fallback max |delta| = " << max_delta << '\n';
+        EXPECT_LE(max_delta, kCudaFrameTolerance) << "PNG fallback diverged from the CPU path";
     }
 }
 
