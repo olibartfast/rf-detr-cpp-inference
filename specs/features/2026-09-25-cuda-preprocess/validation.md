@@ -232,6 +232,6 @@ thread less, not the machine.
 - [x] `CHANGELOG.md` `[Unreleased]` updated in house style, naming the verification hardware,
       driver, CUDA and TensorRT versions (2026-10-02). The file has no per-file tables in any
       entry, so the entries are prose like the rest.
-- [ ] Roadmap Phase 6 items ticked and heading marked `(Complete)`
+- [x] Roadmap Phase 6 items ticked and heading marked `(Complete)`
 - [x] `specs/mission.md`/`specs/tech-stack.md` changes landed in the same commit as `README.md`/`AGENTS.md`
 - [ ] Branch merged into `develop` and deleted
