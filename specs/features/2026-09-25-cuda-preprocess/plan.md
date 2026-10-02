@@ -1,7 +1,7 @@
 # Plan — Phase 6, CUDA preprocessing, DALI as the alternative
 
 Base: `develop` after `feature/tensorrt-11-support` merges. Branch
-`feature/phase-6-cuda-preprocess`. The tree builds and CI stays green after every group.
+`feature/cuda-preprocess`. The tree builds and CI stays green after every group.
 
 Groups A and B were planned and done before the 2026-10-02 scope change (requirements.md: DALI
 stays as a configure-time alternative). Groups C–F below are the post-change plan; the original
