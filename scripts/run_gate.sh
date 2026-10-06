@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # run_gate.sh — unattended driver for the gpu-verify checklist on a rented GPU box.
 #
-# Runs every part of .claude/skills/gpu-verify/SKILL.md that is executable today,
+# Runs every part of the gpu-verify checklist (AGENTS.md) that is executable today,
 # records the parts that are not, arms a deadline watchdog so a hang cannot bill
 # forever, and stops the instance when it is done.
 #
@@ -16,11 +16,11 @@
 # Pull results to your own machine at any time (run this locally, not here):
 #   rsync -av <instance>:~/gate-results/ ./gate-results/
 #
-# What it cannot do: the parity tolerances in the skill (preprocessed tensor
+# What it cannot do: the parity tolerances in the checklist (preprocessed tensor
 # 2e-2, scores 1e-3, box centres 1 px, mask IoU 0.999) are exercised by
 # integration_test_gpu_parity.cpp (the four pre/post combinations), which this
 # script runs in step 2/3. The default-path bit-identical check still has no
-# baseline artefact, so it is reported UNRUN. Per the skill: an unrun check is
+# baseline artefact, so it is reported UNRUN. Per the checklist: an unrun check is
 # reported as unrun, never implied to have passed.
 #
 # Deliberately NOT `set -e`: a failing check is data, not a reason to abandon the
@@ -111,7 +111,7 @@ arm_watchdog() {
 }
 
 # --- Environment --------------------------------------------------------------
-# Step 7 of the skill wants driver, CUDA, TensorRT and DALI versions in the
+# Step 7 of the checklist wants driver, CUDA, TensorRT and DALI versions in the
 # CHANGELOG, so these probes have to actually find something.
 
 # TensorRT is normally NOT a system package here: cmake/deps/packages/TensorRT.cmake
@@ -402,7 +402,7 @@ step_default_path() {
         fail "default ONNX Runtime build or UnitTests — see unit-tests-default.txt"
     fi
 
-    # A green build and green UnitTests are not the skill's first step-6 box:
+    # A green build and green UnitTests are not the checklist's first step-6 box:
     # that one asks for output bit-identical to the pre-change baseline, which
     # needs an inference run and something to diff it against. Neither exists
     # here, so it is reported unrun rather than absorbed into the PASS above.
