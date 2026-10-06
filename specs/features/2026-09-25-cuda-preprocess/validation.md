@@ -234,4 +234,4 @@ thread less, not the machine.
       entry, so the entries are prose like the rest.
 - [x] Roadmap Phase 6 items ticked and heading marked `(Complete)`
 - [x] `specs/mission.md`/`specs/tech-stack.md` changes landed in the same commit as `README.md`/`AGENTS.md`
-- [ ] Branch merged into `develop` and deleted
+- [x] Branch merged into `develop` and deleted (2026-10-06, PR #18)
