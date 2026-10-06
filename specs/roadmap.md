@@ -11,7 +11,7 @@ Work this project has committed to, as a phased queue. Phases are ordered so eac
 - **v0.5.0 is released** — the rfdetr 1.9.1 and 1.9.2 alignments and the whole GPU pipeline shipped. Phases 1–5 are complete.
 - GPU pipeline: preprocessing and segmentation postprocessing **work end to end**; the test, build,
   and CI scaffolding (Phases 2–4) is complete and the parity gate has passed.
-- **Phase 6 is complete on `feature/cuda-preprocess`**: CUDA preprocessing (kernel + nvJPEG)
+- **Phase 6 is complete and merged to `develop`** (PR #18): CUDA preprocessing (kernel + nvJPEG)
   is the default GPU preprocessor, with DALI kept as the configure-time alternative.
 
 Before starting any phase, run the [`feature-spec`](../.claude/skills/feature-spec/SKILL.md) workflow — every phase here qualifies as multi-session work, so each one gets a spec directory under [`features/`](features/) before code is written.
