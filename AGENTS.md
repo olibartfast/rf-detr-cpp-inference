@@ -367,7 +367,7 @@ notes exactly what went out unverified.
 
 #### Step 2 — Reconcile the version statements
 
-The project version is stated in three places, and they must agree (all three were reconciled
+The project version is stated in four places, and they must agree (the first three were reconciled
 in v0.5.0):
 
 | Location | Form |
@@ -375,8 +375,9 @@ in v0.5.0):
 | `CMakeLists.txt` | `project(rfdetr_inference VERSION X.Y.Z ...)` |
 | `vcpkg.json` | `"version-string"` |
 | `README.md` | the version badge and its release-tag link |
+| `specs/tech-stack.md` | the "`project()` declares `VERSION X.Y.Z`" sentence |
 
-Set all three to the release version in the release commit. Dependency
+Set all four to the release version in the release commit. Dependency
 pins live only in `versions.env`: run `./scripts/check_version_sync.sh`, which verifies every
 restatement (Dockerfile `ARG`s, `conanfile.txt`, `deploy/requirements.txt`, export defaults, the
 README version tables), and see "Known pin duplications" in `specs/tech-stack.md`.

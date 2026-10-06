@@ -365,9 +365,17 @@ you get an **FP32 engine** unless the ONNX is converted first.
 
 `model.export(format="tensorrt", fp16=True)` does that conversion itself from rfdetr 1.11.0 on: it
 casts the graph to FP16 and adds boundary casts that keep the graph inputs and outputs float32.
-That is the I/O contract the C++ backend requires. Detection and segmentation ONNX files cast by
-1.11.2's converter load and run in the C++ TensorRT 11 backend, with scores within 0.004 of the
-FP32 engine.
+That is the I/O contract the C++ backend requires. The `.trt` it writes (`*_fp16.trt`) loads directly
+in the C++ TensorRT 11 backend: on an RTX 3060, nano detection and segmentation engines exported by
+1.11.2 ran 3.6–3.8× faster than their FP32 builds, with scores within 0.004 and mask IoU ≥ 0.998.
+Run the export with the **same TensorRT version as the runtime**. The `[tensorrt]` extra only
+requires `tensorrt>=8.6.1`, and an engine built by another version fails to deserialize. Inside
+`nvcr.io/nvidia/tensorrt:<NGC_CONTAINER_TAG>-py3`, constrain pip to the container's TensorRT:
+
+```bash
+pip list | awk '$1=="tensorrt"{print "tensorrt=="$2}' > /tmp/trt.txt
+pip install -c /tmp/trt.txt "rfdetr[tensorrt]==${RFDETR_VERSION}"
+```
 
 To build with `trtexec` or the C++ backend instead, convert the ONNX to mixed precision with NVIDIA ModelOpt AutoCast, **keeping the graph inputs and
 outputs in float32** — the C++ backend exchanges float32 buffers with the engine and refuses to
