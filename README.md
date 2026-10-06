@@ -182,7 +182,7 @@ backend is CPU-only as shipped — are in
 |-----------|---------|-----------|
 | C++ compiler | Clang 15+ or GCC 12+ (C++20) | everything |
 | CMake | 3.12+ (3.17+ for the ExecuTorch source fallback) | everything |
-| **ONNX Runtime** | **1.21.0** | default backend — downloaded automatically |
+| **ONNX Runtime** | **1.28.0** | default backend — downloaded automatically |
 | **TensorRT** | **11.2.1.2** + CUDA Toolkit **13.3** series | TensorRT backend (CUDA installed manually; its nvJPEG serves `-DUSE_CUDA_PREPROCESS=ON`) |
 | **ExecuTorch** | **v1.4.0** | ExecuTorch backend |
 | NVIDIA DALI | 2.2.0 (staged from `nvcr.io/nvidia/tritonserver:26.08-py3`) | `-DUSE_DALI=ON` (alternative GPU preprocessor) |
