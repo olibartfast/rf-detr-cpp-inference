@@ -20,7 +20,7 @@ Headers: NVIDIA/TensorRT OSS tags `v10.13.3` and `v11.3` (`include/`); CUDA 13.0
 - PASS: `./scripts/check_version_sync.sh`; clang-format-18 on the backend; `bash -n` on the scripts.
 - UNRUN (no GPU): engine build and inference on TensorRT 11.x; FP16-converted ONNX parity against
   the FP32 engine; the float32 I/O guard on a real engine; `gpu-compile.yml` compat job (runs on
-  the PR). Run [gpu-verify](../../../.claude/skills/gpu-verify/SKILL.md) on an 11.x prefix before
+  the PR). Run [gpu-verify](../../../AGENTS.md#checklist-gpu-verify) on an 11.x prefix before
   any pin bump.
 - UNRUN: Docker builds — no `dockerfile.*`, Docker build argument or Docker-used pin changed
   (`TENSORRT_COMPAT_VERSION` is read by CI staging only).

@@ -1,11 +1,11 @@
 # Running the GPU Gate on a Rented GPU
 
 CI runners have no GPU, so the TensorRT, DALI and CUDA paths are verified by hand via
-[gpu-verify](../.claude/skills/gpu-verify/SKILL.md). This document is the operational half: how to
+[gpu-verify](../AGENTS.md#checklist-gpu-verify). This document is the operational half: how to
 rent a machine, run [`scripts/run_gate.sh`](../scripts/run_gate.sh) on it unattended, and not leave
 it billing.
 
-The skill says *what* to check and to which tolerances. This says *how to get a box that can check
+The checklist says *what* to check and to which tolerances. This says *how to get a box that can check
 it*.
 
 ---
