@@ -126,10 +126,10 @@ def main():
     print("  - labels: Class logits [batch, num_queries, num_classes]")
     if args.segmentation:
         print("  - masks: Segmentation masks [batch, num_queries, H, W]")
-    print("\nNote: ExecuTorch export requires 'pip install rfdetr[executorch]==1.10.1'.")
-    print("      The extra only constrains ExecuTorch to >=1.3,<2.0, so check what it")
-    print("      installed ('pip show executorch'): the .pte must be exported with the")
-    print("      same version as the C++ runtime, which this project pins to v1.4.0.")
+    print("\nNote: ExecuTorch export requires 'pip install rfdetr[executorch]==1.11.2'.")
+    print("      Since rfdetr 1.11.2 the extra caps ExecuTorch at >=1.3,<1.4, so it")
+    print("      exports with 1.3.x; that .pte runs on the C++ runtime this project")
+    print("      pins to v1.4.0. Run with the venv activated: export needs its 'flatc'.")
     print("      1.9.1 recombines undelegated addmm into aten.linear (~2.5x faster XNNPACK")
     print("      inference); re-export .pte files produced with 1.9.0 to pick it up.")
     if args.backend == 'xnnpack':

@@ -195,9 +195,9 @@ backend is CPU-only as shipped — are in
 
 | Package | Pin | Provides |
 |---------|-----|----------|
-| `rfdetr[onnx]` | `==1.10.1` | `.onnx` export, ONNX opset 17 |
-| `rfdetr[executorch]` | `==1.10.1` | `.pte` export — check `pip show executorch` matches the pinned v1.4.0 runtime |
-| `rfdetr[tensorrt]` | `==1.10.1` | in-process engine builds (`tensorrt` + `polygraphy`) |
+| `rfdetr[onnx]` | `==1.11.2` | `.onnx` export, ONNX opset 17 |
+| `rfdetr[executorch]` | `==1.11.2` | `.pte` export — resolves ExecuTorch 1.3.x, whose `.pte` runs on the pinned v1.4.0 runtime |
+| `rfdetr[tensorrt]` | `==1.11.2` | in-process engine builds (`tensorrt` + `polygraphy`) |
 
 These two tables are the only prose that states pinned versions; everything else in `docs/`
 and `specs/` points at `versions.env`. The tables, the `ARG` defaults in the backend Dockerfiles,
