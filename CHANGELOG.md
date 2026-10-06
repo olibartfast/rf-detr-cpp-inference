@@ -7,6 +7,7 @@ Notable user-visible changes to this project and compatibility updates for upstr
 
 ### Added
 
+- GPU parity tests for greyscale and CMYK JPEGs (`GpuParityCudaPreprocess.GreyscaleJpegMatchesCpu`, `.CmykJpegTakesStbFallback`, fixtures `small_gray.jpg` / `small_cmyk.jpg`). nvJPEG decodes a greyscale JPEG to BGR within `0.016` of the CPU tensor, and a CMYK JPEG takes the stb fallback. Verified on an RTX 3060 Laptop, with greyscale and CMYK images end to end through the app as well.
 - **CUDA GPU preprocessing** (`-DUSE_CUDA_PREPROCESS=ON`), now the default GPU preprocessor.
   A fused CUDA kernel does the bilinear stretch, BGR→RGB and ImageNet normalisation straight into
   the TensorRT input binding, matching the CPU preprocess to within `1.1e-6` (gate `1e-5`).
