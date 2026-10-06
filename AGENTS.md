@@ -49,7 +49,8 @@ chosen by which file you pass to `-f` (there is no bare `Dockerfile`):
   builds the ExecuTorch runtime from source into `/opt/executorch` (override the tag with
   `--build-arg EXECUTORCH_VERSION=<tag>`) and applies the upstream install fix automatically
 - `dockerfile.trt` — TensorRT (GPU), `--build-arg MEDIA_BACKEND=ffmpeg|opencv` and
-  `--build-arg GPU_PIPELINE=off|dali|cuda|on` (GPU pipeline)
+  `--build-arg GPU_PIPELINE=off|pre|post|on|dali|dali-on` (GPU pipeline: `on` = CUDA pre + post,
+  `dali-on` = DALI pre + CUDA post; the retired `cuda` value fails the build)
 - The blocks shared across all three are wrapped in `# === shared:<name> ===` markers and
   guarded by `./scripts/check_dockerfile_parity.sh` (the `Dockerfile shared blocks` step in `lint.yml`).
 - **Pre-commit Docker gate:** before committing a change to `dockerfile.*` or a Docker-coupled
@@ -62,21 +63,21 @@ chosen by which file you pass to `-f` (there is no bare `Dockerfile`):
   affected build fails.
 
 ## GPU Pipeline (TensorRT only)
-- Stage DALI first (one-time, extracts from pinned Triton container): `./scripts/fetch_dali.sh` → `~/dependencies/dali`
-- Build both halves:
-  `cmake -S . -B build -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON -DUSE_GPU_PIPELINE=ON -DDALI_ROOT=$HOME/dependencies/dali -DCMAKE_BUILD_TYPE=Release && cmake --build build --parallel`
-- Halves are independent: `-DUSE_DALI=ON` (DALI preprocessing, no nvcc) / `-DUSE_CUDA_POSTPROCESS=ON` (CUDA seg postprocessing, needs nvcc; `CMAKE_CUDA_ARCHITECTURES` default `86`)
+- Build both halves (CUDA preprocessing with nvJPEG + CUDA postprocessing; needs nvcc and the toolkit's nvJPEG):
+  `cmake -S . -B build -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON -DUSE_GPU_PIPELINE=ON -DCMAKE_BUILD_TYPE=Release && cmake --build build --parallel`
+- DALI is the alternative GPU preprocessor. Stage it first (one-time, extracts from pinned Triton container): `./scripts/fetch_dali.sh` → `~/dependencies/dali`, then add `-DUSE_DALI=ON -DDALI_ROOT=$HOME/dependencies/dali` to the command above
+- Halves are independent. Preprocessing is `-DUSE_CUDA_PREPROCESS=ON` (kernel + nvJPEG, needs nvcc) **or** `-DUSE_DALI=ON` (no nvcc); both together is a configure-time `FATAL_ERROR`. Postprocessing is `-DUSE_CUDA_POSTPROCESS=ON` (CUDA seg postprocessing, needs nvcc). `CMAKE_CUDA_ARCHITECTURES` defaults to `86`
 - Either option with the ONNX Runtime backend is a configure-time `FATAL_ERROR`
-- Runtime flags (default off): `--gpu-preprocess`, `--gpu-postprocess` (segmentation only), `--dali-pipeline-dir <dir>` (default `data/dali`)
-- Regenerate `.dali` pipelines for a new resolution: `./scripts/generate_dali_pipelines.sh <res>` (needs `--gpus all` Docker); 432 and 576 are checked in
-- GPU unit tests (`test_gpu_postprocess.cpp`) `GTEST_SKIP()` without a CUDA device; like TensorRT, CI compiles but does not execute GPU paths — `gpu-compile.yml` builds all four `USE_DALI`/`USE_CUDA_POSTPROCESS` combinations with `-DWERROR=ON` against headers staged by `scripts/ci/stage_gpu_headers.sh`, so a compile break is a red PR, not a surprise on metered hardware. Behaviour still has to be tested manually with [gpu-verify](.claude/skills/gpu-verify/SKILL.md)
+- Runtime flags (default off): `--gpu-preprocess` (whichever preprocessor was compiled in), `--gpu-postprocess` (segmentation only), `--dali-pipeline-dir <dir>` (DALI builds only, default `data/dali`)
+- DALI only: regenerate `.dali` pipelines for a new resolution with `./scripts/generate_dali_pipelines.sh <res>` (needs `--gpus all` Docker); 432 and 576 are checked in. The CUDA preprocessor runs at any resolution
+- GPU unit tests (`test_gpu_postprocess.cpp`, `test_gpu_parity.cpp`) `GTEST_SKIP()` without a CUDA device; like TensorRT, CI compiles but does not execute GPU paths — `gpu-compile.yml` builds TensorRT alone, each preprocessor (CUDA, DALI), CUDA postprocessing and both full pipelines with `-DWERROR=ON` against headers staged by `scripts/ci/stage_gpu_headers.sh`, so a compile break is a red PR, not a surprise on metered hardware. Behaviour still has to be tested manually with [gpu-verify](.claude/skills/gpu-verify/SKILL.md)
 - On a rented GPU box, `./scripts/run_gate.sh` drives the executable part of that checklist unattended and reports the rest as `UNRUN`; it arms a deadline watchdog and stops the instance when done. Env knobs: `CUDA_ARCH` (default `89`), `DEADLINE_HOURS`, `SKIP_DEFAULT_PATH`, `SELF_STOP`, `MODEL`, `VIDEO`. End-to-end procedure — choosing an instance, export prep, setup script, collecting results: [specs/rented-gpu-runbook.md](specs/rented-gpu-runbook.md)
 - Design constraints: [specs/gpu-pipeline.md](specs/gpu-pipeline.md) — remaining phases: [specs/roadmap.md](specs/roadmap.md)
 
 ## Dependency Versions
 
 Export package: `rfdetr[onnx]` at `RFDETR_VERSION`; every pin is in `versions.env`, and prose names the variable, not the value.
-TensorRT: pinned 11.x (`TENSORRT_VERSION`, the `nvcr.io/nvidia/tensorrt:<NGC_CONTAINER_TAG>-py3` stack) and DALI 2.x (`DALI_VERSION`). One version each: no older-release branches, no second compile-check pin — `tensorrt_backend.hpp` rejects `NV_TENSORRT_MAJOR < 11`.
+TensorRT: pinned 11.x (`TENSORRT_VERSION`, the `nvcr.io/nvidia/tensorrt:<NGC_CONTAINER_TAG>-py3` stack) and DALI 2.x (`DALI_VERSION`, the alternative GPU preprocessor; the default CUDA preprocessor's nvJPEG comes with the `CUDA_VERSION` toolkit and has no pin). One version each: no older-release branches, no second compile-check pin — `tensorrt_backend.hpp` rejects `NV_TENSORRT_MAJOR < 11`.
 **[`versions.env`](versions.env) is the single source of truth for every third-party pin.** Never
 hardcode a version anywhere else.
 - CMake reads it via `cmake/versions.cmake` (included before `cmake/deps/Deps.cmake`); each pin is a `CACHE STRING`, so `-DTENSORRT_VERSION=…` overrides it.

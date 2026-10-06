@@ -3,22 +3,29 @@
 # One of three backend Dockerfiles (dockerfile.onnxrt, dockerfile.executorch,
 # dockerfile.trt); the backend is chosen by which file you pass to `-f`. This one
 # builds the GPU TensorRT backend, in either media flavour, with an opt-in GPU
-# pipeline (DALI preprocessing + CUDA segmentation postprocessing):
+# pipeline: GPU preprocessing (the CUDA kernel + nvJPEG, or DALI as the
+# alternative) and CUDA segmentation postprocessing:
 #
 #   MEDIA_BACKEND     GPU_PIPELINE   Image
 #   ─────────────     ────────────   ─────────────────────────────
 #   ffmpeg (default)  off (default)  TensorRT + FFmpeg/SDL2/stb
 #   opencv            off             TensorRT + OpenCV
+#   ffmpeg|opencv     pre             TensorRT + CUDA GPU preprocessing (nvJPEG)
+#   ffmpeg|opencv     post            TensorRT + CUDA segmentation postprocessing
+#   ffmpeg|opencv     on              TensorRT + CUDA preprocessing + CUDA postprocessing
 #   ffmpeg|opencv     dali            TensorRT + DALI GPU preprocessing
-#   ffmpeg|opencv     cuda            TensorRT + CUDA segmentation postprocessing
-#   ffmpeg|opencv     on              TensorRT + both GPU halves
+#   ffmpeg|opencv     dali-on         TensorRT + DALI preprocessing + CUDA postprocessing
+#
+# `cuda` (CUDA postprocessing before the CUDA preprocessor existed) is rejected
+# with a message naming `post`; `on` now means the all-CUDA pipeline, and the old
+# DALI + CUDA combination is `dali-on`.
 #
 # Build args:
 #   MEDIA_BACKEND       ffmpeg (default) | opencv
-#   GPU_PIPELINE        off (default) | dali | cuda | on — see "GPU pipeline" below
-#   CUDA_ARCHITECTURES  CMAKE_CUDA_ARCHITECTURES for the postprocessing kernels (GPU_PIPELINE=cuda|on only)
+#   GPU_PIPELINE        off (default) | pre | post | on | dali | dali-on — see "GPU pipeline" below
+#   CUDA_ARCHITECTURES  CMAKE_CUDA_ARCHITECTURES for the CUDA kernels (GPU_PIPELINE=pre|post|on|dali-on only)
 #   TENSORRT_VERSION    TensorRT bundled in the NGC base image
-#   NGC_CONTAINER_TAG   NGC monthly tag for the TensorRT base image and (GPU_PIPELINE=dali|on) the DALI staging image
+#   NGC_CONTAINER_TAG   NGC monthly tag for the TensorRT base image and (GPU_PIPELINE=dali|dali-on) the DALI staging image
 #   DOCKER_BASE_IMAGE   base image for the non-TensorRT stages (the DALI placeholder)
 #
 # The version args default to the values in versions.env, the single source of
@@ -35,7 +42,8 @@
 #   docker run --gpus all -v "$PWD/data:/data" -v "$PWD/exports:/exports" \
 #     rfdetr-trt-opencv /exports/model.engine /data/dog.jpg /data/coco-labels-91.txt
 #
-# Run (GPU pipeline image, DALI preprocessing + CUDA postprocessing):
+# Run (GPU pipeline image, CUDA preprocessing + CUDA postprocessing; the same flags
+# drive DALI preprocessing in a dali-on image):
 #   docker run --gpus all -v "$PWD/data:/data" -v "$PWD/exports:/exports" \
 #     rfdetr-trt-gpu /exports/model.engine /data/dog.jpg /data/coco-labels-91.txt \
 #     --gpu-preprocess --gpu-postprocess --segmentation
@@ -46,8 +54,8 @@
 #   - DALI is staged through a conditional stage alias, forwarded through a dali-selected
 #     stage as the layer the builder/runtime COPYs consume (FROM expands ARGs; COPY --from
 #     does not), so that for valid combinations the ~15 GB nvcr.io/nvidia/tritonserver image
-#     is pulled only when GPU_PIPELINE actually requests DALI (dali|on) — BuildKit prunes
-#     unreferenced stages, so `dali-fetch` is never even attempted for off|cuda. An invalid
+#     is pulled only when GPU_PIPELINE actually requests DALI (dali|dali-on) — BuildKit prunes
+#     unreferenced stages, so `dali-fetch` is never even attempted for off|pre|post|on. An invalid
 #     combination can still reference dali-fetch and pull the image before the builder's
 #     fail-fast check rejects it — see the caveat next to that check.
 #   - DALI is installed at /opt/dali in both the builder and runtime stages. This is load-bearing,
@@ -65,7 +73,7 @@ ARG DOCKER_BASE_IMAGE=ubuntu:24.04
 ARG CUDA_ARCHITECTURES=86
 
 # =============================================================================
-# DALI staging, selected by GPU_PIPELINE (off | dali | cuda | on)
+# DALI staging, selected by GPU_PIPELINE (off | pre | post | on | dali | dali-on)
 # =============================================================================
 # `docker build` has no equivalent of `docker run`, so scripts/fetch_dali.sh's
 # extraction (pinned Triton container -> DALI wheel tree) cannot be invoked here;
@@ -75,12 +83,12 @@ ARG CUDA_ARCHITECTURES=86
 # literal dali-selected name while the heavy image is pulled only when DALI is
 # actually requested.
 
-# Cheap placeholder: used for GPU_PIPELINE=off and =cuda, which need no DALI.
+# Cheap placeholder: used for every GPU_PIPELINE value that does not select DALI.
 FROM ${DOCKER_BASE_IMAGE} AS dali-none
 ARG DOCKER_BASE_IMAGE
 RUN mkdir -p /staging/dali
 
-# Used for GPU_PIPELINE=dali and =on. Layout mirrors scripts/fetch_dali.sh exactly:
+# Used for GPU_PIPELINE=dali and =dali-on. Layout mirrors scripts/fetch_dali.sh exactly:
 # include/, the hidden .libs/, and the four top-level .so files, all flat under
 # /staging/dali. .libs/ is not optional — libdali.so carries ~24 vendored
 # DT_NEEDED entries (libjpeg, ffmpeg, aws-sdk, ...) resolved at load time via
@@ -106,9 +114,13 @@ RUN NV_DIR=/opt/tritonserver/backends/dali/wheel/dali/nvidia && \
     done
 
 FROM dali-none AS dali-off
+FROM dali-none AS dali-pre
+FROM dali-none AS dali-post
+FROM dali-none AS dali-on
 FROM dali-fetch AS dali-dali
+FROM dali-fetch AS dali-dali-on
+# Retired value: placeholder so the builder's check, not a missing stage, reports it.
 FROM dali-none AS dali-cuda
-FROM dali-fetch AS dali-on
 
 # dali-selected: COPY --from expands no ARGs, so forward the alias to a literal stage name.
 FROM dali-${GPU_PIPELINE} AS dali-selected
@@ -125,13 +137,16 @@ ARG TENSORRT_VERSION
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Fail fast, before any package installs or the ~10 minute compile: GPU_PIPELINE
-# must be one of the known values (off|dali|cuda|on). This only shortens the
+# must be one of the known values (off|pre|post|on|dali|dali-on). This only shortens the
 # feedback loop for the compile path itself — BuildKit may still build the
 # dali-fetch stage (an independent DAG node) concurrently even when this check is
 # about to fail, so an invalid combination can still trigger the Triton image pull.
 RUN case "$GPU_PIPELINE" in \
-        off|dali|cuda|on) ;; \
-        *) echo "error: --build-arg GPU_PIPELINE=$GPU_PIPELINE must be one of off|dali|cuda|on" >&2; \
+        off|pre|post|on|dali|dali-on) ;; \
+        cuda) echo "error: GPU_PIPELINE=cuda was renamed: use post (CUDA postprocessing only)," \
+                   "or on (CUDA preprocessing + postprocessing)" >&2; \
+              exit 1 ;; \
+        *) echo "error: --build-arg GPU_PIPELINE=$GPU_PIPELINE must be one of off|pre|post|on|dali|dali-on" >&2; \
            exit 1 ;; \
     esac
 
@@ -175,7 +190,7 @@ RUN mkdir -p "build/_deps/TensorRT-${TENSORRT_VERSION}" && \
 
 # DALI (headers + libs), staged at /opt/dali — see "GPU pipeline (design notes)"
 # above for why the path must match the runtime stage's install below. Empty
-# for GPU_PIPELINE=off|cuda (dali-none only creates the directory), so this is
+# for every GPU_PIPELINE value but dali|dali-on (dali-none only creates the directory), so this is
 # unconditional and harmless in the default configuration.
 COPY --from=dali-selected /staging/dali/ /opt/dali/
 
@@ -184,7 +199,7 @@ COPY --from=dali-selected /staging/dali/ /opt/dali/
 # the versions.env default, miss the shim, and try to download that version
 # instead — mixing it with the NGC image's actual runtime.
 #
-# nvcc for GPU_PIPELINE=cuda|on comes from the CUDA toolkit bundled in the NGC
+# nvcc for GPU_PIPELINE=pre|post|on|dali-on comes from the CUDA toolkit bundled in the NGC
 # TensorRT base image. NVIDIA's own base images normally export
 # /usr/local/cuda/bin on PATH via an ENV baked into the image, which every FROM
 # inherits. Observed at build time (CUDA compiler identification NVIDIA 13.1.80
@@ -203,18 +218,21 @@ COPY --from=dali-selected /staging/dali/ /opt/dali/
 RUN CMAKE_CUDA_COMPILER_FLAG=""; \
     GTEST_FLAG=""; \
     USE_DALI_FLAG=OFF; \
+    USE_CUDA_PRE_FLAG=OFF; \
     USE_CUDA_PP_FLAG=OFF; \
     CUDA_INC="-I/usr/local/cuda/include"; \
     case "$GPU_PIPELINE" in \
-        dali) USE_DALI_FLAG=ON ;; \
-        cuda) USE_CUDA_PP_FLAG=ON ;; \
-        on)   USE_DALI_FLAG=ON; USE_CUDA_PP_FLAG=ON ;; \
-        off)  ;; \
-        *) echo "error: --build-arg GPU_PIPELINE=$GPU_PIPELINE must be one of off|dali|cuda|on" >&2; \
+        pre)     USE_CUDA_PRE_FLAG=ON ;; \
+        post)    USE_CUDA_PP_FLAG=ON ;; \
+        on)      USE_CUDA_PRE_FLAG=ON; USE_CUDA_PP_FLAG=ON ;; \
+        dali)    USE_DALI_FLAG=ON ;; \
+        dali-on) USE_DALI_FLAG=ON; USE_CUDA_PP_FLAG=ON ;; \
+        off)     ;; \
+        *) echo "error: --build-arg GPU_PIPELINE=$GPU_PIPELINE must be one of off|pre|post|on|dali|dali-on" >&2; \
            exit 1 ;; \
     esac; \
     CUDA_ARCH_FLAG=""; \
-    if [ "$USE_CUDA_PP_FLAG" = "ON" ]; then \
+    if [ "$USE_CUDA_PRE_FLAG" = "ON" ] || [ "$USE_CUDA_PP_FLAG" = "ON" ]; then \
         CUDA_ARCH_FLAG="-DCMAKE_CUDA_ARCHITECTURES=$CUDA_ARCHITECTURES"; \
         CMAKE_CUDA_COMPILER_FLAG="-DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc"; \
     fi; \
@@ -233,6 +251,7 @@ RUN CMAKE_CUDA_COMPILER_FLAG=""; \
         -DUSE_EXECUTORCH=OFF \
         -DUSE_OPENCV=$([ "$MEDIA_BACKEND" = opencv ] && echo ON || echo OFF) \
         -DUSE_DALI=$USE_DALI_FLAG \
+        -DUSE_CUDA_PREPROCESS=$USE_CUDA_PRE_FLAG \
         -DUSE_CUDA_POSTPROCESS=$USE_CUDA_PP_FLAG \
         -DDALI_ROOT=/opt/dali \
         $CUDA_ARCH_FLAG $CMAKE_CUDA_COMPILER_FLAG $GTEST_FLAG \
@@ -243,7 +262,7 @@ RUN CMAKE_CUDA_COMPILER_FLAG=""; \
 # enables DALI, so it stays a no-op for every other matrix combination.
 RUN mkdir -p /staging/dali-pipelines && \
     case "$GPU_PIPELINE" in \
-        dali|on) cp /workspace/data/dali/*.dali /staging/dali-pipelines/ ;; \
+        dali|dali-on) cp /workspace/data/dali/*.dali /staging/dali-pipelines/ ;; \
     esac
 
 # =============================================================================
@@ -275,10 +294,10 @@ WORKDIR /opt/rfdetr
 
 # DALI runtime libs, at the same /opt/dali path the builder's RPATH points at
 # (see "GPU pipeline (design notes)" at the top of this file). Empty for
-# GPU_PIPELINE=off|cuda.
+# every GPU_PIPELINE value but dali|dali-on.
 COPY --from=dali-selected /staging/dali/ /opt/dali/
 
-# .dali pipeline files for --gpu-preprocess. Empty for GPU_PIPELINE=off|cuda.
+# .dali pipeline files for --gpu-preprocess. Empty unless GPU_PIPELINE=dali|dali-on.
 COPY --from=builder /staging/dali-pipelines/ ./data/dali/
 
 # === shared:runtime-tail ===
