@@ -2,11 +2,15 @@
 #include "backends/inference_backend.hpp"
 #include "media.hpp"
 
-#if defined(USE_CUDA_POSTPROCESS) || defined(USE_DALI)
+#if defined(USE_CUDA_POSTPROCESS) || defined(USE_CUDA_PREPROCESS) || defined(USE_DALI)
 #include "gpu/gpu_context.hpp"
 #endif
 #ifdef USE_CUDA_POSTPROCESS
 #include "gpu/rfdetr_postprocess.hpp"
+#endif
+#ifdef USE_CUDA_PREPROCESS
+#include "gpu/jpeg_decoder.hpp"
+#include "gpu/rfdetr_preprocess.hpp"
 #endif
 #ifdef USE_DALI
 #include "gpu/dali_preprocessor.hpp"
@@ -61,9 +65,9 @@ struct Config {
     rfdetr::media::Color keypoint_color{0, 255, 0}; ///< Default keypoint color (green)
 
     // --- GPU pipeline (opt-in; requires the TensorRT backend) ---------------
-    bool gpu_preprocess{false};                           ///< Preprocess with DALI on the GPU
-    bool gpu_postprocess{false};                          ///< Postprocess segmentation with CUDA kernels
-    std::filesystem::path dali_pipeline_dir{"data/dali"}; ///< Where the .dali files live
+    bool gpu_preprocess{false};  ///< Preprocess on the GPU: CUDA (nvJPEG + kernel) or DALI, per the build
+    bool gpu_postprocess{false}; ///< Postprocess segmentation with CUDA kernels
+    std::filesystem::path dali_pipeline_dir{"data/dali"}; ///< Where the .dali files live (DALI builds only)
     int gpu_device_id{0};
 };
 
@@ -131,15 +135,18 @@ class RFDETRInference {
     [[nodiscard]] bool gpu_preprocess_active() const noexcept;
     [[nodiscard]] bool gpu_postprocess_active() const noexcept;
 
-#if defined(USE_CUDA_POSTPROCESS) || defined(USE_DALI)
+#if defined(USE_CUDA_POSTPROCESS) || defined(USE_CUDA_PREPROCESS) || defined(USE_DALI)
     /// Preprocess straight into the backend's input binding and run inference on
     /// the device, leaving outputs in device memory. Requires an active GPU
-    /// preprocess path. `orig_h`/`orig_w` are reported back for box scaling.
+    /// preprocess path. With CUDA preprocessing, JPEGs decode on the device with
+    /// nvJPEG and other formats decode on the host and are uploaded; DALI decodes
+    /// whatever its `encoded` pipeline accepts. `orig_h`/`orig_w` are reported
+    /// back for box scaling.
     void run_gpu_image(const std::filesystem::path &image_path, int &orig_h, int &orig_w);
 
     /// Same, but for an already-decoded BGR frame (the video path). The frame is
-    /// uploaded once and preprocessed by the DALI `frame` pipeline; outputs stay
-    /// in device memory.
+    /// uploaded once and preprocessed by the fused CUDA kernel or the DALI
+    /// `frame` pipeline; outputs stay in device memory.
     void run_gpu_frame(const rfdetr::media::Image &bgr_frame);
 
     /// Segmentation postprocessing on the GPU, reading the backend's output
@@ -173,18 +180,29 @@ class RFDETRInference {
     /// consumes, so a video run does not reallocate it per frame.
     std::vector<float> score_grid_;
 
-#if defined(USE_CUDA_POSTPROCESS) || defined(USE_DALI)
+#if defined(USE_CUDA_POSTPROCESS) || defined(USE_CUDA_PREPROCESS) || defined(USE_DALI)
     /// Lazily built on first use so a CPU-only run never touches the device.
     void ensure_gpu_ready();
 
     bool gpu_ready_{false};
 #endif
+#ifdef USE_CUDA_PREPROCESS
+    /// Kernel + enqueue over the BGR image already in `frame_device_`.
+    void preprocess_device_frame(int height, int width);
+
+    /// Created on the first still image; owned per instance because nvJPEG
+    /// decode state is not thread-safe.
+    std::unique_ptr<rfdetr::gpu::JpegDecoder> jpeg_decoder_;
+#endif
 #ifdef USE_DALI
     std::unique_ptr<rfdetr::gpu::DaliPreprocessor> dali_encoded_;
     std::unique_ptr<rfdetr::gpu::DaliPreprocessor> dali_frame_;
+#endif
+#if defined(USE_CUDA_PREPROCESS) || defined(USE_DALI)
     /// Reusable host buffer for the encoded image bytes.
     std::vector<uint8_t> encoded_bytes_;
-    /// Reusable device staging buffer for decoded BGR video frames.
+    /// Reusable device buffer for the interleaved BGR image — a video frame, and
+    /// with CUDA preprocessing also the nvJPEG output or the uploaded fallback.
     rfdetr::gpu::DeviceBuffer frame_device_;
 #endif
 #ifdef USE_CUDA_POSTPROCESS

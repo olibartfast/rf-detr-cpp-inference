@@ -7,6 +7,30 @@ Notable user-visible changes to this project and compatibility updates for upstr
 
 ### Added
 
+- **CUDA GPU preprocessing** (`-DUSE_CUDA_PREPROCESS=ON`), now the default GPU preprocessor.
+  A fused CUDA kernel does the bilinear stretch, BGR→RGB and ImageNet normalisation straight into
+  the TensorRT input binding, matching the CPU preprocess to within `1.1e-6` (gate `1e-5`).
+  Still images that are JPEGs decode on the GPU with nvJPEG, chosen from the file header, not
+  its extension. Other formats decode with stb on the CPU and are uploaded. nvJPEG ships with
+  the CUDA Toolkit, so there is nothing to stage and no new pin. On an RTX 3060 Laptop, from a
+  1280×720 source, preprocessing a video frame took 0.55 ms against 6.8–11.9 ms for the CPU path
+  plus tensor upload (432–576), and a JPEG image 4.0 ms against 20–25 ms. That is also faster
+  than DALI on the same card: 0.56 vs 0.93–0.98 ms per frame, 4.2 vs 5.0 ms per JPEG.
+  Verified on an RTX 3060 Laptop (sm_86, driver 610.43.02) in the NGC 26.08 TensorRT image
+  (TensorRT 11.2.1.2, CUDA 13.4 in forward-compatibility mode). The run covered GPU parity tests,
+  real-model detection, segmentation and keypoint runs, and `compute-sanitizer` over a
+  1192-frame video. The record is in `specs/features/2026-09-25-cuda-preprocess/validation.md`.
+- `--gpu-preprocess` uses whichever GPU preprocessor the build selected. **DALI stays as the
+  alternative** (`-DUSE_DALI=ON`). The two are exclusive: enabling both is a configure-time error.
+- `CMakePresets.json`: `gpu-pipeline` is now TensorRT + CUDA preprocessing + CUDA
+  postprocessing, and the new `gpu-pipeline-dali` keeps the DALI variant.
+- `dockerfile.trt` `GPU_PIPELINE` values `pre` (CUDA preprocessing), `post` (CUDA
+  postprocessing) and `dali-on` (DALI preprocessing + CUDA postprocessing).
+- GPU parity tests for the CUDA preprocessor: frame path, nvJPEG path, PNG fallback and header
+  probe (unit), plus an end-to-end PNG-fallback case (integration). New benchmarks
+  `BM_CudaPreprocessFrame`, `BM_CudaPreprocessEncoded`, `BM_DaliPreprocessFrame`, and CPU baselines
+  that include the JPEG decode (`BM_CpuPreprocessEncoded`) or the tensor upload
+  (`BM_CpuPreprocessUpload`).
 - TensorRT 11.x support in the TensorRT backend. TensorRT 11 removed weak typing and
   `BuilderFlag::kFP16`, which made the backend fail to compile. An engine built from an
   `.onnx` takes the model's own precision, so an FP16 engine needs an FP16-converted ONNX — see
@@ -23,6 +47,21 @@ Notable user-visible changes to this project and compatibility updates for upstr
 
 ### Changed
 
+- **`-DUSE_GPU_PIPELINE=ON` now selects CUDA preprocessing**, not DALI; add `-DUSE_DALI=ON` for
+  the DALI pipeline. Likewise `dockerfile.trt` `GPU_PIPELINE=on` now builds CUDA preprocessing +
+  CUDA postprocessing (the old DALI + CUDA image is `dali-on`), and `GPU_PIPELINE=cuda` fails the
+  build with a message naming its replacement, `post`.
+- `gpu-compile.yml` installs `libnvjpeg-dev` and compiles six configurations: TensorRT alone,
+  each GPU preprocessor, CUDA postprocessing, and both full pipelines. A step also checks that
+  the two preprocessors are rejected together. `scripts/run_gate.sh` builds and checks both
+  full pipelines.
+- **End-to-end GPU parity tolerances for preprocessing** (`integration_test_gpu_parity.cpp`). A
+  comparison where any GPU preprocessor produced the input now allows score `0.06`, box centre
+  1% of the image's longer side and mask IoU `0.95`. Comparisons with an identical input tensor
+  keep `1e-3` / 1 px / `0.999`. The old `0.03` / 1 px bound failed for DALI too on this stack.
+  The engine amplifies input noise: nudging one element of the input tensor by `1e-6` moved
+  `rfdetr-seg-medium`'s logits by up to 8.3, so no GPU preprocessor can meet the tight bound.
+  Tensor-level parity is still gated tightly by the unit tests.
 - **Pinned GPU stack moved to NGC 26.08** (`nvcr.io/nvidia/tensorrt:26.08-py3`): TensorRT
   10.13.3.9 → **11.2.1.2**, CUDA 13.0 → **13.3**, `NGC_CONTAINER_TAG` 25.12 → **26.08**, DALI
   1.51.2 → **2.2.0**. `dockerfile.trt` builds on the 26.08 images. Rebuild cached `.engine` files;
@@ -46,6 +85,12 @@ Notable user-visible changes to this project and compatibility updates for upstr
   reduced-precision ONNX converted without keeping its I/O types.
 - `export_trt.sh` passes `trtexec --fp16` only when the container's `trtexec` still accepts it
   (TensorRT 11 removed the flag).
+
+### Fixed
+
+- The `benchmarks` target failed to compile with `-DUSE_CUDA_POSTPROCESS=ON` (it includes
+  `gpu_test_utils.hpp`, which needs GoogleTest headers it never linked) and without any GPU
+  preprocessor (`encode_jpeg` was unused under `-Werror`). Both now build.
 
 ## [v0.5.1] - 2026-09-19
 

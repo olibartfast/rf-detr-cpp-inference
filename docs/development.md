@@ -147,7 +147,7 @@ names the format the build expects.
 
 In a `-DUSE_CUDA_POSTPROCESS=ON` build, the unit tests additionally include a
 CPU-versus-GPU parity gate for the segmentation postprocessor
-(`tests/unit/test_gpu_postprocess.cpp`). It needs no model and no DALI —
+(`tests/unit/test_gpu_postprocess.cpp`). It needs no model and no GPU preprocessor —
 synthetic tensors are served from both host and device memory through a mock
 backend — and every case skips (rather than fails) when no CUDA device is
 present, so CI can compile the GPU targets on runners without a GPU.

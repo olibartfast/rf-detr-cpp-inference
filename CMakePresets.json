@@ -56,16 +56,26 @@
     },
     {
       "name": "gpu-pipeline",
-      "displayName": "GPU pipeline (TensorRT + DALI + CUDA)",
-      "description": "TensorRT backend with the full GPU pipeline. Stage DALI first (./scripts/fetch_dali.sh); TensorRT resolves from -DTENSORRT_ROOTDIR or is downloaded by the dependency resolver. Override DALI_ROOT/TENSORRT_ROOTDIR if not under ~/dependencies.",
+      "displayName": "GPU pipeline (TensorRT + CUDA preprocess + CUDA postprocess)",
+      "description": "TensorRT backend with the full GPU pipeline: CUDA kernel + nvJPEG preprocessing and CUDA segmentation postprocessing. Needs nvcc and the CUDA Toolkit's nvJPEG; TensorRT resolves from -DTENSORRT_ROOTDIR or is downloaded by the dependency resolver.",
       "binaryDir": "${sourceDir}/build-gpu",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "USE_ONNX_RUNTIME": "OFF",
         "USE_TENSORRT": "ON",
         "USE_GPU_PIPELINE": "ON",
-        "DALI_ROOT": "$env{HOME}/dependencies/dali",
         "TENSORRT_ROOTDIR": "$env{TENSORRT_ROOTDIR}"
+      }
+    },
+    {
+      "name": "gpu-pipeline-dali",
+      "displayName": "GPU pipeline (TensorRT + DALI preprocess + CUDA postprocess)",
+      "description": "The gpu-pipeline preset with DALI as the alternative preprocessor. Stage DALI first (./scripts/fetch_dali.sh); override DALI_ROOT/TENSORRT_ROOTDIR if not under ~/dependencies.",
+      "inherits": "gpu-pipeline",
+      "binaryDir": "${sourceDir}/build-gpu-dali",
+      "cacheVariables": {
+        "USE_DALI": "ON",
+        "DALI_ROOT": "$env{HOME}/dependencies/dali"
       }
     }
   ],
@@ -93,6 +103,10 @@
     {
       "name": "gpu-pipeline",
       "configurePreset": "gpu-pipeline"
+    },
+    {
+      "name": "gpu-pipeline-dali",
+      "configurePreset": "gpu-pipeline-dali"
     }
   ]
 }

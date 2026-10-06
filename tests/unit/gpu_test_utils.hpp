@@ -7,7 +7,7 @@
 // and the device-serving mock backend below are shared by
 // test_gpu_postprocess.cpp and test_gpu_parity.cpp.
 
-#if defined(USE_CUDA_POSTPROCESS) || defined(USE_DALI)
+#if defined(USE_CUDA_POSTPROCESS) || defined(USE_CUDA_PREPROCESS) || defined(USE_DALI)
 
 #include "gpu/gpu_context.hpp"
 #include "mock_backend.hpp"
@@ -62,4 +62,4 @@ class MockDeviceBackend : public MockBackend {
     std::vector<std::unique_ptr<rfdetr::gpu::DeviceBuffer>> device_buffers_;
 };
 
-#endif // USE_CUDA_POSTPROCESS || USE_DALI
+#endif // USE_CUDA_POSTPROCESS || USE_CUDA_PREPROCESS || USE_DALI
