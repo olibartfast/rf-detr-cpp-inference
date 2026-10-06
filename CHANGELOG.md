@@ -47,6 +47,7 @@ Notable user-visible changes to this project and compatibility updates for upstr
 
 ### Changed
 
+- Aligned export tooling with [rfdetr 1.11.2](https://github.com/roboflow/rf-detr/releases/tag/1.11.2) (from 1.10.1, covering [1.11.0](https://github.com/roboflow/rf-detr/releases/tag/1.11.0) and [1.11.1](https://github.com/roboflow/rf-detr/releases/tag/1.11.1)). Exported tensors, opset 17 and C++ decoding are unchanged: detection, segmentation and keypoint exports give bit-identical outputs to 1.10.1. Upstream moved export internals into `Exporter` classes, but `deploy/` uses only `RFDETR.export()`, which did not change. Two pieces of export guidance changed. The `[executorch]` extra now caps ExecuTorch below 1.4, so `.pte` files are exported with 1.3.x; that `.pte` was verified to run on the pinned v1.4.0 C++ runtime, and `docs/export.md` no longer says to force-install the runtime's version. `export(format="tensorrt", fp16=True)` now builds a real FP16 engine on TensorRT 11 with float32 I/O, which the C++ backend accepts. See the [validation record](specs/features/2026-10-06-rfdetr-1.11.2-alignment/validation.md).
 - **`-DUSE_GPU_PIPELINE=ON` now selects CUDA preprocessing**, not DALI; add `-DUSE_DALI=ON` for
   the DALI pipeline. Likewise `dockerfile.trt` `GPU_PIPELINE=on` now builds CUDA preprocessing +
   CUDA postprocessing (the old DALI + CUDA image is `dali-on`), and `GPU_PIPELINE=cuda` fails the
