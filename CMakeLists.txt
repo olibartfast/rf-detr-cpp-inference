@@ -500,7 +500,7 @@ endif()
 
 # Enable testing
 enable_testing()
-foreach(_catalog_case linux-x64 linux-arm64 windows-x64 windows-arm64
+foreach(_catalog_case linux-x64 linux-x64-stale-download linux-arm64 windows-x64 windows-arm64
                       darwin-disabled darwin-root unknown-arch unknown-arch-root)
     add_test(NAME OnnxRuntimeCatalog-${_catalog_case}
         COMMAND ${CMAKE_COMMAND} -DREPO=${CMAKE_SOURCE_DIR}
