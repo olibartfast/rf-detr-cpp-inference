@@ -47,6 +47,7 @@ Notable user-visible changes to this project and compatibility updates for upstr
 
 ### Changed
 
+- **ONNX Runtime 1.21.0 → 1.28.0** (`ONNX_RUNTIME_VERSION`), the version in the NGC Triton container that `NGC_CONTAINER_TAG` pins (`tritonserver:26.08-py3` ships `libonnxruntime.so.1.28.0`). The official archives exist for all four automatic-download targets. No source change: the default build compiles under `-DWERROR=ON`, all 10 ctest entries and the 5 model-backed integration tests pass, and detection output on `data/dog.jpg` is identical to 1.21.0. One segmentation score moved in the sixth decimal and the masks are identical. `dockerfile.onnxrt` builds and runs with both `MEDIA_BACKEND` values; the OpenCV image's slightly different scores were already there on 1.21.0 and come from its own decode and resize.
 - Aligned export tooling with [rfdetr 1.11.2](https://github.com/roboflow/rf-detr/releases/tag/1.11.2) (from 1.10.1, covering [1.11.0](https://github.com/roboflow/rf-detr/releases/tag/1.11.0) and [1.11.1](https://github.com/roboflow/rf-detr/releases/tag/1.11.1)). Exported tensors, opset 17 and C++ decoding are unchanged: detection, segmentation and keypoint exports give bit-identical outputs to 1.10.1. Upstream moved export internals into `Exporter` classes, but `deploy/` uses only `RFDETR.export()`, which did not change. Two pieces of export guidance changed. The `[executorch]` extra now caps ExecuTorch below 1.4, so `.pte` files are exported with 1.3.x; that `.pte` was verified to run on the pinned v1.4.0 C++ runtime, and `docs/export.md` no longer says to force-install the runtime's version. `export(format="tensorrt", fp16=True)` now builds a real FP16 engine on TensorRT 11 with float32 I/O, which the C++ backend accepts. See the [validation record](specs/features/2026-10-06-rfdetr-1.11.2-alignment/validation.md).
 - **`-DUSE_GPU_PIPELINE=ON` now selects CUDA preprocessing**, not DALI; add `-DUSE_DALI=ON` for
   the DALI pipeline. Likewise `dockerfile.trt` `GPU_PIPELINE=on` now builds CUDA preprocessing +
@@ -89,6 +90,7 @@ Notable user-visible changes to this project and compatibility updates for upstr
 
 ### Fixed
 
+- Reconfiguring an existing build directory after `ONNX_RUNTIME_VERSION` changes no longer fails with `OnnxRuntime library not found at …/onnxruntime-linux-x64-<old>/lib/libonnxruntime.so.<new>`. The automatic download cached its extract dir in `ONNXRUNTIME_ROOTDIR`, and that cached root then took priority over the new pin. A cached root inside `DEPS_PROVIDED_DIR` that names a different version is now dropped and the pinned archive downloaded; a root you set yourself is still used as-is. `OnnxRuntimeCatalog-linux-x64-stale-download` covers it.
 - The `benchmarks` target failed to compile with `-DUSE_CUDA_POSTPROCESS=ON` (it includes
   `gpu_test_utils.hpp`, which needs GoogleTest headers it never linked) and without any GPU
   preprocessor (`encode_jpeg` was unused under `-Werror`). Both now build.
