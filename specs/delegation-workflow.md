@@ -90,7 +90,7 @@ ONNX Runtime lane.
 It deliberately does **not** cover what CI cannot run either: the TensorRT and
 ExecuTorch backends, `src/gpu/`, and the DALI/CUDA halves. Work touching those
 paths needs a spec directory (per `AGENTS.md`) and the manual
-[gpu-verify](../.claude/skills/gpu-verify/SKILL.md) gate on real hardware. Never
+[gpu-verify](../AGENTS.md#checklist-gpu-verify) gate on real hardware. Never
 let a green scoreboard stand in for that.
 
 A worker runs the scoreboard once, at the end, and reports the result whether it
@@ -204,10 +204,10 @@ judge step, not the sandbox, keeps it from doing the worker's job. When the mode
 line-up changes, update the `model:` lines and this table together.
 
 `AGENTS.md` is already loaded via [`CLAUDE.md`](../CLAUDE.md). Repo procedures
-that predate this file are skills under `.claude/skills/` — `feature-spec`,
-`release`, `rfdetr-alignment`, `gpu-verify` — and they are the same checklists
-steps 2 and 7 of the loop call for; a `planner` running here should invoke them
-rather than restate them.
+that predate this file are the workflow checklists at the end of `AGENTS.md` —
+`feature-spec`, `release`, `rfdetr-alignment`, `gpu-verify` — and they are the
+checklists steps 2 and 7 of the loop call for; a `planner` running here should
+follow them rather than restate them.
 
 ### Codex CLI
 

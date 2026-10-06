@@ -9,7 +9,7 @@
 # The job stages headers-only TensorRT and DALI prefixes (see
 # scripts/ci/stage_gpu_headers.sh) and builds the static library target with
 # -DWERROR=ON. It does not link and does not run: manual verification of the GPU
-# path is still the gate, per .claude/skills/gpu-verify/SKILL.md.
+# path is still the gate, per the gpu-verify checklist in AGENTS.md.
 name: GPU Backend Compile
 
 on:

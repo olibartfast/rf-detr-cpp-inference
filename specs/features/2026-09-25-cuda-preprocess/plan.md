@@ -86,7 +86,7 @@ stays as a configure-time alternative). Groups C–F below are the post-change p
 22. Build matrix in the builder image, `-DWERROR=ON`: TensorRT alone, each preprocessor alone, CUDA
     postprocess alone, both full pipelines; both preprocessors together fails at configure.
 23. Docker gate: `dockerfile.trt` for the changed `GPU_PIPELINE` values; `cuda` fails with the message.
-24. [gpu-verify](../../../.claude/skills/gpu-verify/SKILL.md) on the RTX 3060 inside the builder
+24. [gpu-verify](../../../AGENTS.md#checklist-gpu-verify) on the RTX 3060 inside the builder
     image: everything in validation.md's "with a device" section, for the CUDA pipeline and a DALI
     regression run. Record results in validation.md.
 25. Tick roadmap Phase 6, mark it `(Complete)`, open the PR to `develop`.

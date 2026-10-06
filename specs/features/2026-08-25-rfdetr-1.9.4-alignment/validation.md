@@ -36,7 +36,7 @@ Each is an exact assertion, not a tolerance:
 
 ## Automated — with a device
 
-Run per [gpu-verify](../../../.claude/skills/gpu-verify/SKILL.md). Hardware used: RTX 3060 Laptop
+Run per [gpu-verify](../../../AGENTS.md#checklist-gpu-verify). Hardware used: RTX 3060 Laptop
 (sm_86), TensorRT 10.13.3.9, nvcc 12.0.
 
 - [x] Configure and build:
