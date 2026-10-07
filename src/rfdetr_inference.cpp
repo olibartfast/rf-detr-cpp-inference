@@ -34,6 +34,210 @@ void validate_config(const Config &config) {
     }
 }
 
+/// Fixed layout of the exported keypoint tensor, resolved once per postprocess call:
+/// how many keypoints per query, the per-query stride, the per-keypoint-class stride,
+/// the keypoint-class -> (count, byte offset) map, and the default keypoint class to
+/// fall back on when a detection's class has no keypoints of its own.
+struct KeypointLayout {
+    // cppcheck-suppress unusedStructMember
+    size_t num_keypoints;
+    size_t query_stride;
+    // cppcheck-suppress unusedStructMember
+    size_t kp_stride;
+    std::vector<std::pair<size_t, size_t>> class_map;
+    size_t default_class;
+};
+
+/// Channel-dim detection plus the num_keypoints/query_stride computation and the
+/// two shape-validation throws, split out of `resolve_keypoint_layout` to keep its
+/// cognitive complexity under clang-tidy's threshold.
+struct KeypointTensorDims {
+    size_t num_keypoints;
+    size_t query_stride;
+};
+
+KeypointTensorDims detect_keypoint_tensor_dims(const std::vector<int64_t> &kp_shape) {
+    constexpr size_t kp_channels = 8;
+    const bool has_kp_channel_dim = kp_shape.size() >= 4;
+    const auto num_keypoints =
+        has_kp_channel_dim ? static_cast<size_t>(kp_shape[2]) : static_cast<size_t>(kp_shape[2]) / kp_channels;
+    const size_t query_stride = has_kp_channel_dim ? static_cast<size_t>(kp_shape[2]) * static_cast<size_t>(kp_shape[3])
+                                                   : static_cast<size_t>(kp_shape[2]);
+
+    if (has_kp_channel_dim && static_cast<size_t>(kp_shape[3]) != kp_channels) {
+        throw std::runtime_error("Keypoint tensor last dimension (" + std::to_string(kp_shape[3]) + ") must be " +
+                                 std::to_string(kp_channels));
+    }
+    if (!has_kp_channel_dim && static_cast<size_t>(kp_shape[2]) % kp_channels != 0) {
+        throw std::runtime_error("Flattened keypoint tensor channels (" + std::to_string(kp_shape[2]) +
+                                 ") must be divisible by " + std::to_string(kp_channels));
+    }
+
+    return KeypointTensorDims{num_keypoints, query_stride};
+}
+
+/// The kp_stride/class_map construction plus the divisibility throw and the
+/// per-class-count throw, split out of `resolve_keypoint_layout` for the same
+/// cognitive-complexity reason as `detect_keypoint_tensor_dims`.
+struct KeypointClassMap {
+    size_t kp_stride;
+    std::vector<std::pair<size_t, size_t>> entries;
+};
+
+KeypointClassMap build_keypoint_class_map(size_t num_keypoints, const std::vector<int> &keypoint_counts) {
+    constexpr size_t kp_channels = 8;
+
+    // Build keypoint class mapping: which classes have keypoints and at what offset.
+    // The ONNX keypoint tensor is padded: each keypoint class gets K_max slots,
+    // even if the class has 0 active keypoints.  The stride per class is computed
+    // from the tensor shape, not from the per-class counts.
+    const auto &kp_counts = keypoint_counts;
+    const size_t num_kp_classes = kp_counts.empty() ? 0 : kp_counts.size();
+    const size_t kp_stride =
+        (num_kp_classes > 0) ? (num_keypoints / num_kp_classes) * kp_channels : num_keypoints * kp_channels;
+    // Map: keypoint_class_index -> (num_kps, byte_offset_in_tensor)
+    std::vector<std::pair<size_t, size_t>> kp_map;
+    if (!kp_counts.empty()) {
+        kp_map.reserve(kp_counts.size());
+        for (size_t c = 0; c < kp_counts.size(); ++c) {
+            const auto count = static_cast<size_t>(kp_counts[c] >= 0 ? kp_counts[c] : 0);
+            kp_map.emplace_back(count, c * kp_stride);
+        }
+    }
+    // Validate keypoint tensor shape: total channels must be divisible by num_kp_classes
+    if (num_kp_classes > 0 && num_keypoints % num_kp_classes != 0) {
+        throw std::runtime_error("Keypoint tensor channels (" + std::to_string(num_keypoints) +
+                                 ") not divisible by number of keypoint classes (" + std::to_string(num_kp_classes) +
+                                 ")");
+    }
+    // Reject a configured per-class count larger than the tensor's per-class stride.
+    // Each keypoint class is padded to the same number of slots, so a count that
+    // overruns the stride would read into the next class's keypoints.
+    if (num_kp_classes > 0) {
+        const size_t per_class_slots = num_keypoints / num_kp_classes;
+        for (size_t c = 0; c < kp_counts.size(); ++c) {
+            const auto count = static_cast<size_t>(kp_counts[c] >= 0 ? kp_counts[c] : 0);
+            if (count > per_class_slots) {
+                throw std::runtime_error("Configured keypoint count " + std::to_string(kp_counts[c]) +
+                                         " for keypoint class " + std::to_string(c) + " exceeds the per-class stride " +
+                                         std::to_string(per_class_slots));
+            }
+        }
+    }
+
+    return KeypointClassMap{kp_stride, std::move(kp_map)};
+}
+
+/// The default-class selection: the keypoint class with the most active
+/// keypoints. For single-class models (e.g. COCO person), all detections use
+/// this class. Split out of `resolve_keypoint_layout` for the same reason as
+/// `detect_keypoint_tensor_dims`.
+size_t select_default_keypoint_class(const std::vector<std::pair<size_t, size_t>> &class_map) {
+    size_t default_kp_class = 0;
+    size_t max_kps = 0;
+    for (size_t c = 0; c < class_map.size(); ++c) {
+        if (class_map[c].first > max_kps) {
+            max_kps = class_map[c].first;
+            default_kp_class = c;
+        }
+    }
+    return default_kp_class;
+}
+
+KeypointLayout resolve_keypoint_layout(const std::vector<int64_t> &kp_shape, const std::vector<int> &keypoint_counts) {
+    const KeypointTensorDims dims = detect_keypoint_tensor_dims(kp_shape);
+    KeypointClassMap class_map = build_keypoint_class_map(dims.num_keypoints, keypoint_counts);
+    const size_t default_kp_class = select_default_keypoint_class(class_map.entries);
+
+    return KeypointLayout{dims.num_keypoints, dims.query_stride, class_map.kp_stride, std::move(class_map.entries),
+                          default_kp_class};
+}
+
+/// Decodes the keypoints for a single query, selecting the keypoint class to read
+/// from (the detection's own class if it has keypoints, else `layout.default_class`),
+/// then for each active keypoint slot: image-relative coordinates, sigmoid
+/// findability/visibility, and the 2x2 precision-Cholesky -> pixel-covariance
+/// inversion. Mirrors the decode that used to sit inline in the ranked-detections loop.
+std::vector<KeypointResult> decode_query_keypoints(const std::vector<float> &kp_data, size_t q,
+                                                   const KeypointLayout &layout, int best_class_idx, int orig_w,
+                                                   int orig_h) {
+    size_t selected_kp_class = layout.default_class;
+    if (best_class_idx >= 0 && static_cast<size_t>(best_class_idx) < layout.class_map.size() &&
+        layout.class_map[static_cast<size_t>(best_class_idx)].first > 0) {
+        selected_kp_class = static_cast<size_t>(best_class_idx);
+    }
+
+    size_t num_kps = 0;
+    size_t kp_offset = 0;
+    if (selected_kp_class < layout.class_map.size()) {
+        num_kps = layout.class_map[selected_kp_class].first;
+        kp_offset = layout.class_map[selected_kp_class].second;
+    }
+
+    std::vector<KeypointResult> kp_results;
+    kp_results.reserve(num_kps != 0 ? num_kps : 0);
+    const size_t base = q * layout.query_stride;
+    constexpr size_t kp_channels = 8;
+
+    for (size_t k = 0; k < num_kps; ++k) {
+        const size_t ch_off = kp_offset + k * kp_channels;
+
+        // Clip to available data
+        if (base + ch_off + 7 >= kp_data.size()) {
+            break;
+        }
+
+        KeypointResult kpr{};
+
+        // RF-DETR keypoints are normalized image-relative coordinates.
+        kpr.x = kp_data[base + ch_off + 0] * static_cast<float>(orig_w);
+        kpr.y = kp_data[base + ch_off + 1] * static_cast<float>(orig_h);
+
+        // Step e-f: Sigmoid findability and visibility
+        kpr.findability = rfdetr::processing::sigmoid(kp_data[base + ch_off + 2]);
+        kpr.visibility = rfdetr::processing::sigmoid(kp_data[base + ch_off + 3]);
+
+        // Step g: Precision Cholesky -> pixel covariance
+        const float log_l11 = kp_data[base + ch_off + 4];
+        const float l21 = kp_data[base + ch_off + 5];
+        const float log_l22 = kp_data[base + ch_off + 6];
+        // Channel 7 = class_boost, skip (already aggregated into labels)
+
+        constexpr float eps = 1e-6f;
+        const float l11 = std::exp(log_l11) + eps;
+        const float l22 = std::exp(log_l22) + eps;
+
+        // L = [[l11, 0], [l21, l22]]
+        // precision = L @ L^T
+        const float p00 = l11 * l11;
+        const float p01 = l11 * l21;
+        const float p10 = l21 * l11;
+        const float p11 = l21 * l21 + l22 * l22;
+
+        // Invert 2x2 precision to get covariance
+        const float det = p00 * p11 - p01 * p10;
+        if (std::abs(det) > eps) {
+            float inv_p00 = p11 / det;
+            float inv_p01 = -p01 / det;
+            float inv_p11 = p00 / det;
+
+            // Pixel-space covariance: diag(width, height) * cov * diag(width, height).
+            const float width = static_cast<float>(orig_w);
+            const float height = static_cast<float>(orig_h);
+            kpr.cov[0] = inv_p00 * width * width;
+            kpr.cov[1] = inv_p01 * width * height;
+            kpr.cov[2] = inv_p01 * width * height; // symmetric
+            kpr.cov[3] = inv_p11 * height * height;
+        } else {
+            kpr.cov[0] = kpr.cov[1] = kpr.cov[2] = kpr.cov[3] = 0.0f;
+        }
+
+        kp_results.push_back(kpr);
+    }
+
+    return kp_results;
+}
+
 } // namespace
 
 RFDETRInference::RFDETRInference(const std::filesystem::path &model_path, const std::filesystem::path &label_file_path,
@@ -343,69 +547,8 @@ void RFDETRInference::postprocess_keypoint_outputs(float scale_w, float scale_h,
 
     const auto num_queries = static_cast<size_t>(dets_shape[1]);
     const auto num_classes = static_cast<size_t>(labels_shape[2]);
-    constexpr size_t kp_channels = 8;
-    const bool has_kp_channel_dim = kp_shape.size() >= 4;
-    const auto num_keypoints =
-        has_kp_channel_dim ? static_cast<size_t>(kp_shape[2]) : static_cast<size_t>(kp_shape[2]) / kp_channels;
-    const size_t query_stride = has_kp_channel_dim ? static_cast<size_t>(kp_shape[2]) * static_cast<size_t>(kp_shape[3])
-                                                   : static_cast<size_t>(kp_shape[2]);
 
-    if (has_kp_channel_dim && static_cast<size_t>(kp_shape[3]) != kp_channels) {
-        throw std::runtime_error("Keypoint tensor last dimension (" + std::to_string(kp_shape[3]) + ") must be " +
-                                 std::to_string(kp_channels));
-    }
-    if (!has_kp_channel_dim && static_cast<size_t>(kp_shape[2]) % kp_channels != 0) {
-        throw std::runtime_error("Flattened keypoint tensor channels (" + std::to_string(kp_shape[2]) +
-                                 ") must be divisible by " + std::to_string(kp_channels));
-    }
-
-    // Build keypoint class mapping: which classes have keypoints and at what offset.
-    // The ONNX keypoint tensor is padded: each keypoint class gets K_max slots,
-    // even if the class has 0 active keypoints.  The stride per class is computed
-    // from the tensor shape, not from the per-class counts.
-    const auto &kp_counts = config_.keypoint_counts;
-    const size_t num_kp_classes = kp_counts.empty() ? 0 : kp_counts.size();
-    const size_t kp_stride =
-        (num_kp_classes > 0) ? (num_keypoints / num_kp_classes) * kp_channels : num_keypoints * kp_channels;
-    // Map: keypoint_class_index -> (num_kps, byte_offset_in_tensor)
-    std::vector<std::pair<size_t, size_t>> kp_map;
-    if (!kp_counts.empty()) {
-        kp_map.reserve(kp_counts.size());
-        for (size_t c = 0; c < kp_counts.size(); ++c) {
-            const auto count = static_cast<size_t>(kp_counts[c] >= 0 ? kp_counts[c] : 0);
-            kp_map.emplace_back(count, c * kp_stride);
-        }
-    }
-    // Validate keypoint tensor shape: total channels must be divisible by num_kp_classes
-    if (num_kp_classes > 0 && num_keypoints % num_kp_classes != 0) {
-        throw std::runtime_error("Keypoint tensor channels (" + std::to_string(num_keypoints) +
-                                 ") not divisible by number of keypoint classes (" + std::to_string(num_kp_classes) +
-                                 ")");
-    }
-    // Reject a configured per-class count larger than the tensor's per-class stride.
-    // Each keypoint class is padded to the same number of slots, so a count that
-    // overruns the stride would read into the next class's keypoints.
-    if (num_kp_classes > 0) {
-        const size_t per_class_slots = num_keypoints / num_kp_classes;
-        for (size_t c = 0; c < kp_counts.size(); ++c) {
-            const auto count = static_cast<size_t>(kp_counts[c] >= 0 ? kp_counts[c] : 0);
-            if (count > per_class_slots) {
-                throw std::runtime_error("Configured keypoint count " + std::to_string(kp_counts[c]) +
-                                         " for keypoint class " + std::to_string(c) + " exceeds the per-class stride " +
-                                         std::to_string(per_class_slots));
-            }
-        }
-    }
-    // Find the keypoint class with the most active keypoints.
-    // For single-class models (e.g. COCO person), all detections use this class.
-    size_t default_kp_class = 0;
-    size_t max_kps = 0;
-    for (size_t c = 0; c < kp_map.size(); ++c) {
-        if (kp_map[c].first > max_kps) {
-            max_kps = kp_map[c].first;
-            default_kp_class = c;
-        }
-    }
+    const KeypointLayout layout = resolve_keypoint_layout(kp_shape, config_.keypoint_counts);
 
     const float res = static_cast<float>(config_.resolution);
 
@@ -453,78 +596,8 @@ void RFDETRInference::postprocess_keypoint_outputs(float scale_w, float scale_h,
 
         BoundingBox box{clamped.x_min, clamped.y_min, clamped.x_max, clamped.y_max};
 
-        std::vector<KeypointResult> kp_results;
-        size_t selected_kp_class = default_kp_class;
-        if (best_class_idx >= 0 && static_cast<size_t>(best_class_idx) < kp_map.size() &&
-            kp_map[static_cast<size_t>(best_class_idx)].first > 0) {
-            selected_kp_class = static_cast<size_t>(best_class_idx);
-        }
-
-        size_t num_kps = 0;
-        size_t kp_offset = 0;
-        if (selected_kp_class < kp_map.size()) {
-            num_kps = kp_map[selected_kp_class].first;
-            kp_offset = kp_map[selected_kp_class].second;
-        }
-
-        kp_results.reserve(num_kps != 0 ? num_kps : 0);
-        const size_t base = q * query_stride;
-
-        for (size_t k = 0; k < num_kps; ++k) {
-            const size_t ch_off = kp_offset + k * kp_channels;
-
-            // Clip to available data
-            if (base + ch_off + 7 >= kp_data.size()) {
-                break;
-            }
-
-            KeypointResult kpr{};
-
-            // RF-DETR keypoints are normalized image-relative coordinates.
-            kpr.x = kp_data[base + ch_off + 0] * static_cast<float>(orig_w);
-            kpr.y = kp_data[base + ch_off + 1] * static_cast<float>(orig_h);
-
-            // Step e-f: Sigmoid findability and visibility
-            kpr.findability = rfdetr::processing::sigmoid(kp_data[base + ch_off + 2]);
-            kpr.visibility = rfdetr::processing::sigmoid(kp_data[base + ch_off + 3]);
-
-            // Step g: Precision Cholesky -> pixel covariance
-            const float log_l11 = kp_data[base + ch_off + 4];
-            const float l21 = kp_data[base + ch_off + 5];
-            const float log_l22 = kp_data[base + ch_off + 6];
-            // Channel 7 = class_boost, skip (already aggregated into labels)
-
-            constexpr float eps = 1e-6f;
-            const float l11 = std::exp(log_l11) + eps;
-            const float l22 = std::exp(log_l22) + eps;
-
-            // L = [[l11, 0], [l21, l22]]
-            // precision = L @ L^T
-            const float p00 = l11 * l11;
-            const float p01 = l11 * l21;
-            const float p10 = l21 * l11;
-            const float p11 = l21 * l21 + l22 * l22;
-
-            // Invert 2x2 precision to get covariance
-            const float det = p00 * p11 - p01 * p10;
-            if (std::abs(det) > eps) {
-                float inv_p00 = p11 / det;
-                float inv_p01 = -p01 / det;
-                float inv_p11 = p00 / det;
-
-                // Pixel-space covariance: diag(width, height) * cov * diag(width, height).
-                const float width = static_cast<float>(orig_w);
-                const float height = static_cast<float>(orig_h);
-                kpr.cov[0] = inv_p00 * width * width;
-                kpr.cov[1] = inv_p01 * width * height;
-                kpr.cov[2] = inv_p01 * width * height; // symmetric
-                kpr.cov[3] = inv_p11 * height * height;
-            } else {
-                kpr.cov[0] = kpr.cov[1] = kpr.cov[2] = kpr.cov[3] = 0.0f;
-            }
-
-            kp_results.push_back(kpr);
-        }
+        std::vector<KeypointResult> kp_results =
+            decode_query_keypoints(kp_data, q, layout, best_class_idx, orig_w, orig_h);
 
         // Step h: Uncertainty-weighted score fusion
         float final_score = best_score;
