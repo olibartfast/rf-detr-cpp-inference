@@ -5,6 +5,26 @@ Notable user-visible changes to this project and compatibility updates for upstr
 
 ## [Unreleased]
 
+## [v0.6.0] - 2026-10-07
+
+CUDA preprocessing becomes the default GPU preprocessor, the GPU stack moves to TensorRT 11 only,
+export tooling follows rfdetr 1.11.2, and ONNX Runtime moves to 1.28.0. Verified on an RTX 3060
+Laptop (sm_86, driver 610.43.02) in the NGC 26.08 TensorRT image (TensorRT 11.2.1.2); the record is
+in [`specs/features/2026-10-07-release-v0.6.0/validation.md`](specs/features/2026-10-07-release-v0.6.0/validation.md).
+
+### Migrating from v0.5.x
+
+Three changes break existing builds:
+
+- **TensorRT 11 is required.** TensorRT 8.x–10.x and DALI 1.x are no longer supported. Rebuild
+  any `.engine` file with TensorRT 11; an engine from another version fails to deserialize.
+- **`-DUSE_GPU_PIPELINE=ON` now builds CUDA preprocessing**, not DALI. To keep DALI, add
+  `-DUSE_DALI=ON -DDALI_ROOT=<dali>`. The two preprocessors cannot be enabled together.
+- **`dockerfile.trt`: `GPU_PIPELINE=cuda` is gone** and fails the build; use `post`. `on` now
+  means CUDA pre + CUDA post; the old DALI + CUDA image is `dali-on`.
+
+Not verified for this release: `--display` playback on the GPU path (no display was available).
+
 ### Added
 
 - GPU parity tests for greyscale and CMYK JPEGs (`GpuParityCudaPreprocess.GreyscaleJpegMatchesCpu`, `.CmykJpegTakesStbFallback`, fixtures `small_gray.jpg` / `small_cmyk.jpg`). nvJPEG decodes a greyscale JPEG to BGR within `0.016` of the CPU tensor, and a CMYK JPEG takes the stb fallback. Verified on an RTX 3060 Laptop, with greyscale and CMYK images end to end through the app as well.
@@ -95,6 +115,15 @@ Notable user-visible changes to this project and compatibility updates for upstr
 - The `benchmarks` target failed to compile with `-DUSE_CUDA_POSTPROCESS=ON` (it includes
   `gpu_test_utils.hpp`, which needs GoogleTest headers it never linked) and without any GPU
   preprocessor (`encode_jpeg` was unused under `-Werror`). Both now build.
+
+### Known issues
+
+- GPU-decoded JPEGs do not bit-match the CPU tensor. nvJPEG and stb are different JPEG decoders:
+  the CUDA preprocessor's encoded path differs by up to `4.8e-2` max |Δ| on the preprocessed
+  tensor, DALI's by up to `0.069`. The engine amplifies any input difference, so end-to-end scores
+  move by up to `0.041` (CUDA) on `rfdetr-seg-medium`. Both are inside the documented GPU-preprocess
+  tolerances (score `0.06`, box centre 1 % of the longer side, mask IoU `0.95`). Decoded frames
+  (video, and the stb fallback for non-JPEG and CMYK images) match the CPU tensor to `1.1e-6`.
 
 ## [v0.5.1] - 2026-09-19
 
