@@ -22,8 +22,11 @@ namespace {
 
 // Competing implementation of select_topk_multiclass's selection, kept local to this benchmark
 // (never in src/): a bounded max-size-k heap instead of the shipped std::iota + full-size
-// std::partial_sort. `result` doubles as scratch storage and output, reused across calls the way
-// the caller of the shipped function reuses its own buffers.
+// std::partial_sort. `result` doubles as scratch storage and output, reused across calls -
+// but select_topk_multiclass itself returns by value and allocates a fresh n-sized index
+// vector on every call, so BM_SelectTopkShipped cannot reuse a buffer the way this arm does.
+// The comparison below therefore measures algorithm plus allocation for the shipped function,
+// not the selection algorithm alone.
 void select_topk_bounded_heap(std::span<const float> scores, size_t num_select, std::vector<size_t> &result) {
     const size_t count = std::min(num_select, scores.size());
     result.clear();
@@ -149,6 +152,7 @@ void BM_SelectTopkShipped(benchmark::State &state) {
     for (auto _ : state) {
         auto order = rfdetr::processing::select_topk_multiclass(scores, kNumSelect);
         benchmark::DoNotOptimize(order.data());
+        benchmark::ClobberMemory();
     }
     // Reports the size of the grid actually scanned, not just the kNumSelect kept, since the
     // selection work is a function of the former.
@@ -222,6 +226,7 @@ void BM_DrawDetections(benchmark::State &state) {
     // repeatedly into one reused image measures the same cost a fresh buffer would.
     for (auto _ : state) {
         rfdetr::media::draw_detections(image, boxes, class_ids);
+        benchmark::DoNotOptimize(image.bgr.data());
         benchmark::ClobberMemory();
     }
     state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(num_boxes));

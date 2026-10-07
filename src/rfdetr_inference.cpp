@@ -35,8 +35,8 @@ void validate_config(const Config &config) {
 }
 
 /// Channels per exported keypoint: x, y, sigmoid findability and visibility, three
-/// Cholesky-factor terms (two log-scale, one linear) for the 2x2 pixel covariance,
-/// and a class_boost channel that is decoded but unused.
+/// precision-matrix Cholesky terms (two log-scale, one linear) in normalised coordinates,
+/// inverted to the 2x2 pixel covariance, and a class_boost channel that is decoded but unused.
 constexpr size_t kKeypointChannels = 8;
 
 /// Fixed layout of the exported keypoint tensor, resolved once per postprocess call:
@@ -88,7 +88,7 @@ std::vector<std::pair<size_t, size_t>> build_keypoint_class_map(size_t num_keypo
     const size_t num_kp_classes = kp_counts.empty() ? 0 : kp_counts.size();
     const size_t kp_stride =
         (num_kp_classes > 0) ? (num_keypoints / num_kp_classes) * kKeypointChannels : num_keypoints * kKeypointChannels;
-    // Map: keypoint_class_index -> (num_kps, byte_offset_in_tensor)
+    // Map: keypoint_class_index -> (num_kps, element_offset_in_tensor)
     std::vector<std::pair<size_t, size_t>> kp_map;
     if (!kp_counts.empty()) {
         kp_map.reserve(kp_counts.size());
