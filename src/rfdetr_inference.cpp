@@ -34,10 +34,14 @@ void validate_config(const Config &config) {
     }
 }
 
+/// Channels per exported keypoint: x, y, sigmoid findability and visibility, three
+/// Cholesky-factor terms (two log-scale, one linear) for the 2x2 pixel covariance,
+/// and a class_boost channel that is decoded but unused.
+constexpr size_t kKeypointChannels = 8;
+
 /// Fixed layout of the exported keypoint tensor, resolved once per postprocess call:
-/// how many keypoints per query, the per-query stride, the per-keypoint-class stride,
-/// the keypoint-class -> (count, byte offset) map, and the default keypoint class to
-/// fall back on when a detection's class has no keypoints of its own.
+/// the per-query stride, the keypoint-class -> (count, offset) map, and the default
+/// keypoint class to fall back on when a detection's class has no keypoints of its own.
 struct KeypointLayout {
     size_t query_stride;
     std::vector<std::pair<size_t, size_t>> class_map;
@@ -53,20 +57,19 @@ struct KeypointTensorDims {
 };
 
 KeypointTensorDims detect_keypoint_tensor_dims(const std::vector<int64_t> &kp_shape) {
-    constexpr size_t kp_channels = 8;
     const bool has_kp_channel_dim = kp_shape.size() >= 4;
     const auto num_keypoints =
-        has_kp_channel_dim ? static_cast<size_t>(kp_shape[2]) : static_cast<size_t>(kp_shape[2]) / kp_channels;
+        has_kp_channel_dim ? static_cast<size_t>(kp_shape[2]) : static_cast<size_t>(kp_shape[2]) / kKeypointChannels;
     const size_t query_stride = has_kp_channel_dim ? static_cast<size_t>(kp_shape[2]) * static_cast<size_t>(kp_shape[3])
                                                    : static_cast<size_t>(kp_shape[2]);
 
-    if (has_kp_channel_dim && static_cast<size_t>(kp_shape[3]) != kp_channels) {
+    if (has_kp_channel_dim && static_cast<size_t>(kp_shape[3]) != kKeypointChannels) {
         throw std::runtime_error("Keypoint tensor last dimension (" + std::to_string(kp_shape[3]) + ") must be " +
-                                 std::to_string(kp_channels));
+                                 std::to_string(kKeypointChannels));
     }
-    if (!has_kp_channel_dim && static_cast<size_t>(kp_shape[2]) % kp_channels != 0) {
+    if (!has_kp_channel_dim && static_cast<size_t>(kp_shape[2]) % kKeypointChannels != 0) {
         throw std::runtime_error("Flattened keypoint tensor channels (" + std::to_string(kp_shape[2]) +
-                                 ") must be divisible by " + std::to_string(kp_channels));
+                                 ") must be divisible by " + std::to_string(kKeypointChannels));
     }
 
     return KeypointTensorDims{num_keypoints, query_stride};
@@ -77,8 +80,6 @@ KeypointTensorDims detect_keypoint_tensor_dims(const std::vector<int64_t> &kp_sh
 /// cognitive-complexity reason as `detect_keypoint_tensor_dims`.
 std::vector<std::pair<size_t, size_t>> build_keypoint_class_map(size_t num_keypoints,
                                                                 const std::vector<int> &keypoint_counts) {
-    constexpr size_t kp_channels = 8;
-
     // Build keypoint class mapping: which classes have keypoints and at what offset.
     // The ONNX keypoint tensor is padded: each keypoint class gets K_max slots,
     // even if the class has 0 active keypoints.  The stride per class is computed
@@ -86,7 +87,7 @@ std::vector<std::pair<size_t, size_t>> build_keypoint_class_map(size_t num_keypo
     const auto &kp_counts = keypoint_counts;
     const size_t num_kp_classes = kp_counts.empty() ? 0 : kp_counts.size();
     const size_t kp_stride =
-        (num_kp_classes > 0) ? (num_keypoints / num_kp_classes) * kp_channels : num_keypoints * kp_channels;
+        (num_kp_classes > 0) ? (num_keypoints / num_kp_classes) * kKeypointChannels : num_keypoints * kKeypointChannels;
     // Map: keypoint_class_index -> (num_kps, byte_offset_in_tensor)
     std::vector<std::pair<size_t, size_t>> kp_map;
     if (!kp_counts.empty()) {
@@ -168,10 +169,9 @@ std::vector<KeypointResult> decode_query_keypoints(const std::vector<float> &kp_
     std::vector<KeypointResult> kp_results;
     kp_results.reserve(num_kps != 0 ? num_kps : 0);
     const size_t base = q * layout.query_stride;
-    constexpr size_t kp_channels = 8;
 
     for (size_t k = 0; k < num_kps; ++k) {
-        const size_t ch_off = kp_offset + k * kp_channels;
+        const size_t ch_off = kp_offset + k * kKeypointChannels;
 
         // Clip to available data
         if (base + ch_off + 7 >= kp_data.size()) {

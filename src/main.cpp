@@ -155,7 +155,7 @@ void print_results(const rfdetr::cli::CliOptions &opts, const Config &config, co
 }
 
 void run_image(const rfdetr::cli::CliOptions &opts, const Config &config) {
-    // --- Single image inference (existing logic) ---
+    // --- Single image inference ---
     RFDETRInference inference(opts.model_path, opts.label_path, config);
 
     int orig_h = 0;
