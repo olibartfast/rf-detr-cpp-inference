@@ -54,6 +54,20 @@ Closes open question 3 of the Phase 6 spec.
 
 - `--display` playback on the GPU path: no display on the verification machine.
 
-## Release gate
+## Release gate (2026-10-07, branch `release/v0.6.0` from `develop` at cd81d2b)
 
-Filled in on `release/v0.6.0`.
+- PASS: `develop` fetched and up to date with `origin/develop`; `master` has no commit `develop` lacks.
+- PASS: version 0.6.0 in `CMakeLists.txt` `project()`, `vcpkg.json`, the README badge and
+  `specs/tech-stack.md`.
+- PASS: `./scripts/check_version_sync.sh`, `./scripts/check_dockerfile_parity.sh`.
+- PASS: clang-format, clang-tidy, cppcheck (the AGENTS.md pre-commit gate); `git diff --check`.
+- PASS: `python3 -m unittest discover -s tests/python`.
+- PASS: fresh clone of `release/v0.6.0`, default Release build with `-DWERROR=ON` (ONNX Runtime
+  1.28.0): 11/11 ctest entries; `integration_tests` 5/5 with `rfdetr-nano-1101.onnx` and
+  `rfdetr-keypoint-preview.onnx`; `inference_app` on `data/dog.jpg` gives bicycle 0.94, dog 0.93,
+  car 0.83, motorbike 0.60.
+- PASS: `CHANGELOG.md` `[v0.6.0]` with migration note and Known issues; fresh empty `[Unreleased]`.
+- PASS: roadmap Status records v0.6.0.
+- No Docker-coupled file changed in the release commit. The Dockerfiles were last built and run
+  for ONNX Runtime 1.28.0 (PR #21) and for every `GPU_PIPELINE` value in Phase 6 (PR #18).
+- Pending: merge to `master`, tag `v0.6.0`, back-merge to `develop`, push — on user approval.
