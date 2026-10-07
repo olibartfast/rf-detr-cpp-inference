@@ -5,6 +5,126 @@ Notable user-visible changes to this project and compatibility updates for upstr
 
 ## [Unreleased]
 
+## [v0.6.0] - 2026-10-07
+
+CUDA preprocessing becomes the default GPU preprocessor, the GPU stack moves to TensorRT 11 only,
+export tooling follows rfdetr 1.11.2, and ONNX Runtime moves to 1.28.0. Verified on an RTX 3060
+Laptop (sm_86, driver 610.43.02) in the NGC 26.08 TensorRT image (TensorRT 11.2.1.2); the record is
+in [`specs/features/2026-10-07-release-v0.6.0/validation.md`](specs/features/2026-10-07-release-v0.6.0/validation.md).
+
+### Migrating from v0.5.x
+
+Three changes break existing builds:
+
+- **TensorRT 11 is required.** TensorRT 8.x–10.x and DALI 1.x are no longer supported. Rebuild
+  any `.engine` file with TensorRT 11; an engine from another version fails to deserialize.
+- **`-DUSE_GPU_PIPELINE=ON` now builds CUDA preprocessing**, not DALI. To keep DALI, add
+  `-DUSE_DALI=ON -DDALI_ROOT=<dali>`. The two preprocessors cannot be enabled together.
+- **`dockerfile.trt`: `GPU_PIPELINE=cuda` is gone** and fails the build; use `post`. `on` now
+  means CUDA pre + CUDA post; the old DALI + CUDA image is `dali-on`.
+
+Not verified for this release: `--display` playback on the GPU path (no display was available).
+
+### Added
+
+- GPU parity tests for greyscale and CMYK JPEGs (`GpuParityCudaPreprocess.GreyscaleJpegMatchesCpu`, `.CmykJpegTakesStbFallback`, fixtures `small_gray.jpg` / `small_cmyk.jpg`). nvJPEG decodes a greyscale JPEG to BGR within `0.016` of the CPU tensor, and a CMYK JPEG takes the stb fallback. Verified on an RTX 3060 Laptop, with greyscale and CMYK images end to end through the app as well.
+- **CUDA GPU preprocessing** (`-DUSE_CUDA_PREPROCESS=ON`), now the default GPU preprocessor.
+  A fused CUDA kernel does the bilinear stretch, BGR→RGB and ImageNet normalisation straight into
+  the TensorRT input binding, matching the CPU preprocess to within `1.1e-6` (gate `1e-5`).
+  Still images that are JPEGs decode on the GPU with nvJPEG, chosen from the file header, not
+  its extension. Other formats decode with stb on the CPU and are uploaded. nvJPEG ships with
+  the CUDA Toolkit, so there is nothing to stage and no new pin. On an RTX 3060 Laptop, from a
+  1280×720 source, preprocessing a video frame took 0.55 ms against 6.8–11.9 ms for the CPU path
+  plus tensor upload (432–576), and a JPEG image 4.0 ms against 20–25 ms. That is also faster
+  than DALI on the same card: 0.56 vs 0.93–0.98 ms per frame, 4.2 vs 5.0 ms per JPEG.
+  Verified on an RTX 3060 Laptop (sm_86, driver 610.43.02) in the NGC 26.08 TensorRT image
+  (TensorRT 11.2.1.2, CUDA 13.4 in forward-compatibility mode). The run covered GPU parity tests,
+  real-model detection, segmentation and keypoint runs, and `compute-sanitizer` over a
+  1192-frame video. The record is in `specs/features/2026-09-25-cuda-preprocess/validation.md`.
+- `--gpu-preprocess` uses whichever GPU preprocessor the build selected. **DALI stays as the
+  alternative** (`-DUSE_DALI=ON`). The two are exclusive: enabling both is a configure-time error.
+- `CMakePresets.json`: `gpu-pipeline` is now TensorRT + CUDA preprocessing + CUDA
+  postprocessing, and the new `gpu-pipeline-dali` keeps the DALI variant.
+- `dockerfile.trt` `GPU_PIPELINE` values `pre` (CUDA preprocessing), `post` (CUDA
+  postprocessing) and `dali-on` (DALI preprocessing + CUDA postprocessing).
+- GPU parity tests for the CUDA preprocessor: frame path, nvJPEG path, PNG fallback and header
+  probe (unit), plus an end-to-end PNG-fallback case (integration). New benchmarks
+  `BM_CudaPreprocessFrame`, `BM_CudaPreprocessEncoded`, `BM_DaliPreprocessFrame`, and CPU baselines
+  that include the JPEG decode (`BM_CpuPreprocessEncoded`) or the tensor upload
+  (`BM_CpuPreprocessUpload`).
+- TensorRT 11.x support in the TensorRT backend. TensorRT 11 removed weak typing and
+  `BuilderFlag::kFP16`, which made the backend fail to compile. An engine built from an
+  `.onnx` takes the model's own precision, so an FP16 engine needs an FP16-converted ONNX — see
+  "TensorRT 11 and FP16" in `docs/export.md`. Existing `.engine` files must be rebuilt after
+  switching TensorRT versions.
+
+### Removed
+
+- **TensorRT 8.x–10.x and DALI 1.x support.** The backend now requires TensorRT 11
+  (`NV_TENSORRT_MAJOR < 11` is a compile error, `TENSORRT_VERSION < 11` a configure error), and
+  only the pinned `TENSORRT_VERSION`/`DALI_VERSION` are staged and compile-checked in CI.
+  `export_trt.sh` no longer passes `--fp16`, and DALI staging (`fetch_dali.sh`, `dockerfile.trt`)
+  expects the DALI 2.x layout.
+
+### Changed
+
+- **ONNX Runtime 1.21.0 → 1.28.0** (`ONNX_RUNTIME_VERSION`), the version in the NGC Triton container that `NGC_CONTAINER_TAG` pins (`tritonserver:26.08-py3` ships `libonnxruntime.so.1.28.0`). The official archives exist for all four automatic-download targets. No source change: the default build compiles under `-DWERROR=ON`, all 10 ctest entries and the 5 model-backed integration tests pass, and detection output on `data/dog.jpg` is identical to 1.21.0. One segmentation score moved in the sixth decimal and the masks are identical. `dockerfile.onnxrt` builds and runs with both `MEDIA_BACKEND` values; the OpenCV image's slightly different scores were already there on 1.21.0 and come from its own decode and resize.
+- Aligned export tooling with [rfdetr 1.11.2](https://github.com/roboflow/rf-detr/releases/tag/1.11.2) (from 1.10.1, covering [1.11.0](https://github.com/roboflow/rf-detr/releases/tag/1.11.0) and [1.11.1](https://github.com/roboflow/rf-detr/releases/tag/1.11.1)). Exported tensors, opset 17 and C++ decoding are unchanged: detection, segmentation and keypoint exports give bit-identical outputs to 1.10.1. Upstream moved export internals into `Exporter` classes, but `deploy/` uses only `RFDETR.export()`, which did not change. Two pieces of export guidance changed. The `[executorch]` extra now caps ExecuTorch below 1.4, so `.pte` files are exported with 1.3.x; that `.pte` was verified to run on the pinned v1.4.0 C++ runtime, and `docs/export.md` no longer says to force-install the runtime's version. `export(format="tensorrt", fp16=True)` now builds a real FP16 engine on TensorRT 11 with float32 I/O, which the C++ backend accepts. See the [validation record](specs/features/2026-10-06-rfdetr-1.11.2-alignment/validation.md).
+- **`-DUSE_GPU_PIPELINE=ON` now selects CUDA preprocessing**, not DALI; add `-DUSE_DALI=ON` for
+  the DALI pipeline. Likewise `dockerfile.trt` `GPU_PIPELINE=on` now builds CUDA preprocessing +
+  CUDA postprocessing (the old DALI + CUDA image is `dali-on`), and `GPU_PIPELINE=cuda` fails the
+  build with a message naming its replacement, `post`.
+- `gpu-compile.yml` installs `libnvjpeg-dev` and compiles six configurations: TensorRT alone,
+  each GPU preprocessor, CUDA postprocessing, and both full pipelines. A step also checks that
+  the two preprocessors are rejected together. `scripts/run_gate.sh` builds and checks both
+  full pipelines.
+- **End-to-end GPU parity tolerances for preprocessing** (`integration_test_gpu_parity.cpp`). A
+  comparison where any GPU preprocessor produced the input now allows score `0.06`, box centre
+  1% of the image's longer side and mask IoU `0.95`. Comparisons with an identical input tensor
+  keep `1e-3` / 1 px / `0.999`. The old `0.03` / 1 px bound failed for DALI too on this stack.
+  The engine amplifies input noise: nudging one element of the input tensor by `1e-6` moved
+  `rfdetr-seg-medium`'s logits by up to 8.3, so no GPU preprocessor can meet the tight bound.
+  Tensor-level parity is still gated tightly by the unit tests.
+- **Pinned GPU stack moved to NGC 26.08** (`nvcr.io/nvidia/tensorrt:26.08-py3`): TensorRT
+  10.13.3.9 → **11.2.1.2**, CUDA 13.0 → **13.3**, `NGC_CONTAINER_TAG` 25.12 → **26.08**, DALI
+  1.51.2 → **2.2.0**. `dockerfile.trt` builds on the 26.08 images. Rebuild cached `.engine` files;
+  an `.onnx` now builds an FP32 engine unless converted to FP16 first (TensorRT 11 has no FP16
+  builder flag).
+- The TensorRT download uses NVIDIA's 11.x archive naming,
+  `TensorRT-Enterprise-<v>-Linux-x86_64-cuda-<cuda>-Release-external.tar.zst`. "Enterprise" is NVIDIA's name for standard TensorRT from 11.x, under the same
+  free license.
+- DALI staging (`dockerfile.trt` and `scripts/fetch_dali.sh`) also copies nvImageCodec and its
+  codec libraries next to `libdali.so`: DALI 2.x loads them with `dlopen()`, and without them
+  `--gpu-preprocess` fails with `dlopen libnvimgcodec.so failed!`. Re-run `fetch_dali.sh` into an
+  empty directory to replace a DALI 1.x prefix.
+- CI header staging takes the DALI wheel from the `cuda130` index and looks up its file name.
+- Pinned versions are stated only in `versions.env` and restated only where a file cannot read it.
+  `docs/` and `specs/` now name the variable (`TENSORRT_VERSION`, …) instead of repeating its value,
+  and commands read it via `source scripts/versions.sh`; `check_version_sync.sh` now also verifies
+  the README version tables, so a bump no longer needs hand-edited prose.
+- The `trtexec` recipes in `docs/export.md` target TensorRT 11 (no `--fp16`).
+- The TensorRT backend rejects an engine whose inputs or outputs are not float32, instead of
+  copying float32-sized buffers into them. rfdetr exports are float32 throughout; this guards a
+  reduced-precision ONNX converted without keeping its I/O types.
+- `export_trt.sh` passes `trtexec --fp16` only when the container's `trtexec` still accepts it
+  (TensorRT 11 removed the flag).
+
+### Fixed
+
+- Reconfiguring an existing build directory after `ONNX_RUNTIME_VERSION` changes no longer fails with `OnnxRuntime library not found at …/onnxruntime-linux-x64-<old>/lib/libonnxruntime.so.<new>`. The automatic download cached its extract dir in `ONNXRUNTIME_ROOTDIR`, and that cached root then took priority over the new pin. A cached root inside `DEPS_PROVIDED_DIR` that names a different version is now dropped and the pinned archive downloaded; a root you set yourself is still used as-is. `OnnxRuntimeCatalog-linux-x64-stale-download` covers it.
+- The `benchmarks` target failed to compile with `-DUSE_CUDA_POSTPROCESS=ON` (it includes
+  `gpu_test_utils.hpp`, which needs GoogleTest headers it never linked) and without any GPU
+  preprocessor (`encode_jpeg` was unused under `-Werror`). Both now build.
+
+### Known issues
+
+- GPU-decoded JPEGs do not bit-match the CPU tensor. nvJPEG and stb are different JPEG decoders:
+  the CUDA preprocessor's encoded path differs by up to `4.8e-2` max |Δ| on the preprocessed
+  tensor, DALI's by up to `0.069`. The engine amplifies any input difference, so end-to-end scores
+  move by up to `0.041` (CUDA) on `rfdetr-seg-medium`. Both are inside the documented GPU-preprocess
+  tolerances (score `0.06`, box centre 1 % of the longer side, mask IoU `0.95`). Decoded frames
+  (video, and the stb fallback for non-JPEG and CMYK images) match the CPU tensor to `1.1e-6`.
+
 ## [v0.5.1] - 2026-09-19
 
 ### Changed

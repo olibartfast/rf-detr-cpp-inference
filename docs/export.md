@@ -4,9 +4,9 @@ Follow the procedure listed at https://rfdetr.roboflow.com/learn/deploy/
 ## Requirements
 
 > [!IMPORTANT]
-> - Python version: **3.10+** (upstream `rfdetr` 1.10.1; Python 3.11 venv still recommended here)
+> - Python version: **3.10+** (upstream `rfdetr` at the pinned version; Python 3.11 venv still recommended here)
 > - Starting with RF-DETR 1.6.0, the export extra was renamed: use `pip install rfdetr[onnx]`
-> - **Tested version**: `rfdetr[onnx]==1.10.1`
+> - **Tested version**: the `rfdetr[onnx]` pin in [`deploy/requirements.txt`](../deploy/requirements.txt) (`RFDETR_VERSION` in [`versions.env`](../versions.env))
 > - Starting with RF-DETR 1.7.0, ONNX exports use variant filenames (e.g. `rfdetr-medium.onnx`, `rfdetr-seg-medium.onnx`) instead of the generic `inference_model.onnx`
 > - The `--simplify` flag was removed in 1.8.0 (already deprecated in 1.7.0). Export scripts no longer accept it.
 > - RF-DETR 1.8.x adds keypoint model export support via `RFDETRKeypointPreview`.
@@ -25,6 +25,11 @@ Follow the procedure listed at https://rfdetr.roboflow.com/learn/deploy/
 > - 1.10.0 is primarily training and Python `predict()` performance work. Exported input/output names, order, shapes, dtypes, and decode semantics are unchanged. It adds `output_name` to `RFDETR.export()`; this repository's scripts pass it explicitly and report the returned path so their documented filenames stay stable.
 > - Without `output_name`, 1.10.0 encodes load-bearing details in generated names: ExecuTorch adds its delegate (for example `_xnnpack.pte`) and TensorRT adds its resolved precision (`_fp16.trt` or `_fp32.trt`).
 > - The remaining 1.9.2–1.9.4 fixes are training, augmentation, dataset, and TFLite-conversion changes with no bearing on an exported detection/segmentation/keypoint model.
+> - 1.11.0 restructures export internals into one `Exporter` class per format (`rfdetr.export._onnx.exporter.export_onnx` → `OnnxExporter`, and so on) and removes `RFDETR.optimize_for_inference()`. `RFDETR.export()` is unchanged, and it is the only export API the `deploy/` scripts call. It also adds OpenVINO, LiteRT and Core AI export and dynamic-batch TensorRT engines; this project consumes none of those (every tensor contract here is batch 1).
+> - 1.11.0 makes `export(format="tensorrt", fp16=True)` build a real FP16 engine on TensorRT 11 by casting the ONNX graph to FP16 with float32 I/O; see [TensorRT 11 and FP16](#tensorrt-11-and-fp16).
+> - 1.11.2 rewrites three ONNX patterns that ONNX Runtime's CoreML provider rejects, including the segmentation head's `Einsum` (now a `MatMul`), and 1.11.0 reshapes the keypoint decode. Exported input/output names, order, shapes, dtypes and opset are unchanged, and detection, segmentation and keypoint exports give bit-identical outputs to 1.10.1.
+> - 1.11.2 caps the `[executorch]` extra at ExecuTorch `>=1.3,<1.4`; see [ExecuTorch Model Export](#executorch-model-export).
+> - The rest of 1.11.0–1.11.2 is training, dataset, evaluation, threading and Python-side inference work (LoRA checkpoint loading, crowd-region mAP, `predict()` thread safety, `class_names` validation) with no bearing on an exported model.
 
 ### Setup Virtual Environment
 
@@ -41,7 +46,7 @@ python3.11 -m venv rfdetr_venv
 source rfdetr_venv/bin/activate
 
 # Install RF-DETR with export dependencies (tested version)
-pip install rfdetr[onnx]==1.10.1
+pip install -r deploy/requirements.txt
 ```
 
 ---
@@ -180,7 +185,8 @@ RF-DETR 1.9.0 adds ExecuTorch (`.pte`) export for on-device inference. The C++ s
 through the ExecuTorch backend (`-DUSE_EXECUTORCH=ON`).
 
 ```bash
-pip install 'rfdetr[executorch]==1.10.1'
+source scripts/versions.sh   # exports RFDETR_VERSION and EXECUTORCH_VERSION
+pip install "rfdetr[executorch]==${RFDETR_VERSION}"
 pip show executorch   # confirm the runtime version it resolved
 ```
 
@@ -189,12 +195,15 @@ pip show executorch   # confirm the runtime version it resolved
 `rfdetr-medium_xnnpack.pte` for the default delegate.
 
 > [!IMPORTANT]
-> Pinning `rfdetr` is not enough. The extra only constrains ExecuTorch to `>=1.3,<2.0`, so the
-> resolved runtime moves as ExecuTorch publishes releases — `rfdetr[executorch]==1.9.0` resolved
-> **1.3.1**, the same pin resolves **1.4.0** today — and `.pte` schema compatibility across
-> ExecuTorch releases is not guaranteed. This project pins the C++ runtime to **v1.4.0** in
-> `cmake/deps/packages/ExecuTorch.cmake`; check `pip show executorch` after installing and pin it
-> explicitly (`pip install 'executorch==1.4.0'`) if it differs from the runtime you build against.
+> The exporter and the C++ runtime are different ExecuTorch versions. Since rfdetr 1.11.2 the
+> extra caps ExecuTorch at `>=1.3,<1.4`, so it exports with **1.3.x**. Upstream gives two reasons:
+> 1.4.x needs `torch>=2.13`, and the 1.5.0 Python runtime fails every `Method.execute`. Do not force
+> `executorch==${EXECUTORCH_VERSION#v}` into the venv, because that conflicts with the cap. The C++
+> runtime stays at `EXECUTORCH_VERSION` in `versions.env`. A `.pte` exported with 1.3.1 loads and
+> runs on it, with results matching the ONNX export to 1e-6 (verified with rfdetr 1.11.2, see
+> [the alignment record](../specs/features/2026-10-06-rfdetr-1.11.2-alignment/validation.md)).
+> Run the export with the venv activated: ExecuTorch calls the `flatc` binary installed in the
+> venv's `bin/`, and fails with `No such file or directory: 'flatc'` when that is not on `PATH`.
 
 > [!WARNING]
 > **A 1.9.1+ `.pte` needs the optimized kernel set.** 1.9.1 recombines the `addmm` ops XNNPACK
@@ -299,7 +308,7 @@ model = RFDETRMedium(pretrain_weights=<CHECKPOINT_PATH>)
 model.export(format="tensorrt", fp16=True)  # alias: format="trt"
 ```
 
-Requires `pip install 'rfdetr[tensorrt]==1.10.1'`, which provides `tensorrt` + `polygraphy`. The engine is built in-process through the polygraphy API rather than by shelling out to `trtexec`, so no `trtexec` binary is needed, and it is built for the local GPU architecture. Pass `fp16=False` on TensorRT builds that do not expose the FP16 builder flag.
+Requires `pip install "rfdetr[tensorrt]==${RFDETR_VERSION}"` (after `source scripts/versions.sh`), which provides `tensorrt` + `polygraphy`. The engine is built in-process through the polygraphy API rather than by shelling out to `trtexec`, so no `trtexec` binary is needed, and it is built for the local GPU architecture. Pass `fp16=False` on TensorRT builds that do not expose the FP16 builder flag. On **TensorRT 11**, `fp16=True` builds an FP16 engine from rfdetr 1.11.0 on. Earlier releases fell back to FP32 without an error ([roboflow/rf-detr#1453](https://github.com/roboflow/rf-detr/issues/1453)); see [TensorRT 11 and FP16](#tensorrt-11-and-fp16).
 
 In 1.10.0 the default filename records the resolved precision, for example
 `rfdetr-medium_fp16.trt`. Pass `output_name="model"` when an exact `model.trt` path is required.
@@ -315,7 +324,6 @@ The `trtexec` recipes below remain valid and are what `export_trt.sh` in this re
 trtexec --onnx=/path/to/model.onnx \
         --saveEngine=/path/to/model.engine \
         --memPoolSize=workspace:4096 \
-        --fp16 \
         --useCudaGraph \
         --useSpinWait \
         --warmUp=500 \
@@ -326,7 +334,7 @@ trtexec --onnx=/path/to/model.onnx \
 ### Using TensorRT Docker Container
 
 ```bash
-export NGC_TAG_VERSION=25.12
+source scripts/versions.sh   # exports TENSORRT_IMAGE, derived from NGC_CONTAINER_TAG
 
 docker run --rm -it --gpus=all \
     -v $(pwd)/exports:/exports \
@@ -335,17 +343,55 @@ docker run --rm -it --gpus=all \
     --ulimit stack=67108864 \
     -v $(pwd)/model.onnx:/workspace/model.onnx \
     -w /workspace \
-    nvcr.io/nvidia/tensorrt:${NGC_TAG_VERSION}-py3 \
+    "${TENSORRT_IMAGE}" \
     /bin/bash -cx "trtexec --onnx=model.onnx \
                             --saveEngine=/exports/model.engine \
                             --memPoolSize=workspace:4096 \
-                            --fp16 \
                             --useCudaGraph \
                             --useSpinWait \
                             --warmUp=500 \
                             --avgRuns=1000 \
                             --duration=10"
 ```
+
+The recipes target the pinned TensorRT 11, which has no `--fp16`: see the next section for FP16.
+
+### TensorRT 11 and FP16
+
+TensorRT 11 removed weak typing, and with it `BuilderFlag::kFP16` and `trtexec --fp16`. Every
+network is strongly typed: each layer runs in the precision the ONNX graph declares. rfdetr exports
+are float32, so on TensorRT 11 — through `trtexec` or the C++ backend building from an `.onnx` —
+you get an **FP32 engine** unless the ONNX is converted first.
+
+`model.export(format="tensorrt", fp16=True)` does that conversion itself from rfdetr 1.11.0 on: it
+casts the graph to FP16 and adds boundary casts that keep the graph inputs and outputs float32.
+That is the I/O contract the C++ backend requires. The `.trt` it writes (`*_fp16.trt`) loads directly
+in the C++ TensorRT 11 backend: on an RTX 3060, nano detection and segmentation engines exported by
+1.11.2 ran 3.6–3.8× faster than their FP32 builds, with scores within 0.004 and mask IoU ≥ 0.998.
+Run the export with the **same TensorRT version as the runtime**. The `[tensorrt]` extra only
+requires `tensorrt>=8.6.1`, and an engine built by another version fails to deserialize. Inside
+`nvcr.io/nvidia/tensorrt:<NGC_CONTAINER_TAG>-py3`, constrain pip to the container's TensorRT:
+
+```bash
+pip list | awk '$1=="tensorrt"{print "tensorrt=="$2}' > /tmp/trt.txt
+pip install -c /tmp/trt.txt "rfdetr[tensorrt]==${RFDETR_VERSION}"
+```
+
+To build with `trtexec` or the C++ backend instead, convert the ONNX to mixed precision with NVIDIA ModelOpt AutoCast, **keeping the graph inputs and
+outputs in float32** — the C++ backend exchanges float32 buffers with the engine and refuses to
+load one whose I/O tensors are not float32:
+
+```bash
+pip install 'nvidia-modelopt[onnx]'
+python -m modelopt.onnx.autocast \
+    --onnx_path model.onnx \
+    --output_path model_fp16.onnx \
+    --low_precision_type fp16 \
+    --keep_io_types
+```
+
+Then build from `model_fp16.onnx` as usual — `trtexec --onnx=model_fp16.onnx --saveEngine=…`
+without `--fp16`, or pass it straight to `inference_app`.
 
 > [!NOTE]
 > TensorRT optimization works for both detection and segmentation models. The C++ inference engine supports ONNX Runtime, TensorRT, and ExecuTorch backends with compile-time backend selection — exactly one is compiled in.

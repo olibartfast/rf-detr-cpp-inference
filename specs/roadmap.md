@@ -6,13 +6,16 @@ Work this project has committed to, as a phased queue. Phases are ordered so eac
 
 ## Status
 
-- Last tag **v0.5.1** (2026-09-19). Flow is git-flow: `develop` → `release/vX.Y.Z` → `master`, merged back.
+- Last tag **v0.6.0** (2026-10-07). Flow is git-flow: `develop` → `release/vX.Y.Z` → `master`, merged back.
+- **v0.6.0 is released** — Phase 6 (CUDA preprocessing as the default GPU preprocessor, DALI as the
+  alternative), TensorRT 11 only on NGC 26.08, the rfdetr 1.11.2 export alignment, and ONNX Runtime
+  1.28.0. Breaking for builds: see the migration note in `CHANGELOG.md`.
 - **v0.5.1 is released** — a documentation-only patch: the README quick start, the new `docs/advanced-usage.md`, `docs/usage.md` trimmed to operations, and the maintainer procedures moved to `specs/`. No behaviour, build option, or pin changed.
 - **v0.5.0 is released** — the rfdetr 1.9.1 and 1.9.2 alignments and the whole GPU pipeline shipped. Phases 1–5 are complete.
 - GPU pipeline: preprocessing and segmentation postprocessing **work end to end**; the test, build,
   and CI scaffolding (Phases 2–4) is complete and the parity gate has passed.
 
-Before starting any phase, run the [`feature-spec`](../.claude/skills/feature-spec/SKILL.md) workflow — every phase here qualifies as multi-session work, so each one gets a spec directory under [`features/`](features/) before code is written.
+Before starting any phase, run the [`feature-spec`](../AGENTS.md#checklist-feature-spec) workflow — every phase here qualifies as multi-session work, so each one gets a spec directory under [`features/`](features/) before code is written.
 
 ---
 
@@ -93,7 +96,7 @@ encoded path diverges up to `0.069` — entirely the JPEG decode (nvJPEG vs stb)
   - `bench_gpu_pipeline.cpp` (Phase 2) times preprocess (CPU and DALI), the H2D+D2H transfer, and
     postprocess (CPU and CUDA). The H2D+infer+D2H engine stage is measured with `trtexec` on the real
     engine: H2D 0.64 ms, GPU compute 11.61 ms, D2H 1.30 ms (RTX 3060 Laptop, TensorRT 10.13).
-- [x] Run the exit gate on real hardware — the [`gpu-verify`](../.claude/skills/gpu-verify/SKILL.md) workflow:
+- [x] Run the exit gate on real hardware — the [`gpu-verify`](../AGENTS.md#checklist-gpu-verify) workflow:
   1. All three tasks run with `--gpu-preprocess` inside the tolerances above — done (four
      combinations pass through a real engine, `integration_test_gpu_parity.cpp`)
   2. Segmentation runs with `--gpu-postprocess` at mask IoU ≥ 0.999, including on the dense fixture
@@ -111,12 +114,30 @@ encoded path diverges up to `0.069` — entirely the JPEG decode (nvJPEG vs stb)
 
 ## Phase 5 — Release v0.5.0 (Complete)
 
-The [`release`](../.claude/skills/release/SKILL.md) workflow. Gated on Phases 1–4.
+The [`release`](../AGENTS.md#checklist-release) workflow. Gated on Phases 1–4.
 
 - [x] Read `AGENTS.md`, `README.md`, and `CHANGELOG.md`, then verify the rfdetr release against upstream — the mandatory "Spec Sync" rule
 - [x] Move `[Unreleased]` to `[v0.5.0]`, sync `README.md` version statements against `CMakeLists.txt`, `CMakePresets.json`, `deploy/requirements.txt`, `dockerfile.*`, and `docs/export.md`
 - [x] Resolve the version disagreement noted in [tech-stack.md](tech-stack.md#known-pin-duplications): `project()` declares none, `vcpkg.json` says `0.1.0`, the README badge says `0.4.0`
 - [x] Cut `release/v0.5.0`, merge to `master`, tag, merge back to `develop`
+
+---
+
+## Phase 6 — CUDA preprocessing, DALI as the alternative (Complete)
+
+Make the GPU pipeline CUDA end to end by default: our own fused preprocessing kernel and nvJPEG
+become the default GPU preprocessor. DALI stays as a configure-time alternative (`-DUSE_DALI=ON`),
+exclusive with the CUDA preprocessor. Builds on the TensorRT 11 / DALI 2.x stack merged in PR #16.
+
+Spec: [`features/2026-09-25-cuda-preprocess/`](features/2026-09-25-cuda-preprocess/) — tolerances
+and the gate live in its `validation.md`.
+
+- [x] Fused CUDA preprocessing kernel behind `USE_CUDA_PREPROCESS`, frame-path parity ≤ `1e-5` — max `1.1e-6`, no `-fmad=false`
+- [x] nvJPEG decode for JPEG, stb + upload fallback for other formats — encoded max `4.8e-2` (≤ `1e-1`), PNG fallback `1.1e-6`
+- [x] Orchestrator, CLI and tests drive either preprocessor; `--gpu-preprocess` uses the one compiled in
+- [x] DALI kept as the alternative: `USE_DALI` and `USE_CUDA_PREPROCESS` exclusive at configure; presets, Docker `GPU_PIPELINE` values and the CI matrix cover both
+- [x] Constitution, README, AGENTS and docs updated
+- [x] Gate on real hardware — the [`gpu-verify`](../AGENTS.md#checklist-gpu-verify) workflow, RTX 3060 Laptop, 2026-10-02 (`--display` playback UNRUN: no display)
 
 ---
 
@@ -133,7 +154,7 @@ Not started, each for a recorded reason. Reopening one is a decision, not a task
 | ONNX Runtime CUDA execution provider | The backend registers none; the GPU pipeline requires `USE_TENSORRT=ON` |
 | Box-cropped masks | Masks are full-frame to match the CPU path. Cropping to the box and carrying the origin changes `rfdetr::media::Mask` and the drawing code |
 
-**Standing obligation:** every upstream `rfdetr` release triggers an alignment pass — the [`rfdetr-alignment`](../.claude/skills/rfdetr-alignment/SKILL.md) workflow. It is event-driven, not a phase, and preempts the queue above. Read `AGENTS.md` first and verify against the upstream release notes before touching anything.
+**Standing obligation:** every upstream `rfdetr` release triggers an alignment pass — the [`rfdetr-alignment`](../AGENTS.md#checklist-rfdetr-alignment) workflow. It is event-driven, not a phase, and preempts the queue above. Read `AGENTS.md` first and verify against the upstream release notes before touching anything.
 
 ---
 

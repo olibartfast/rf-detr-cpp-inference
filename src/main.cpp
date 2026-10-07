@@ -129,7 +129,8 @@ int main(int argc, const char *argv[]) {
         std::cerr << "      negative counts from the end, 'none' keeps every slot)." << std::endl;
         std::cerr << "      --keypoint-counts sets num_keypoints_per_class as comma-separated counts" << std::endl;
         std::cerr << "      (default 0,17 = background-first COCO; pass 17 for an active-first export)." << std::endl;
-        std::cerr << "      --gpu-preprocess needs -DUSE_DALI=ON, --gpu-postprocess needs" << std::endl;
+        std::cerr << "      --gpu-preprocess needs -DUSE_CUDA_PREPROCESS=ON (or the DALI alternative,\n";
+        std::cerr << "      -DUSE_DALI=ON, which also reads --dali-pipeline-dir); --gpu-postprocess needs\n";
         std::cerr << "      -DUSE_CUDA_POSTPROCESS=ON; both require the TensorRT backend." << std::endl;
         return 1;
     }
@@ -228,9 +229,9 @@ int main(int argc, const char *argv[]) {
         return 1;
     }
 
-#if !defined(USE_DALI)
+#if !defined(USE_CUDA_PREPROCESS) && !defined(USE_DALI)
     if (gpu_preprocess) {
-        std::cerr << "Error: --gpu-preprocess requires a build with -DUSE_DALI=ON" << std::endl;
+        std::cerr << "Error: --gpu-preprocess requires a build with -DUSE_CUDA_PREPROCESS=ON or -DUSE_DALI=ON\n";
         return 1;
     }
 #endif
@@ -297,7 +298,7 @@ int main(int argc, const char *argv[]) {
             const bool gpu_pre = inference.gpu_preprocess_active();
             const bool gpu_post = inference.gpu_postprocess_active();
 
-#if defined(USE_CUDA_POSTPROCESS) || defined(USE_DALI)
+#if defined(USE_CUDA_POSTPROCESS) || defined(USE_CUDA_PREPROCESS) || defined(USE_DALI)
             if (gpu_pre) {
                 // Preprocess and infer entirely on the device; nothing but the
                 // compressed image bytes is copied to the GPU.
@@ -317,7 +318,7 @@ int main(int argc, const char *argv[]) {
             const float scale_w = static_cast<float>(orig_w) / static_cast<float>(inference.get_resolution());
             const float scale_h = static_cast<float>(orig_h) / static_cast<float>(inference.get_resolution());
 
-#if defined(USE_CUDA_POSTPROCESS) || defined(USE_DALI)
+#if defined(USE_CUDA_POSTPROCESS) || defined(USE_CUDA_PREPROCESS) || defined(USE_DALI)
             // A device-side inference leaves the outputs on the GPU. The CUDA
             // postprocessor reads them there; every CPU postprocessor needs them
             // pulled into the host cache first.

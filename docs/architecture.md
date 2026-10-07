@@ -13,11 +13,14 @@ server involved. Design constraints: [specs/gpu-pipeline.md](../specs/gpu-pipeli
 phases: [specs/roadmap.md](../specs/roadmap.md).
 
 ```
-image bytes ──> DALI "encoded" pipeline ──┐
-                (nvJPEG decode, resize,   │
-                 normalize — on GPU)      ├──> device float[1,3,res,res]
-video frame ──> DALI "frame" pipeline ────┘         │
-                (BGR→RGB, resize, normalize)        v
+                CUDA preprocessing (default)
+image bytes ──> JPEG: nvJPEG decode on GPU ──┐
+                other: stb decode + upload   ├──> fused kernel ──┐
+video frame ──> upload BGR ──────────────────┘   (resize, BGR→RGB,│
+                                                  normalize)      │
+                DALI preprocessing (alternative, -DUSE_DALI=ON)   ├──> device float[1,3,res,res]
+image bytes ──> DALI "encoded" pipeline ─────────────────────────┤         │
+video frame ──> DALI "frame" pipeline ───────────────────────────┘         v
                                           TensorRT enqueue (same stream)
                                                     │
                           ┌─────────────────────────┴───────────────┐
@@ -30,12 +33,21 @@ video frame ──> DALI "frame" pipeline ────┘         │
 ```
 
 ## What each half does
-- **DALI preprocessing** (`-DUSE_DALI=ON`, `--gpu-preprocess`): image decode
-  (nvJPEG), resize, and ImageNet normalization run on the GPU and write straight
-  into the TensorRT input binding. For still images only the compressed bytes
-  cross to the GPU; for video the preprocess pipeline stage becomes a passthrough
-  and DALI runs on the backend's stream inside the inference stage. Works with
-  detection, segmentation, and keypoint models.
+- **GPU preprocessing** (`--gpu-preprocess`): image decode, resize, and ImageNet
+  normalization run on the GPU and write straight into the TensorRT input
+  binding. Two implementations, chosen at configure time and never built
+  together:
+  - **CUDA kernel + nvJPEG** (`-DUSE_CUDA_PREPROCESS=ON`, the default under
+    `-DUSE_GPU_PIPELINE=ON`): JPEGs decode with nvJPEG on the GPU, so only the
+    compressed bytes cross the bus; other formats decode with stb on the CPU and
+    are uploaded. One fused kernel then resizes and normalizes, matching the CPU
+    preprocess to `1e-5`. Runs at any resolution.
+  - **DALI** (`-DUSE_DALI=ON`): serialized DALI pipelines do the same work; see
+    [DALI pipeline files](#dali-pipeline-files).
+
+  For video the preprocess pipeline stage becomes a passthrough and the
+  preprocessor runs on the backend's stream inside the inference stage. Works
+  with detection, segmentation, and keypoint models.
 - **CUDA segmentation postprocessing** (`-DUSE_CUDA_POSTPROCESS=ON`,
   `--gpu-postprocess`): score sigmoid, global top-k, box decode, and the
   per-instance mask resize + threshold (the CPU path's dominant cost) run as CUDA
@@ -49,7 +61,7 @@ backend interface gained optional device-side I/O entry points
 only the TensorRT backend implements.
 
 ## DALI pipeline files
-`--gpu-preprocess` loads serialized DALI pipelines named
+In a DALI build, `--gpu-preprocess` loads serialized DALI pipelines named
 `preprocess_encoded_<resolution>.dali` (still images) and
 `preprocess_frame_<resolution>.dali` (video frames) from `--dali-pipeline-dir`
 (default `data/dali`), where `<resolution>` is the model input resolution
@@ -70,9 +82,9 @@ stale pipeline file fails loudly rather than silently degrading results.
 
 ## Version pinning
 DALI libraries and pipeline serialization both come from the same pinned
-container, `nvcr.io/nvidia/tritonserver:25.12-py3` (override with
+container, `nvcr.io/nvidia/tritonserver:<NGC_CONTAINER_TAG>-py3` (override with
 `TRITON_IMAGE=...` on both scripts), keeping the DALI/CUDA/TensorRT triple
-consistent with the TensorRT 10.13.3.9 / CUDA 13.x pin above.
+consistent with the `TENSORRT_VERSION` / `CUDA_VERSION` pins in `versions.env`.
 
 ## Video Processing
 Video files are processed using a **four-stage ring buffer pipeline** that maximizes throughput with zero frame copies between stages:
@@ -101,7 +113,7 @@ preview, and stb for image I/O. `-DUSE_OPENCV=ON` swaps those pieces for OpenCV
 - The inference stage owns its own `RFDETRInference` instance — no locks on the hot path
 - Graceful shutdown via poison pill (`SIZE_MAX`) propagated through all queues
 - Frame ordering is preserved (all stages are single-threaded FIFO)
-- With `--gpu-preprocess`, the preprocess stage becomes a passthrough: DALI's `frame` pipeline runs on the backend's CUDA stream inside the inference stage, and the CPU cost of the bilinear resample disappears from the pipeline entirely
+- With `--gpu-preprocess`, the preprocess stage becomes a passthrough: the CUDA kernel (or DALI's `frame` pipeline) runs on the backend's CUDA stream inside the inference stage, and the CPU cost of the bilinear resample disappears from the pipeline entirely
 
 Use `--display` to open a live preview window (press ESC to quit early).
 

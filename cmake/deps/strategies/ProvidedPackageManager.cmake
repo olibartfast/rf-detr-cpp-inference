@@ -9,7 +9,20 @@ function(deps_provided_can_resolve NAME OUT_VAR)
     set(_ok FALSE)
 
     deps_decl_get(${NAME} PROVIDED_ROOT_VARS _root_vars)
+    deps_decl_get(${NAME} PROVIDED_ACQUIRE _decl_acq)
+    deps_decl_get(${NAME} PROVIDED_SUBDIR _decl_sub)
     foreach(_rv ${_root_vars})
+        # A DOWNLOAD writes its extract dir into the root cache var, which then wins on every
+        # reconfigure. Once the pin moves, that dir is the old version's: drop it and download
+        # the pinned one. A root outside DEPS_PROVIDED_DIR was set by the user and is kept.
+        if(DEFINED ${_rv} AND _decl_acq STREQUAL "DOWNLOAD" AND _decl_sub AND DEPS_PROVIDED_DIR)
+            string(FIND "${${_rv}}" "${DEPS_PROVIDED_DIR}/" _in_provided)
+            if(_in_provided EQUAL 0 AND NOT "${${_rv}}" STREQUAL "${DEPS_PROVIDED_DIR}/${_decl_sub}")
+                message(STATUS "[deps] ${NAME}: ignoring ${_rv}=${${_rv}}, an earlier download; pinned is ${_decl_sub}")
+                unset(${_rv} CACHE)
+                unset(${_rv})
+            endif()
+        endif()
         if(DEFINED ${_rv})
             set_property(GLOBAL PROPERTY deps.provided.${NAME}.acquire "ROOT")
             set_property(GLOBAL PROPERTY deps.provided.${NAME}.root_var "${_rv}")
