@@ -481,6 +481,43 @@ TEST(GpuParityCudaPreprocess, PngFallbackMatchesGoldenCpu) {
     }
 }
 
+// A one-component JPEG passes probe(), so nvJPEG must decode it to BGR itself:
+// a decode failure here has no stb fallback behind it. The reference is the CPU
+// path on the same file (stb replicates the grey channel into BGR).
+TEST(GpuParityCudaPreprocess, GreyscaleJpegMatchesCpu) {
+    SKIP_WITHOUT_GPU();
+    rfdetr::gpu::GpuContext context(0);
+    rfdetr::gpu::JpegDecoder decoder;
+
+    const auto path = fixture_file("small_gray", ".jpg");
+    const auto image = rfdetr::media::load_image(path);
+    ASSERT_FALSE(image.empty());
+    const auto bytes = read_bytes(path);
+    const auto size = decoder.probe(bytes);
+    ASSERT_TRUE(size.has_value()) << "a greyscale JPEG must take the nvJPEG path";
+    EXPECT_EQ(size->width, image.width);
+    EXPECT_EQ(size->height, image.height);
+
+    const auto cpu = cpu_preprocess_at(image, gpu_parity::kResolution);
+    std::vector<float> gpu;
+    ASSERT_NO_THROW(gpu = cuda_preprocess_encoded(bytes, gpu_parity::kResolution, decoder, context));
+    ASSERT_EQ(gpu.size(), cpu.size());
+
+    const float max_delta = max_abs_delta(cpu, gpu);
+    std::cout << "[gpu-parity] small_gray cuda encoded max |delta| = " << max_delta << '\n';
+    EXPECT_LE(max_delta, kCudaEncodedTolerance) << "greyscale nvJPEG decode diverged beyond the decoder gap";
+}
+
+// CMYK (Adobe, four components) has no BGR conversion in the decoder, so probe()
+// must reject it and the orchestrator decodes it with stb on the host.
+TEST(GpuParityCudaPreprocess, CmykJpegTakesStbFallback) {
+    SKIP_WITHOUT_GPU();
+    rfdetr::gpu::JpegDecoder decoder;
+    const auto path = fixture_file("small_cmyk", ".jpg");
+    EXPECT_FALSE(decoder.probe(read_bytes(path)).has_value()) << "a CMYK JPEG must take the stb fallback";
+    EXPECT_FALSE(rfdetr::media::load_image(path).empty()) << "stb must decode the fallback";
+}
+
 #endif // USE_CUDA_PREPROCESS
 
 // ============================================================================
