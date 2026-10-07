@@ -237,7 +237,8 @@ void preprocess_bgr_image(const Image &image, std::span<float> output, int resol
                 const float p01 = bgr_at(y0, x1, c);
                 const float p10 = bgr_at(y1, x0, c);
                 const float p11 = bgr_at(y1, x1, c);
-                bgr[c] = (p00 * (1.0f - wx) + p01 * wx) * (1.0f - wy) + (p10 * (1.0f - wx) + p11 * wx) * wy;
+                bgr[static_cast<size_t>(c)] =
+                    (p00 * (1.0f - wx) + p01 * wx) * (1.0f - wy) + (p10 * (1.0f - wx) + p11 * wx) * wy;
             }
 
             output[dst] = bgr[2] / 255.0f;
