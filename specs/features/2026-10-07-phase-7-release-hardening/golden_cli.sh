@@ -19,7 +19,7 @@ run() { # name, args...
     local name=$1; shift
     "$APP" "$@" >"$OUT/$name.out" 2>"$OUT/$name.err"
     echo $? >"$OUT/$name.rc"
-    sed -i -e "s#$OUT#<OUT>#g" -e "s#@ 0x[0-9a-f]*#@ <PTR>#g" "$OUT/$name.out" "$OUT/$name.err"
+    sed -i -e "s#$APP#<APP>#g" -e "s#$OUT#<OUT>#g" -e "s#@ 0x[0-9a-f]*#@ <PTR>#g" "$OUT/$name.out" "$OUT/$name.err"
 }
 run det   data/models/rfdetr-nano-1101.onnx data/dog.jpg $L --output "$OUT/det.jpg"
 run seg   data/models/rfdetr-seg-nano-576.onnx data/dog.jpg $L --segmentation --output "$OUT/seg.jpg"
