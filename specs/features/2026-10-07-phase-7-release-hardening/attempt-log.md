@@ -12,7 +12,6 @@ subagent totals the harness reported.
 | 4 | P1a (parser unit only) | Driver-made worktree, pre-built, baseline edge cases pasted into packet | Files written at turn cap; finished after one resume; SCOREBOARD PASS | 117.4k | 22 | 1 resume |
 | 5 | P2a (tidy, keypoint split deferred) | Same | Committed `8d401b1` on second window; two `-Werror` follow-ups left uncommitted, committed by driver as `93843da`; SCOREBOARD PASS (driver-run) | 134.4k | 58 | 2 resumes; driver commit |
 | 6 | P3 (FFmpeg, re-dispatch) | Same | Edits complete at second cap, uncommitted; driver judged (format, build, tests, golden, tidy) and committed `6871b81` unchanged; SCOREBOARD PASS (driver-run) | 106.6k | 36 | 1 resume; driver commit |
-
 | 7 | P1a review fix (cppcheck `useStlAlgorithm`, 8 unpinned behaviours) | Resumed P1a agent with corrected packet | Edits complete at cap, uncommitted; driver judged and committed unchanged | 141.7k | 12 | 1 resume; driver commit |
 | 8 | P3 review fix (`const` on mutating methods) | Resumed P3 agent | Committed `fccddbb`; SCOREBOARD PASS | 125.7k | 22 | — |
 | 9 | P2b (keypoint split) | Driver worktree from merged branch | `02fbceb`; reported cppcheck exit 0 — **false**: inline `cppcheck-suppress` is inert without `--inline-suppr`. Root cause: the driver's packet mandated two members nothing reads | 127.4k | 47 | Driver reject |
