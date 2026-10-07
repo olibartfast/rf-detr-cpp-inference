@@ -1,5 +1,6 @@
 #include "video_writer.hpp"
 
+#include <array>
 #include <stdexcept>
 #include <string>
 
@@ -62,9 +63,9 @@ namespace {
 
 void check(int err, const std::string &what) {
     if (err < 0) {
-        char buf[AV_ERROR_MAX_STRING_SIZE] = {};
-        av_strerror(err, buf, sizeof(buf));
-        throw std::runtime_error(what + ": " + std::string(buf));
+        std::array<char, AV_ERROR_MAX_STRING_SIZE> buf{};
+        av_strerror(err, buf.data(), buf.size());
+        throw std::runtime_error(what + ": " + std::string(buf.data()));
     }
 }
 
@@ -114,7 +115,8 @@ struct VideoWriter::Impl {
     ~Impl() {
         try {
             flush();
-        } catch (...) {
+        } catch (...) { // NOLINT(bugprone-empty-catch) -- deliberately swallowed: ~Impl() must not throw, so a failed
+                        // flush() during teardown is ignored
             // Destructors must not throw; ignore flush failures during teardown.
         }
         if (header_written && fmt_ctx != nullptr) {
@@ -170,7 +172,7 @@ struct VideoWriter::Impl {
         enc_ctx->framerate = fps_r;
         enc_ctx->gop_size = std::max(12, static_cast<int>(fps) * 2);
 
-        if (fmt_ctx->oformat->flags & AVFMT_GLOBALHEADER) {
+        if ((fmt_ctx->oformat->flags & AVFMT_GLOBALHEADER) != 0) {
             enc_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
         }
 
@@ -209,7 +211,7 @@ struct VideoWriter::Impl {
         header_written = true;
     }
 
-    void encode_and_write(const AVFrame *frame) {
+    void encode_and_write(const AVFrame *frame) const {
         int err = avcodec_send_frame(enc_ctx, frame);
         if (err < 0 && err != AVERROR(EAGAIN)) {
             check(err, "VideoWriter: avcodec_send_frame failed");
@@ -226,10 +228,10 @@ struct VideoWriter::Impl {
             packet->stream_index = stream->index;
             err = av_interleaved_write_frame(fmt_ctx, packet);
             if (err < 0) {
-                char buf[AV_ERROR_MAX_STRING_SIZE] = {};
-                av_strerror(err, buf, sizeof(buf));
+                std::array<char, AV_ERROR_MAX_STRING_SIZE> buf{};
+                av_strerror(err, buf.data(), buf.size());
                 av_packet_unref(packet);
-                throw std::runtime_error(std::string("VideoWriter: av_interleaved_write_frame failed: ") + buf);
+                throw std::runtime_error(std::string("VideoWriter: av_interleaved_write_frame failed: ") + buf.data());
             }
             av_packet_unref(packet);
         }
@@ -248,14 +250,16 @@ struct VideoWriter::Impl {
         int err = av_frame_make_writable(yuv_frame);
         check(err, "VideoWriter: av_frame_make_writable failed");
 
-        const uint8_t *src_data[1] = {frame.data()};
-        const int src_linesize[1] = {width * kChannels};
-        sws_scale(sws, src_data, src_linesize, 0, height, yuv_frame->data, yuv_frame->linesize);
+        const std::array<const uint8_t *, 1> src_data{frame.data()};
+        const std::array<int, 1> src_linesize{width * kChannels};
+        // yuv_frame->data/linesize are FFmpeg's AVFrame C-array members; AVFrame is third-party, not ours to change
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+        sws_scale(sws, src_data.data(), src_linesize.data(), 0, height, yuv_frame->data, yuv_frame->linesize);
         yuv_frame->pts = pts++;
         encode_and_write(yuv_frame);
     }
 
-    void flush() {
+    void flush() const {
         if (!header_written || enc_ctx == nullptr) {
             return;
         }
