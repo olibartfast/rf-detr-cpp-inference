@@ -117,7 +117,6 @@ struct VideoWriter::Impl {
             flush();
         } catch (...) { // NOLINT(bugprone-empty-catch) -- deliberately swallowed: ~Impl() must not throw, so a failed
                         // flush() during teardown is ignored
-            // Destructors must not throw; ignore flush failures during teardown.
         }
         if (header_written && fmt_ctx != nullptr) {
             av_write_trailer(fmt_ctx);
@@ -211,7 +210,9 @@ struct VideoWriter::Impl {
         header_written = true;
     }
 
-    void encode_and_write(const AVFrame *frame) const {
+    // Mutates the owned encoder/muxer/packet state through pointer members.
+    // NOLINTNEXTLINE(readability-make-member-function-const)
+    void encode_and_write(const AVFrame *frame) {
         int err = avcodec_send_frame(enc_ctx, frame);
         if (err < 0 && err != AVERROR(EAGAIN)) {
             check(err, "VideoWriter: avcodec_send_frame failed");
@@ -259,7 +260,9 @@ struct VideoWriter::Impl {
         encode_and_write(yuv_frame);
     }
 
-    void flush() const {
+    // Mutates the owned encoder/muxer/packet state through pointer members.
+    // NOLINTNEXTLINE(readability-make-member-function-const)
+    void flush() {
         if (!header_written || enc_ctx == nullptr) {
             return;
         }

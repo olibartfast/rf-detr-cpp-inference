@@ -220,8 +220,8 @@ struct VideoReader::Impl {
                 out.resize(width, height);
                 std::array<uint8_t *, 1> dst_data{out.data()};
                 std::array<int, 1> dst_linesize{width * 3};
-                // frame->data/linesize are FFmpeg's AVFrame C-array members; AVFrame is third-party, not ours to
-                // change
+                // frame->data/linesize are FFmpeg's AVFrame C-array members; AVFrame is third-party
+                // code, not ours to change.
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
                 sws_scale(sws, frame->data, frame->linesize, 0, height, dst_data.data(), dst_linesize.data());
                 av_packet_unref(packet);
