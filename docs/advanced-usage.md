@@ -179,6 +179,7 @@ extracts the C API libraries and headers from a pinned Triton container
 | `-DCMAKE_BUILD_TYPE=Release/Debug` | — | Build configuration |
 | `-DWERROR=ON/OFF` | `OFF` | Treat compiler warnings as errors (CI uses `ON`) |
 | `-DBENCHMARKS=ON/OFF` | `OFF` | Build the Google Benchmark targets |
+| `-DPROFILING=ON/OFF` | `OFF` | Keep frame pointers and debug info on every target, so `perf`/Valgrind call graphs reach inside the library; combine with `Release` |
 | `-DSANITIZERS=ON/OFF` | `OFF` | AddressSanitizer + UndefinedBehaviorSanitizer |
 | `-DSTRICT_UBSAN=ON/OFF` | `OFF` | Stricter UBSan — Clang: `undefined,local-bounds,vptr,implicit-conversion`; GCC: `undefined,bounds-strict,vptr` |
 | `-DTHREAD_SANITIZER=ON/OFF` | `OFF` | ThreadSanitizer / data-race detection |
@@ -502,7 +503,7 @@ The video driver's own knobs live in `VideoPipelineConfig` (`src/video_pipeline.
 
 | Workflow | File | What it does |
 |----------|------|-------------|
-| **C++ Lint & Build** | `lint.yml` | Version sync, Dockerfile shared blocks, format check, clang-tidy, cppcheck, build with `-DWERROR=ON` |
+| **C++ Lint & Build** | `lint.yml` | Version sync, Dockerfile shared blocks, format check, clang-tidy (any finding fails), cppcheck, build with `-DWERROR=ON` |
 | **Build & Test** | `ci.yml` | Build with benchmarks, run unit tests, run benchmarks, run unit tests under ASan+UBSan |
 | **GPU Backend Compile** | `gpu-compile.yml` | Compiles the TensorRT backend and the GPU halves with `-DWERROR=ON` against TensorRT 11 headers: TensorRT alone, each GPU preprocessor (CUDA, DALI), CUDA postprocessing, and both full pipelines; also checks the two preprocessors are rejected together |
 | **Dependency Modes** | `deps-modes.yml` | `workflow_dispatch` only; matrix over apt / conan / vcpkg |
