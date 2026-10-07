@@ -37,12 +37,13 @@ void validate_config(const Config &config) {
 } // namespace
 
 RFDETRInference::RFDETRInference(const std::filesystem::path &model_path, const std::filesystem::path &label_file_path,
-                                 const Config &config)
-    : backend_(create_backend()), config_(config), input_shape_({1, 3, config_.resolution, config_.resolution}) {
+                                 Config config)
+    : backend_(create_backend()), config_(std::move(config)),
+      input_shape_({1, 3, config_.resolution, config_.resolution}) {
 
     validate_config(config_);
 
-    std::cout << "Using backend: " << backend_->get_backend_name() << std::endl;
+    std::cout << "Using backend: " << backend_->get_backend_name() << "\n";
 
     // Initialize backend
     input_shape_ = backend_->initialize(model_path, input_shape_);
@@ -51,19 +52,31 @@ RFDETRInference::RFDETRInference(const std::filesystem::path &model_path, const 
     if (config_.resolution == 0 && input_shape_.size() == 4) {
         config_.resolution = static_cast<int>(input_shape_[2]);
         std::cout << "Auto-detected model input resolution: " << config_.resolution << "x" << config_.resolution
-                  << std::endl;
+                  << "\n";
     }
 
     // Validate number of outputs
     const size_t num_outputs = backend_->get_output_count();
-    const size_t num_expected = config_.model_type == ModelType::SEGMENTATION ? 3
-                                : config_.model_type == ModelType::KEYPOINT   ? 3
-                                                                              : 2;
+    const size_t num_expected = [&] {
+        if (config_.model_type == ModelType::SEGMENTATION) {
+            return 3;
+        }
+        if (config_.model_type == ModelType::KEYPOINT) {
+            return 3;
+        }
+        return 2;
+    }();
 
     if (num_outputs < num_expected) {
-        std::string type_str = config_.model_type == ModelType::SEGMENTATION ? "Segmentation"
-                               : config_.model_type == ModelType::KEYPOINT   ? "Keypoint"
-                                                                             : "Detection";
+        std::string type_str = [&] {
+            if (config_.model_type == ModelType::SEGMENTATION) {
+                return "Segmentation";
+            }
+            if (config_.model_type == ModelType::KEYPOINT) {
+                return "Keypoint";
+            }
+            return "Detection";
+        }();
         throw std::runtime_error(type_str + " model requires " + std::to_string(num_expected) +
                                  " outputs, but model has only " + std::to_string(num_outputs));
     }
@@ -73,8 +86,9 @@ RFDETRInference::RFDETRInference(const std::filesystem::path &model_path, const 
 }
 
 RFDETRInference::RFDETRInference(std::unique_ptr<InferenceBackend> backend,
-                                 const std::filesystem::path &label_file_path, const Config &config)
-    : backend_(std::move(backend)), config_(config), input_shape_({1, 3, config_.resolution, config_.resolution}) {
+                                 const std::filesystem::path &label_file_path, Config config)
+    : backend_(std::move(backend)), config_(std::move(config)),
+      input_shape_({1, 3, config_.resolution, config_.resolution}) {
     validate_config(config_);
     load_coco_labels(label_file_path);
 }
@@ -202,7 +216,7 @@ void RFDETRInference::postprocess_outputs(float scale_w, float scale_h, std::vec
 
         scores.push_back(score);
         class_ids.push_back(class_id);
-        boxes.push_back(std::move(box));
+        boxes.push_back(box);
     }
 }
 
@@ -277,7 +291,7 @@ void RFDETRInference::postprocess_segmentation_outputs(float scale_w, float scal
 
         scores.push_back(score);
         class_ids.push_back(class_id);
-        boxes.push_back(std::move(box));
+        boxes.push_back(box);
         masks.push_back(binary_mask);
     }
 }
@@ -527,7 +541,7 @@ void RFDETRInference::postprocess_keypoint_outputs(float scale_w, float scale_h,
 
         scores.push_back(final_score);
         class_ids.push_back(class_id);
-        boxes.push_back(std::move(box));
+        boxes.push_back(box);
         keypoints.push_back(std::move(kp_results));
     }
 }
