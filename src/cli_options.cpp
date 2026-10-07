@@ -1,5 +1,6 @@
 #include "cli_options.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <sstream>
@@ -11,44 +12,48 @@ namespace {
 // Numeric options report a bad value against the flag it belongs to: std::stoi/std::stof throw on a
 // typo, and an uncaught exception here would abort before the usage text can help.
 std::optional<std::string> parse_int_option(const char *flag, const char *value, std::optional<int> &out) {
+    std::ostringstream oss;
+    oss << "Error: " << flag << " expects an integer, got '" << value << "'";
+    std::string error = oss.str();
+
     size_t consumed = 0;
     int parsed = 0;
     try {
         parsed = std::stoi(value, &consumed);
     } catch (const std::exception &) {
-        std::ostringstream oss;
-        oss << "Error: " << flag << " expects an integer, got '" << value << "'";
-        return oss.str();
+        return error;
     }
     if (consumed != std::strlen(value)) {
-        std::ostringstream oss;
-        oss << "Error: " << flag << " expects an integer, got '" << value << "'";
-        return oss.str();
+        return error;
     }
     out = parsed;
     return std::nullopt;
 }
 
 std::optional<std::string> parse_float_option(const char *flag, const char *value, std::optional<float> &out) {
+    std::ostringstream oss;
+    oss << "Error: " << flag << " expects a number, got '" << value << "'";
+    std::string error = oss.str();
+
     size_t consumed = 0;
     float parsed = 0.0F;
     try {
         parsed = std::stof(value, &consumed);
     } catch (const std::exception &) {
-        std::ostringstream oss;
-        oss << "Error: " << flag << " expects a number, got '" << value << "'";
-        return oss.str();
+        return error;
     }
     if (consumed != std::strlen(value)) {
-        std::ostringstream oss;
-        oss << "Error: " << flag << " expects a number, got '" << value << "'";
-        return oss.str();
+        return error;
     }
     out = parsed;
     return std::nullopt;
 }
 
 std::optional<std::string> parse_int_list(const char *flag, const char *value, std::vector<int> &out) {
+    std::ostringstream oss;
+    oss << "Error: " << flag << " expects comma-separated integers, got '" << value << "'";
+    std::string error = oss.str();
+
     out.clear();
     const std::string input(value);
     size_t start = 0;
@@ -56,23 +61,17 @@ std::optional<std::string> parse_int_list(const char *flag, const char *value, s
         const size_t comma = input.find(',', start);
         const std::string token = input.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
         if (token.empty()) {
-            std::ostringstream oss;
-            oss << "Error: " << flag << " expects comma-separated integers, got '" << value << "'";
-            return oss.str();
+            return error;
         }
         size_t consumed = 0;
         int parsed = 0;
         try {
             parsed = std::stoi(token, &consumed);
         } catch (const std::exception &) {
-            std::ostringstream oss;
-            oss << "Error: " << flag << " expects comma-separated integers, got '" << value << "'";
-            return oss.str();
+            return error;
         }
         if (consumed != token.size()) {
-            std::ostringstream oss;
-            oss << "Error: " << flag << " expects comma-separated integers, got '" << value << "'";
-            return oss.str();
+            return error;
         }
         out.push_back(parsed);
         if (comma == std::string::npos) {
@@ -167,26 +166,20 @@ constexpr std::array<ValueFlag, 8> kValueFlags = {{
 // ignored (there is no following value to consume).
 std::optional<std::string> scan_args(std::span<const char *const> args, CliOptions &opts) {
     for (size_t i = 4; i < args.size(); ++i) {
-        bool matched = false;
-        for (const auto &flag : kBoolFlags) {
-            if (std::strcmp(args[i], flag.name) == 0) {
-                opts.*(flag.member) = true;
-                matched = true;
-                break;
-            }
-        }
-        if (matched) {
+        const auto *bool_it = std::ranges::find_if(
+            kBoolFlags, [&](const BoolFlag &flag) { return std::strcmp(args[i], flag.name) == 0; });
+        if (bool_it != kBoolFlags.end()) {
+            opts.*(bool_it->member) = true;
             continue;
         }
         if (i + 1 >= args.size()) {
             continue;
         }
-        for (const auto &flag : kValueFlags) {
-            if (std::strcmp(args[i], flag.name) == 0) {
-                if (auto err = flag.handler(args[++i], opts)) {
-                    return err;
-                }
-                break;
+        const auto *value_it = std::ranges::find_if(
+            kValueFlags, [&](const ValueFlag &flag) { return std::strcmp(args[i], flag.name) == 0; });
+        if (value_it != kValueFlags.end()) {
+            if (auto err = value_it->handler(args[++i], opts)) {
+                return err;
             }
         }
     }

@@ -308,3 +308,88 @@ TEST(CliOptionsMaskThreshold, NegativeValueIsOk) {
     ASSERT_TRUE(outcome.options.mask_threshold.has_value());
     EXPECT_FLOAT_EQ(*outcome.options.mask_threshold, -0.5f);
 }
+
+// --- repeated flags: last one wins ------------------------------------------
+
+TEST(CliOptionsRepeatedFlags, RepeatedKeypointCountsReplacesRatherThanAppends) {
+    const auto outcome = run({"--keypoint-counts", "1,2", "--keypoint-counts", "3"});
+    ASSERT_EQ(outcome.status, ParseStatus::Ok);
+    ASSERT_TRUE(outcome.options.keypoint_counts.has_value());
+    EXPECT_EQ(*outcome.options.keypoint_counts, (std::vector<int>{3}));
+}
+
+TEST(CliOptionsRepeatedFlags, RepeatedScalarFlagLastOneWins) {
+    const auto outcome = run({"--threshold", "0.2", "--threshold", "0.7"});
+    ASSERT_EQ(outcome.status, ParseStatus::Ok);
+    ASSERT_TRUE(outcome.options.threshold.has_value());
+    EXPECT_FLOAT_EQ(*outcome.options.threshold, 0.7f);
+}
+
+TEST(CliOptionsRepeatedFlags, RepeatedBackgroundClassIdLastOneWins) {
+    const auto outcome = run({"--background-class-id", "3", "--background-class-id", "none"});
+    ASSERT_EQ(outcome.status, ParseStatus::Ok);
+    EXPECT_TRUE(outcome.options.background_class_id_given);
+    EXPECT_FALSE(outcome.options.background_class_id.has_value());
+}
+
+// --- error precedence: scan errors before range checks, first error wins ---
+// Measured against the baseline binary (build-baseline/inference_app) from
+// /home/oli/repos/rf-detr-cpp-inference with
+// data/models/rfdetr-nano-1101.onnx, data/dog.jpg, data/coco-labels-91.txt.
+
+TEST(CliOptionsErrorPrecedence, ScanErrorBeatsLaterRangeCheck) {
+    const auto outcome = run({"--threshold", "5", "--resolution", "abc"});
+    ASSERT_EQ(outcome.status, ParseStatus::Error);
+    EXPECT_EQ(outcome.error, "Error: --resolution expects an integer, got 'abc'");
+}
+
+TEST(CliOptionsErrorPrecedence, RangeChecksRunInThresholdResolutionMaxDetectionsOrder) {
+    const auto outcome = run({"--resolution", "0", "--max-detections", "0", "--threshold", "2"});
+    ASSERT_EQ(outcome.status, ParseStatus::Error);
+    EXPECT_EQ(outcome.error, "Error: --threshold must be in [0, 1], got 2");
+}
+
+// --- misc parse-failure wording ---------------------------------------------
+
+TEST(CliOptionsEdgeCases, MaskThresholdNonNumericIsAnError) {
+    const auto outcome = run({"--mask-threshold", "x"});
+    ASSERT_EQ(outcome.status, ParseStatus::Error);
+    EXPECT_EQ(outcome.error, "Error: --mask-threshold expects a number, got 'x'");
+}
+
+TEST(CliOptionsEdgeCases, KeypointCountsNonNumericIsAnError) {
+    const auto outcome = run({"--keypoint-counts", "a"});
+    ASSERT_EQ(outcome.status, ParseStatus::Error);
+    EXPECT_EQ(outcome.error, "Error: --keypoint-counts expects comma-separated integers, got 'a'");
+}
+
+// A value flag swallows the very next token, even if that token looks like
+// another flag; there is no lookahead to tell the two apart.
+TEST(CliOptionsEdgeCases, ValueFlagSwallowsNextTokenEvenIfItLooksLikeAFlag) {
+    const auto outcome = run({"--threshold", "--segmentation"});
+    ASSERT_EQ(outcome.status, ParseStatus::Error);
+    EXPECT_EQ(outcome.error, "Error: --threshold expects a number, got '--segmentation'");
+}
+
+TEST(CliOptionsEdgeCases, OutputSwallowsNextTokenLeavingSegmentationUnset) {
+    const auto outcome = run({"--output", "--segmentation"});
+    ASSERT_EQ(outcome.status, ParseStatus::Ok);
+    ASSERT_TRUE(outcome.options.output_path.has_value());
+    EXPECT_EQ(*outcome.options.output_path, std::filesystem::path("--segmentation"));
+    EXPECT_FALSE(outcome.options.segmentation);
+}
+
+// std::stoi/std::stof throw std::out_of_range for values outside int/float
+// range; the parser folds that into the same "expects a ..." message as a
+// malformed value, rather than a distinct overflow message.
+TEST(CliOptionsEdgeCases, MaxDetectionsOutOfIntRangeIsAnError) {
+    const auto outcome = run({"--max-detections", "99999999999"});
+    ASSERT_EQ(outcome.status, ParseStatus::Error);
+    EXPECT_EQ(outcome.error, "Error: --max-detections expects an integer, got '99999999999'");
+}
+
+TEST(CliOptionsEdgeCases, ThresholdOutOfFloatRangeIsAnError) {
+    const auto outcome = run({"--threshold", "1e40"});
+    ASSERT_EQ(outcome.status, ParseStatus::Error);
+    EXPECT_EQ(outcome.error, "Error: --threshold expects a number, got '1e40'");
+}
