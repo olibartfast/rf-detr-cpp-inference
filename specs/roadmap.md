@@ -6,13 +6,14 @@ Work this project has committed to, as a phased queue. Phases are ordered so eac
 
 ## Status
 
-- Last tag **v0.5.1** (2026-09-19). Flow is git-flow: `develop` → `release/vX.Y.Z` → `master`, merged back.
+- Last tag **v0.6.0** (2026-10-07). Flow is git-flow: `develop` → `release/vX.Y.Z` → `master`, merged back.
+- **v0.6.0 is released** — Phase 6 (CUDA preprocessing as the default GPU preprocessor, DALI as the
+  alternative), TensorRT 11 only on NGC 26.08, the rfdetr 1.11.2 export alignment, and ONNX Runtime
+  1.28.0. Breaking for builds: see the migration note in `CHANGELOG.md`.
 - **v0.5.1 is released** — a documentation-only patch: the README quick start, the new `docs/advanced-usage.md`, `docs/usage.md` trimmed to operations, and the maintainer procedures moved to `specs/`. No behaviour, build option, or pin changed.
 - **v0.5.0 is released** — the rfdetr 1.9.1 and 1.9.2 alignments and the whole GPU pipeline shipped. Phases 1–5 are complete.
 - GPU pipeline: preprocessing and segmentation postprocessing **work end to end**; the test, build,
   and CI scaffolding (Phases 2–4) is complete and the parity gate has passed.
-- **Phase 6 is complete and merged to `develop`** (PR #18): CUDA preprocessing (kernel + nvJPEG)
-  is the default GPU preprocessor, with DALI kept as the configure-time alternative.
 
 Before starting any phase, run the [`feature-spec`](../AGENTS.md#checklist-feature-spec) workflow — every phase here qualifies as multi-session work, so each one gets a spec directory under [`features/`](features/) before code is written.
 
