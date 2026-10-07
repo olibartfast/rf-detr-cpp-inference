@@ -39,11 +39,7 @@ void validate_config(const Config &config) {
 /// the keypoint-class -> (count, byte offset) map, and the default keypoint class to
 /// fall back on when a detection's class has no keypoints of its own.
 struct KeypointLayout {
-    // cppcheck-suppress unusedStructMember
-    size_t num_keypoints;
     size_t query_stride;
-    // cppcheck-suppress unusedStructMember
-    size_t kp_stride;
     std::vector<std::pair<size_t, size_t>> class_map;
     size_t default_class;
 };
@@ -79,12 +75,8 @@ KeypointTensorDims detect_keypoint_tensor_dims(const std::vector<int64_t> &kp_sh
 /// The kp_stride/class_map construction plus the divisibility throw and the
 /// per-class-count throw, split out of `resolve_keypoint_layout` for the same
 /// cognitive-complexity reason as `detect_keypoint_tensor_dims`.
-struct KeypointClassMap {
-    size_t kp_stride;
-    std::vector<std::pair<size_t, size_t>> entries;
-};
-
-KeypointClassMap build_keypoint_class_map(size_t num_keypoints, const std::vector<int> &keypoint_counts) {
+std::vector<std::pair<size_t, size_t>> build_keypoint_class_map(size_t num_keypoints,
+                                                                const std::vector<int> &keypoint_counts) {
     constexpr size_t kp_channels = 8;
 
     // Build keypoint class mapping: which classes have keypoints and at what offset.
@@ -125,7 +117,7 @@ KeypointClassMap build_keypoint_class_map(size_t num_keypoints, const std::vecto
         }
     }
 
-    return KeypointClassMap{kp_stride, std::move(kp_map)};
+    return kp_map;
 }
 
 /// The default-class selection: the keypoint class with the most active
@@ -146,11 +138,10 @@ size_t select_default_keypoint_class(const std::vector<std::pair<size_t, size_t>
 
 KeypointLayout resolve_keypoint_layout(const std::vector<int64_t> &kp_shape, const std::vector<int> &keypoint_counts) {
     const KeypointTensorDims dims = detect_keypoint_tensor_dims(kp_shape);
-    KeypointClassMap class_map = build_keypoint_class_map(dims.num_keypoints, keypoint_counts);
-    const size_t default_kp_class = select_default_keypoint_class(class_map.entries);
+    std::vector<std::pair<size_t, size_t>> class_map = build_keypoint_class_map(dims.num_keypoints, keypoint_counts);
+    const size_t default_kp_class = select_default_keypoint_class(class_map);
 
-    return KeypointLayout{dims.num_keypoints, dims.query_stride, class_map.kp_stride, std::move(class_map.entries),
-                          default_kp_class};
+    return KeypointLayout{dims.query_stride, std::move(class_map), default_kp_class};
 }
 
 /// Decodes the keypoints for a single query, selecting the keypoint class to read
