@@ -64,7 +64,7 @@ v0.6.0 shipped with three open items, and one older investigation is still unfin
   `PUBLIC` compile definitions on `rfdetr_inference_lib` (`CMakeLists.txt:390-396`), so they mean
   the same thing in the library as in `main.cpp`.
 - **D-2 — Behaviour preservation is byte-level, not "looks the same".** The baseline is
-  `golden_cli.sh` run against `build-baseline` (v0.6.0 + the release-record commit, ONNX
+  `golden_cli.sh` run against the baseline build in `/tmp/rfdetr-phase7/wt-baseline` (v0.6.0 + the release-record commit, ONNX
   Runtime, FFmpeg media). It covers 13 invocations and hashes stdout, stderr, the exit code and
   the output image of each, 45 hashes in all. Two baseline runs hash identically once libx264's
   pointer addresses and the output directory are normalised. Separate stdout and stderr files
