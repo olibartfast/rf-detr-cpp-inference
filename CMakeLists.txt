@@ -247,6 +247,7 @@ set(RFDETR_SOURCES
     "${SOURCE_DIR}/video_writer.cpp"
     "${SOURCE_DIR}/display.cpp"
     "${SOURCE_DIR}/video_pipeline.cpp"
+    "${SOURCE_DIR}/cli_options.cpp"
     "${SOURCE_DIR}/backends/inference_backend.cpp"
     "${THIRD_PARTY_DIR}/font8x8/font8x8_basic.c"
 )
@@ -423,7 +424,7 @@ if(USE_ONNX_RUNTIME)
 endif()
 
 # --- Unit Tests ---
-set(UNIT_TEST_SOURCES "${TEST_DIR}/unit/test_rfdetr_inference.cpp")
+set(UNIT_TEST_SOURCES "${TEST_DIR}/unit/test_rfdetr_inference.cpp" "${TEST_DIR}/unit/test_cli_options.cpp")
 if(USE_CUDA_POSTPROCESS)
     # The GPU parity gate needs no model and no DALI: it feeds synthetic tensors
     # to a mock backend that serves them from both host and device memory. Every
