@@ -57,7 +57,7 @@ RFDETRInference::RFDETRInference(const std::filesystem::path &model_path, const 
 
     // Validate number of outputs
     const size_t num_outputs = backend_->get_output_count();
-    const size_t num_expected = [&] {
+    const size_t num_expected = [&]() -> size_t {
         if (config_.model_type == ModelType::SEGMENTATION) {
             return 3;
         }
