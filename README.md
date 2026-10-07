@@ -223,6 +223,7 @@ The handful you are likely to need. **The complete option list is in
 | `-DUSE_GPU_PIPELINE=ON/OFF` | `OFF` | CUDA preprocessing (nvJPEG + kernel) **and** CUDA postprocessing (TensorRT only) |
 | `-DUSE_DALI=ON/OFF` | `OFF` | DALI as the GPU preprocessor instead of the CUDA kernel; never both (configure error) |
 | `-DBENCHMARKS=ON/OFF` | `OFF` | Build the Google Benchmark targets |
+| `-DPROFILING=ON/OFF` | `OFF` | Frame pointers + debug info on every target for `perf`/Valgrind call graphs |
 | `-DSANITIZERS=ON/OFF` | `OFF` | AddressSanitizer + UndefinedBehaviorSanitizer |
 | `-DWERROR=ON/OFF` | `OFF` | Treat compiler warnings as errors (what CI does) |
 
@@ -261,7 +262,7 @@ Three GitHub Actions workflows run on every push/PR to `master` and `develop`:
 
 | Workflow | File | What it does |
 |----------|------|-------------|
-| **C++ Lint & Build** | `lint.yml` | Version sync, format check, clang-tidy, cppcheck, build with `-DWERROR=ON` |
+| **C++ Lint & Build** | `lint.yml` | Version sync, format check, clang-tidy (any finding fails), cppcheck, build with `-DWERROR=ON` |
 | **Build & Test** | `ci.yml` | Build with benchmarks, run unit tests, run benchmarks, run unit tests under ASan+UBSan |
 | **GPU Backend Compile** | `gpu-compile.yml` | Compiles the TensorRT backend and the GPU halves with `-DWERROR=ON` against TensorRT 11 headers: TensorRT alone, each GPU preprocessor (CUDA, DALI), CUDA postprocessing, and both full pipelines; also checks the two preprocessors are rejected together |
 
