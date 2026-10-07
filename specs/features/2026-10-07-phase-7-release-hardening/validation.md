@@ -4,7 +4,8 @@ Written before any code change. The baseline was captured on `cc0d4f9`, as descr
 
 ## Baseline (captured 2026-10-07, before implementation)
 
-- **Build.** `cmake -S . -B build-baseline -G Ninja -DCMAKE_BUILD_TYPE=Release` at `cc0d4f9`
+- **Build.** `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release` in a detached worktree at `cc0d4f9`
+  (`/tmp/rfdetr-phase7/wt-baseline`)
   (ONNX Runtime, FFmpeg media).
 - **Workload.** [`golden_cli.sh`](golden_cli.sh) `<app> <out>`. The baseline hashes are at
   `/tmp/rfdetr-phase7/baseline/SHA256SUMS`, and the clip is `/tmp/rfdetr-phase7-clip.mp4`.
