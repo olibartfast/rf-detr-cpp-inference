@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.12)
-project(rfdetr_inference VERSION 0.5.1 LANGUAGES CXX C)
+project(rfdetr_inference VERSION 0.6.0 LANGUAGES CXX C)
 
 # Set C++ standard to C++20
 set(CMAKE_CXX_STANDARD 20)
@@ -112,19 +112,33 @@ if(USE_EXECUTORCH AND NOT EXECUTORCH_DELEGATE MATCHES "^(xnnpack|portable)$")
 endif()
 
 # --- GPU Pipeline Options ----------------------------------------------------
-# Two independent halves: DALI GPU preprocessing and CUDA segmentation
-# postprocessing. USE_GPU_PIPELINE is a convenience that turns on both. Both are
+# Two independent halves: GPU preprocessing and CUDA segmentation postprocessing.
+# Preprocessing has two alternative implementations, chosen at configure time:
+# our own CUDA kernel + nvJPEG (USE_CUDA_PREPROCESS, the default) or a serialized
+# DALI pipeline (USE_DALI). Exactly one may be on. USE_GPU_PIPELINE turns on
+# both halves, with CUDA preprocessing unless USE_DALI is also given. All are
 # OFF by default so the standard ONNX Runtime build needs neither nvcc nor DALI.
-option(USE_DALI "Build with DALI GPU preprocessing" OFF)
+option(USE_DALI "Build with DALI GPU preprocessing (alternative to USE_CUDA_PREPROCESS)" OFF)
+option(USE_CUDA_PREPROCESS "Build with CUDA + nvJPEG GPU preprocessing" OFF)
 option(USE_CUDA_POSTPROCESS "Build with CUDA segmentation postprocessing" OFF)
-option(USE_GPU_PIPELINE "Enable both USE_DALI and USE_CUDA_POSTPROCESS" OFF)
+option(USE_GPU_PIPELINE "Enable GPU preprocessing (CUDA, or DALI with -DUSE_DALI=ON) and USE_CUDA_POSTPROCESS" OFF)
 
 if(USE_GPU_PIPELINE)
-    set(USE_DALI ON)
+    if(NOT USE_DALI)
+        set(USE_CUDA_PREPROCESS ON)
+    endif()
     set(USE_CUDA_POSTPROCESS ON)
 endif()
 
-if((USE_DALI OR USE_CUDA_POSTPROCESS) AND NOT USE_TENSORRT)
+if(USE_DALI AND USE_CUDA_PREPROCESS)
+    message(FATAL_ERROR
+        "USE_DALI and USE_CUDA_PREPROCESS are alternative GPU preprocessors; enable exactly one.\n"
+        "  CUDA kernel + nvJPEG (default): -DUSE_CUDA_PREPROCESS=ON\n"
+        "  DALI pipeline:                  -DUSE_DALI=ON -DDALI_ROOT=<dir>\n"
+        "With USE_GPU_PIPELINE=ON, passing -DUSE_DALI=ON selects DALI instead of the CUDA kernel.")
+endif()
+
+if((USE_DALI OR USE_CUDA_PREPROCESS OR USE_CUDA_POSTPROCESS) AND NOT USE_TENSORRT)
     message(FATAL_ERROR
         "The GPU pipeline requires the TensorRT backend (-DUSE_TENSORRT=ON -DUSE_ONNX_RUNTIME=OFF).\n"
         "Reason: DALI must write into, and the CUDA kernels must read from, the inference engine's\n"
@@ -136,6 +150,7 @@ message(STATUS "Backend configuration:")
 message(STATUS "  ONNX Runtime: ${USE_ONNX_RUNTIME}")
 message(STATUS "  TensorRT:     ${USE_TENSORRT}")
 message(STATUS "  DALI preprocessing:      ${USE_DALI}")
+message(STATUS "  CUDA preprocessing:      ${USE_CUDA_PREPROCESS}")
 message(STATUS "  CUDA postprocessing:     ${USE_CUDA_POSTPROCESS}")
 message(STATUS "  ExecuTorch:   ${USE_EXECUTORCH}")
 if(USE_EXECUTORCH)
@@ -165,13 +180,13 @@ if(USE_TENSORRT)
     find_dependency_unified(TensorRT REQUIRED)
 endif()
 
-if(USE_DALI OR USE_CUDA_POSTPROCESS)
+if(USE_DALI OR USE_CUDA_PREPROCESS OR USE_CUDA_POSTPROCESS)
     find_dependency_unified(CUDAToolkit REQUIRED)
 endif()
 
-if(USE_CUDA_POSTPROCESS)
-    # nvcc is only required for the postprocessing kernels; the DALI half is
-    # plain C++ against the DALI C API.
+if(USE_CUDA_PREPROCESS OR USE_CUDA_POSTPROCESS)
+    # nvcc is only required for the CUDA kernels; the DALI half is plain C++
+    # against the DALI C API.
     enable_language(CUDA)
     set(CMAKE_CUDA_STANDARD 20)
     set(CMAKE_CUDA_STANDARD_REQUIRED ON)
@@ -246,11 +261,16 @@ if(USE_TENSORRT)
 endif()
 
 # GPU pipeline sources
-if(USE_DALI OR USE_CUDA_POSTPROCESS)
+if(USE_DALI OR USE_CUDA_PREPROCESS OR USE_CUDA_POSTPROCESS)
     list(APPEND RFDETR_SOURCES "${SOURCE_DIR}/gpu/gpu_context.cpp")
 endif()
 if(USE_DALI)
     list(APPEND RFDETR_SOURCES "${SOURCE_DIR}/gpu/dali_preprocessor.cpp")
+endif()
+if(USE_CUDA_PREPROCESS)
+    list(APPEND RFDETR_SOURCES
+        "${SOURCE_DIR}/gpu/rfdetr_preprocess.cu"
+        "${SOURCE_DIR}/gpu/jpeg_decoder.cpp")
 endif()
 if(USE_CUDA_POSTPROCESS)
     list(APPEND RFDETR_SOURCES "${SOURCE_DIR}/gpu/rfdetr_postprocess.cu")
@@ -266,7 +286,7 @@ add_library(rfdetr_inference_lib STATIC ${RFDETR_SOURCES})
 # them to CXX rather than weakening them for everything.
 target_compile_options(rfdetr_inference_lib PRIVATE
     "$<$<COMPILE_LANGUAGE:CXX>:${PROJECT_WARNING_FLAGS}>")
-if(USE_CUDA_POSTPROCESS)
+if(USE_CUDA_PREPROCESS OR USE_CUDA_POSTPROCESS)
     target_compile_options(rfdetr_inference_lib PRIVATE
         "$<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-Wall,-Wextra>")
     set_target_properties(rfdetr_inference_lib PROPERTIES CUDA_SEPARABLE_COMPILATION OFF)
@@ -345,17 +365,30 @@ if(USE_TENSORRT)
     )
 endif()
 
-if(USE_DALI OR USE_CUDA_POSTPROCESS)
+if(USE_DALI OR USE_CUDA_PREPROCESS OR USE_CUDA_POSTPROCESS)
     target_link_libraries(rfdetr_inference_lib PUBLIC Deps::CUDAToolkit)
+endif()
+if(USE_CUDA_PREPROCESS)
+    # nvJPEG ships in the CUDA Toolkit, so it carries no pin of its own;
+    # FindCUDAToolkit defines the target when libnvjpeg is installed.
+    if(NOT TARGET CUDA::nvjpeg)
+        message(FATAL_ERROR
+            "USE_CUDA_PREPROCESS=ON needs nvJPEG (CUDA::nvjpeg), which was not found.\n"
+            "Install the toolkit's nvJPEG development package, e.g. libnvjpeg-dev-<cuda>.")
+    endif()
+    target_link_libraries(rfdetr_inference_lib PUBLIC CUDA::nvjpeg)
 endif()
 if(USE_DALI)
     target_link_libraries(rfdetr_inference_lib PUBLIC Deps::DALI)
 endif()
 
 # PUBLIC: main.cpp and the tests branch on these too. Set explicitly rather than
-# relying on Deps::DALI to carry USE_DALI, and because USE_CUDA_POSTPROCESS has no
-# dependency of its own to hang off — without this the .cu file compiles to an
+# relying on Deps::DALI to carry USE_DALI, and because the CUDA halves have no
+# dependency of their own to hang off — without this the .cu file compiles to an
 # empty translation unit and every GPU entry point throws "built without CUDA".
+if(USE_CUDA_PREPROCESS)
+    target_compile_definitions(rfdetr_inference_lib PUBLIC USE_CUDA_PREPROCESS)
+endif()
 if(USE_CUDA_POSTPROCESS)
     target_compile_definitions(rfdetr_inference_lib PUBLIC USE_CUDA_POSTPROCESS)
 endif()
@@ -397,9 +430,10 @@ if(USE_CUDA_POSTPROCESS)
     # case skips at runtime when no device is present.
     list(APPEND UNIT_TEST_SOURCES "${TEST_DIR}/unit/test_gpu_postprocess.cpp")
 endif()
-if(USE_DALI OR USE_CUDA_POSTPROCESS)
-    # Fixture-backed parity: preprocess parity needs DALI, end-to-end regression
-    # needs CUDA postprocess, and the CPU-determinism case needs neither. The
+if(USE_DALI OR USE_CUDA_PREPROCESS OR USE_CUDA_POSTPROCESS)
+    # Fixture-backed parity: preprocess parity needs DALI or CUDA preprocess,
+    # end-to-end regression needs CUDA postprocess, and the CPU-determinism case
+    # needs neither. The
     # file guards each group with #ifdef, so either half may be absent.
     list(APPEND UNIT_TEST_SOURCES "${TEST_DIR}/unit/test_gpu_parity.cpp")
 endif()
@@ -415,9 +449,9 @@ target_compile_definitions(unit_tests PRIVATE
 
 # --- Integration Tests ---
 set(INTEGRATION_TEST_SOURCES "${TEST_DIR}/integration/integration_test_rfdetr_inference.cpp")
-if(USE_GPU_PIPELINE)
+if((USE_DALI OR USE_CUDA_PREPROCESS) AND USE_CUDA_POSTPROCESS)
     # End-to-end GPU parity: the four pre/post combinations against a real engine.
-    # Skips at runtime without a model or a matching .dali pipeline.
+    # Skips at runtime without a model (or, for DALI, a matching .dali pipeline).
     list(APPEND INTEGRATION_TEST_SOURCES "${TEST_DIR}/integration/integration_test_gpu_parity.cpp")
 endif()
 add_executable(integration_tests ${INTEGRATION_TEST_SOURCES})
@@ -457,11 +491,16 @@ if(BENCHMARKS)
     target_include_directories(benchmarks PRIVATE "${TEST_DIR}/unit")
     target_compile_definitions(benchmarks PRIVATE GPU_PARITY_FIXTURE_DIR="${TEST_DIR}/data/gpu_parity"
                                                  GPU_PARITY_DALI_DIR="${CMAKE_SOURCE_DIR}/data/dali")
+    if(USE_CUDA_POSTPROCESS)
+        # bench_gpu_pipeline.cpp reuses MockDeviceBackend from gpu_test_utils.hpp,
+        # which includes <gtest/gtest.h>.
+        target_link_libraries(benchmarks PRIVATE Deps::GTest)
+    endif()
 endif()
 
 # Enable testing
 enable_testing()
-foreach(_catalog_case linux-x64 linux-arm64 windows-x64 windows-arm64
+foreach(_catalog_case linux-x64 linux-x64-stale-download linux-arm64 windows-x64 windows-arm64
                       darwin-disabled darwin-root unknown-arch unknown-arch-root)
     add_test(NAME OnnxRuntimeCatalog-${_catalog_case}
         COMMAND ${CMAKE_COMMAND} -DREPO=${CMAKE_SOURCE_DIR}

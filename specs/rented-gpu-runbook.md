@@ -1,11 +1,11 @@
 # Running the GPU Gate on a Rented GPU
 
 CI runners have no GPU, so the TensorRT, DALI and CUDA paths are verified by hand via
-[gpu-verify](../.claude/skills/gpu-verify/SKILL.md). This document is the operational half: how to
+[gpu-verify](../AGENTS.md#checklist-gpu-verify). This document is the operational half: how to
 rent a machine, run [`scripts/run_gate.sh`](../scripts/run_gate.sh) on it unattended, and not leave
 it billing.
 
-The skill says *what* to check and to which tolerances. This says *how to get a box that can check
+The checklist says *what* to check and to which tolerances. This says *how to get a box that can check
 it*.
 
 ---
@@ -72,12 +72,13 @@ copy results off as you go rather than at the end.
 ### 1. Export a segmentation model at 432
 
 Both details matter: `--gpu-postprocess` requires `--segmentation`, and only **432** and **576**
-have checked-in `.dali` pipelines. Anything else needs
-`./scripts/generate_dali_pipelines.sh <res>` and a `--gpus all` Docker host.
+have checked-in `.dali` pipelines for the DALI build the gate also runs. Anything else needs
+`./scripts/generate_dali_pipelines.sh <res>` and a `--gpus all` Docker host. The default CUDA
+preprocessor runs at any resolution.
 
 ```bash
 python3.11 -m venv rfdetr_venv && source rfdetr_venv/bin/activate
-pip install rfdetr[onnx]==1.10.1
+pip install -r deploy/requirements.txt   # the pinned rfdetr[onnx]
 python deploy/export_segmentation.py --model_type medium --input_size 432
 ```
 
@@ -85,7 +86,7 @@ See [export.md](../docs/export.md) for the full matrix of export options.
 
 ### 2. Prepare a video of at least 1000 frames
 
-A single clean short run proves nothing about `daliOutputRelease` ordering — see
+A single clean short run proves nothing about stream ordering (and, for DALI, `daliOutputRelease`) — see
 [gpu-pipeline.md](gpu-pipeline.md).
 
 ```bash
@@ -136,7 +137,7 @@ cd ~/rfdetr_inference && git checkout develop
 
 # ~25 GB image pulled to extract ~1 GB of DALI. Drop it afterwards.
 ./scripts/fetch_dali.sh
-docker image rm nvcr.io/nvidia/tritonserver:25.12-py3 || true
+(source scripts/versions.sh && docker image rm "${TRITON_IMAGE}") || true
 
 touch ~/SETUP_DONE
 ```

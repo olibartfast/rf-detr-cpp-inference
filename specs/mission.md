@@ -2,9 +2,9 @@
 
 RF-DETR C++ Inference runs the RF-DETR model — object detection, instance segmentation, and keypoint estimation — as a native C++20 command-line application, with no Python in the loop at inference time.
 
-The point is portability across runtimes. The same source builds against ONNX Runtime, TensorRT, or ExecuTorch, chosen at compile time, so the same postprocessing and drawing code serves a CPU laptop, an NVIDIA server, and an edge device. It handles single images and video, the latter through a multi-threaded ring-buffer pipeline, with an opt-in GPU pipeline (DALI preprocessing + CUDA segmentation postprocessing) on the TensorRT backend.
+The point is portability across runtimes. The same source builds against ONNX Runtime, TensorRT, or ExecuTorch, chosen at compile time, so the same postprocessing and drawing code serves a CPU laptop, an NVIDIA server, and an edge device. It handles single images and video, the latter through a multi-threaded ring-buffer pipeline, with an opt-in GPU pipeline (CUDA preprocessing with nvJPEG, or DALI as the alternative, plus CUDA segmentation postprocessing) on the TensorRT backend.
 
-The project is kept deliberately in step with upstream [`rfdetr`](https://github.com/roboflow/rf-detr) releases — currently **1.10.1**. Every upstream release triggers an alignment pass, recorded in [CHANGELOG.md](../CHANGELOG.md).
+The project is kept deliberately in step with upstream [`rfdetr`](https://github.com/roboflow/rf-detr) releases — the one currently tracked is `RFDETR_VERSION` in [`versions.env`](../versions.env). Every upstream release triggers an alignment pass, recorded in [CHANGELOG.md](../CHANGELOG.md).
 
 ## Architectural commitments
 
@@ -29,7 +29,7 @@ These are the invariants. Breaking one is a design change, not a bug fix.
 | `src/video_reader.*`, `src/video_writer.*` | Decode/encode behind pimpl |
 | `src/video_pipeline.*` | Four-stage `std::jthread` pipeline over a bounded ring buffer |
 | `src/processing_utils.*` | Pure helpers: sigmoid, normalize, box convert/scale/clamp |
-| `src/gpu/` | Opt-in GPU pipeline: CUDA context, DALI preprocessor, segmentation kernels |
+| `src/gpu/` | Opt-in GPU pipeline: CUDA context, preprocessing kernel + nvJPEG decoder, DALI preprocessor (alternative), segmentation kernels |
 | `cmake/deps/` | Dependency-resolution facade over apt / conan / vcpkg |
 | `deploy/` | Python export tooling (`.onnx`, `.pte`, DALI pipelines) |
 | `scripts/` | DALI staging and pipeline generation |
@@ -50,7 +50,7 @@ Deliberately not built, each for a recorded reason — see [roadmap.md](roadmap.
 - [gpu-pipeline.md](gpu-pipeline.md) — GPU design constraints; the model contract to check any `src/gpu/` change against
 - [features/](features/) — the spec directory for each phase of work
 - [rented-gpu-runbook.md](rented-gpu-runbook.md) — running the GPU verification gate on rented hardware
-- [opencode-workflow.md](opencode-workflow.md) — the three-role delegation setup in `.opencode/`
+- [delegation-workflow.md](delegation-workflow.md) — the three-role delegation setup, harness-agnostic
 - [AGENTS.md](../AGENTS.md) — build, test, and lint commands, and the workflow
 - [README.md](../README.md) — the user-facing quick start: install, build, run
 - [docs/advanced-usage.md](../docs/advanced-usage.md) — the user-facing reference the README defers to: full CMake options, backends in depth, tuning, embedding the library

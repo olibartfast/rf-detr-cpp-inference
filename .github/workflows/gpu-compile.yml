@@ -1,6 +1,6 @@
 # Compile gate for the paths CI cannot execute.
 #
-# GitHub runners have no GPU, so TensorRT, DALI and the CUDA kernels can never be
+# GitHub runners have no GPU, so TensorRT, DALI, nvJPEG and the CUDA kernels can never be
 # *run* here — but they can be *compiled*, and until this workflow existed they
 # were not: src/backends/tensorrt_backend.cpp and src/gpu/ were built for the
 # first time on a rented GPU box, where a -Werror wall of sign-conversion and
@@ -9,7 +9,7 @@
 # The job stages headers-only TensorRT and DALI prefixes (see
 # scripts/ci/stage_gpu_headers.sh) and builds the static library target with
 # -DWERROR=ON. It does not link and does not run: manual verification of the GPU
-# path is still the gate, per .claude/skills/gpu-verify/SKILL.md.
+# path is still the gate, per the gpu-verify checklist in AGENTS.md.
 name: GPU Backend Compile
 
 on:
@@ -27,16 +27,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # The two GPU halves are independent options, so each combination is a
-          # distinct set of #if branches. Build all four.
+          # Preprocessing (CUDA or the DALI alternative) and postprocessing are
+          # independent options, so each combination is a distinct set of #if
+          # branches. Build every valid one; the two preprocessors are exclusive.
           - name: TensorRT
-            options: -DUSE_DALI=OFF -DUSE_CUDA_POSTPROCESS=OFF
-          - name: TensorRT + DALI
+            options: -DUSE_CUDA_PREPROCESS=OFF -DUSE_DALI=OFF -DUSE_CUDA_POSTPROCESS=OFF
+          - name: TensorRT + CUDA preprocess
+            options: -DUSE_CUDA_PREPROCESS=ON -DUSE_CUDA_POSTPROCESS=OFF
+          - name: TensorRT + DALI preprocess
             options: -DUSE_DALI=ON -DUSE_CUDA_POSTPROCESS=OFF
           - name: TensorRT + CUDA postprocess
-            options: -DUSE_DALI=OFF -DUSE_CUDA_POSTPROCESS=ON
-          - name: TensorRT + full GPU pipeline
+            options: -DUSE_CUDA_PREPROCESS=OFF -DUSE_DALI=OFF -DUSE_CUDA_POSTPROCESS=ON
+          - name: TensorRT + full GPU pipeline (CUDA)
             options: -DUSE_GPU_PIPELINE=ON
+          - name: TensorRT + full GPU pipeline (DALI)
+            options: -DUSE_GPU_PIPELINE=ON -DUSE_DALI=ON
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-deps
@@ -57,7 +62,7 @@ jobs:
       # derives the TensorRT package coordinates (…-1+cuda<v>) from the same value.
       # Hardcoding it here would let a CUDA_VERSION bump compile the newly pinned
       # TensorRT headers against the old toolkit.
-      - name: Install nvcc and the CUDA runtime headers
+      - name: Install nvcc, the CUDA runtime and nvJPEG headers
         run: |
           source scripts/versions.sh
           apt_suffix="${CUDA_VERSION//./-}"        # 13.0 -> 13-0
@@ -66,7 +71,7 @@ jobs:
           sudo dpkg -i cuda-keyring_1.1-1_all.deb
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            "cuda-nvcc-${apt_suffix}" "cuda-cudart-dev-${apt_suffix}"
+            "cuda-nvcc-${apt_suffix}" "cuda-cudart-dev-${apt_suffix}" "libnvjpeg-dev-${apt_suffix}"
           echo "/usr/local/cuda-${CUDA_VERSION}/bin" >> "$GITHUB_PATH"
 
       - name: Configure
@@ -77,6 +82,18 @@ jobs:
             -DDALI_ROOT="$HOME/dependencies/dali-headers" \
             -DCMAKE_BUILD_TYPE=Release -DWERROR=ON \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Reject both GPU preprocessors at configure
+        if: matrix.name == 'TensorRT'
+        run: |
+          if cmake -S . -B build-both -G Ninja \
+               -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON -DUSE_CUDA_PREPROCESS=ON -DUSE_DALI=ON \
+               -DTENSORRT_ROOTDIR="$HOME/dependencies/tensorrt-headers" \
+               -DDALI_ROOT="$HOME/dependencies/dali-headers" > configure.log 2>&1; then
+            echo "::error::USE_CUDA_PREPROCESS + USE_DALI configured; they must be exclusive"
+            exit 1
+          fi
+          grep -q "alternative GPU preprocessors" configure.log
 
       - name: Compile
         # The static library only. The staged TensorRT/DALI shared objects are

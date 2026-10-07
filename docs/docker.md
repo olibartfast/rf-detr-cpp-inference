@@ -17,15 +17,27 @@ never silently defaults to a backend.
 | `dockerfile.trt` | TensorRT (GPU) | `ffmpeg` (default) | TensorRT + FFmpeg/SDL2/stb |
 | `dockerfile.trt` | TensorRT (GPU) | `opencv`        | TensorRT + OpenCV |
 
-`dockerfile.trt` also takes a `GPU_PIPELINE` build arg (`off` default | `dali` | `cuda` | `on`)
-that layers DALI GPU preprocessing and CUDA segmentation postprocessing onto the TensorRT
-backend — see the file's header for the full matrix.
+`dockerfile.trt` also takes a `GPU_PIPELINE` build arg that layers GPU preprocessing and CUDA
+segmentation postprocessing onto the TensorRT backend — see the file's header for the full matrix:
+
+| `GPU_PIPELINE` | GPU preprocessing | CUDA postprocessing |
+|----------------|-------------------|---------------------|
+| `off` (default) | — | — |
+| `pre` | CUDA kernel + nvJPEG | — |
+| `post` | — | yes |
+| `on` | CUDA kernel + nvJPEG | yes |
+| `dali` | DALI | — |
+| `dali-on` | DALI | yes |
+
+`cuda`, the old name for postprocessing only, now fails the build with a message naming `post`;
+`on` used to mean DALI + CUDA postprocessing, which is now `dali-on`.
 
 > **ExecuTorch images build the ExecuTorch C++ runtime from source** (there is no distro
 > or registry package), so the first build is slow — it clones ExecuTorch with recursive
 > submodules and installs a CPU-only `torch` wheel for the operator codegen. Pin a
-> different runtime with `--build-arg EXECUTORCH_VERSION=<tag>`; it defaults to `v1.4.0`
-> to match the exporter used by `rfdetr[executorch]==1.10.1`, and enables the optimized
+> different runtime with `--build-arg EXECUTORCH_VERSION=<tag>`; it defaults to
+> `EXECUTORCH_VERSION` from `versions.env`, to match the exporter the pinned
+> `rfdetr[executorch]` resolves, and enables the optimized
 > kernel set that 1.9.1+ `.pte` files need. The build applies the
 > upstream `extension_evalue_util` install fix automatically. ExecuTorch links
 > statically, so the runtime image ships no extra shared libraries and needs no GPU.
@@ -45,8 +57,10 @@ docker build -f dockerfile.trt -t rfdetr-trt-opencv --build-arg MEDIA_BACKEND=op
 docker build -f dockerfile.executorch -t rfdetr-et-ffmpeg .
 # ExecuTorch (CPU) — OpenCV media backend
 docker build -f dockerfile.executorch -t rfdetr-et-opencv --build-arg MEDIA_BACKEND=opencv .
-# TensorRT + GPU pipeline (DALI preprocessing + CUDA postprocessing)
+# TensorRT + GPU pipeline (CUDA preprocessing + CUDA postprocessing)
 docker build -f dockerfile.trt -t rfdetr-trt-gpu --build-arg GPU_PIPELINE=on .
+# TensorRT + GPU pipeline with DALI as the preprocessor
+docker build -f dockerfile.trt -t rfdetr-trt-gpu-dali --build-arg GPU_PIPELINE=dali-on .
 ```
 
 Run (mount your model, image, and labels under `/data`):
@@ -71,8 +85,8 @@ docker run --gpus all -v $(pwd)/data:/data -v $(pwd)/exports:/exports rfdetr-trt
 ```
 
 > The ONNX Runtime and ExecuTorch images are multi-stage and slim (Ubuntu 24.04 runtime). The
-> TensorRT images use the `nvcr.io/nvidia/tensorrt:25.12-py3` base for the bundled
-> CUDA/TensorRT runtime, and pull the DALI staging image only when `GPU_PIPELINE=dali|on`.
+> TensorRT images use the `nvcr.io/nvidia/tensorrt:<NGC_CONTAINER_TAG>-py3` base for the bundled
+> CUDA/TensorRT runtime, and pull the DALI staging image only when `GPU_PIPELINE=dali|dali-on`.
 >
 > **Both base images must stay Ubuntu 24.04.** The FFmpeg runtime library names baked into the
 > runtime stage (`libavcodec60`, `libx264-164`, …) are the 24.04 set; a future `NGC_CONTAINER_TAG`
@@ -90,7 +104,8 @@ and installs the CPU `torch` wheel from PyPI. A build where these are blocked fa
 `fatal: could not read Username for 'https://github.com'` (git cannot prompt without a TTY).
 
 `dockerfile.trt` has **exactly one** GitHub dependency: the gtest clone — TensorRT comes
-from the NGC base image (shimmed, not downloaded), DALI from the staged Triton image, and
+from the NGC base image (shimmed, not downloaded), nvJPEG with its CUDA toolkit, DALI (`dali|dali-on`
+only) from the staged Triton image, and
 stb/font8x8 are vendored in-tree. To build it — or any of the three past the gtest clone —
 without GitHub access, pre-seed the googletest source at `third_party/googletest/`
 (gitignored; the Dockerfiles detect it and pass `FETCHCONTENT_SOURCE_DIR_GTEST` so
@@ -98,7 +113,8 @@ configure skips the clone):
 
 ```bash
 # On a connected machine, cloning the pinned tag (GTEST_VERSION in versions.env):
-git clone --depth 1 --branch release-1.12.1 \
+source scripts/versions.sh
+git clone --depth 1 --branch "release-${GTEST_VERSION}" \
   https://github.com/google/googletest.git third_party/googletest
 # Or reuse a source tree an earlier local build already fetched:
 cp -r build/_deps/gtest-src third_party/googletest

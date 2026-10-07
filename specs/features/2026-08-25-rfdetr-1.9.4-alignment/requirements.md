@@ -2,7 +2,7 @@
 
 The standing obligation from [roadmap.md](../../roadmap.md) → Deferred: every upstream `rfdetr`
 release triggers an alignment pass. Follows the
-[rfdetr-alignment](../../../.claude/skills/rfdetr-alignment/SKILL.md) checklist. The 1.9.2 pass is
+[rfdetr-alignment](../../../AGENTS.md#checklist-rfdetr-alignment) checklist. The 1.9.2 pass is
 already recorded in [CHANGELOG.md](../../../CHANGELOG.md); this covers
 [1.9.3](https://github.com/roboflow/rf-detr/releases/tag/1.9.3) and
 [1.9.4](https://github.com/roboflow/rf-detr/releases/tag/1.9.4).

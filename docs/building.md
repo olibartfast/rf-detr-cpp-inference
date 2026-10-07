@@ -139,10 +139,12 @@ cmake --build build --parallel
 ```
 
 **What happens**:
-- TensorRT 10.13.3.9 is automatically downloaded if not found
+- The TensorRT pinned by `TENSORRT_VERSION` in [`versions.env`](../versions.env) is automatically downloaded if not found
 - Libraries are configured with RPATH - no need to set `LD_LIBRARY_PATH`
 - The executable will use TensorRT for inference
-- Requires CUDA 13.x installed manually for the bundled TensorRT 10.13.3.9 build
+- Requires the CUDA Toolkit series `CUDA_VERSION` pins, installed manually, for the bundled TensorRT build
+- TensorRT 11.x has no FP16 builder flag, so convert the ONNX to FP16 first for an FP16 engine ([export guide](export.md#tensorrt-11-and-fp16))
+- Only TensorRT 11 is supported; an older `-DTENSORRT_VERSION` is a configure-time error
 - Pre-built `.engine` or `.trt` files are loaded directly, skipping ONNX-to-TensorRT conversion
 
 ## Build with ExecuTorch Backend
@@ -161,12 +163,13 @@ cmake --build build --parallel
 
 ### Building the ExecuTorch install prefix
 
-ExecuTorch **v1.4.0** is the pinned C++ runtime. The `rfdetr[executorch]==1.10.1`
-extra allows ExecuTorch `>=1.3,<2.0` and does not guarantee that version; `.pte` schema
+`EXECUTORCH_VERSION` in [`versions.env`](../versions.env) is the pinned C++ runtime. The
+pinned `rfdetr[executorch]` extra allows ExecuTorch `>=1.3,<2.0` and does not guarantee that version; `.pte` schema
 compatibility across ExecuTorch versions is not guaranteed.
 
 ```bash
-git clone --depth 1 -b v1.4.0 https://github.com/pytorch/executorch.git
+source scripts/versions.sh   # exports EXECUTORCH_VERSION from versions.env
+git clone --depth 1 -b "${EXECUTORCH_VERSION}" https://github.com/pytorch/executorch.git
 cd executorch && git submodule update --init --recursive --depth 1
 
 # ExecuTorch runs operator codegen through PYTHON_EXECUTABLE during its own
@@ -218,7 +221,7 @@ link against one C++ runtime.
 
 **What happens**:
 - `EXECUTORCH_ROOTDIR` is added to `CMAKE_PREFIX_PATH` and resolved with `find_package(executorch CONFIG)`
-- If no install prefix is found, the build falls back to compiling ExecuTorch v1.4.0 from source with the optimized kernels enabled (slow; needs a Python interpreter with ExecuTorch's build-time dependencies, since ExecuTorch runs flatbuffers codegen during its own configure)
+- If no install prefix is found, the build falls back to compiling the pinned ExecuTorch from source with the optimized kernels enabled (slow; needs a Python interpreter with ExecuTorch's build-time dependencies, since ExecuTorch runs flatbuffers codegen during its own configure)
 - `-DEXECUTORCH_DELEGATE=xnnpack` (default) or `portable` selects the delegate library to link, which must match the delegate the `.pte` was exported with — a mismatch fails at run time, not at link time
 - At load the backend verifies the program returns `dets` before `labels`, since ExecuTorch outputs are an unnamed tuple and postprocessing addresses them positionally
 
@@ -230,31 +233,48 @@ Export a model with [`deploy/export_executorch.py`](../deploy/export_executorch.
 > exported by hand. See
 > [backend-parity-segmentation-video.md](backend-parity-segmentation-video.md).
 
-## Build with the GPU Pipeline (TensorRT + DALI + CUDA)
-The GPU pipeline requires the TensorRT backend — DALI writes into, and the CUDA
-kernels read from, the inference engine's device buffers, and only the TensorRT
-backend exposes device pointers and a CUDA stream. Configuring it with the ONNX
-Runtime backend fails with an explicit error.
+## Build with the GPU Pipeline (TensorRT + CUDA)
+The GPU pipeline requires the TensorRT backend — the preprocessor writes into, and
+the CUDA kernels read from, the inference engine's device buffers, and only the
+TensorRT backend exposes device pointers and a CUDA stream. Configuring it with the
+ONNX Runtime backend fails with an explicit error.
 
 ```bash
-# 1. Stage the DALI C++ libraries (one-time; extracts from a pinned Triton container):
-./scripts/fetch_dali.sh                      # -> ~/dependencies/dali
-
-# 2. Configure with both GPU halves enabled:
+# CUDA preprocessing (kernel + nvJPEG) and CUDA postprocessing. Needs nvcc and the
+# CUDA Toolkit's nvJPEG (e.g. libnvjpeg-dev-<cuda>); nothing to stage.
 cmake -S . -B build -G Ninja \
   -DUSE_ONNX_RUNTIME=OFF \
   -DUSE_TENSORRT=ON \
   -DUSE_GPU_PIPELINE=ON \
-  -DDALI_ROOT=$HOME/dependencies/dali \
   -DCMAKE_BUILD_TYPE=Release
 
 cmake --build build --parallel
 ```
 
-The two halves are independent: `-DUSE_CUDA_POSTPROCESS=ON` alone builds the
-CUDA segmentation postprocessing (needs `nvcc`, no DALI), and `-DUSE_DALI=ON`
-alone builds the DALI preprocessing (plain C++ against the DALI C API, no
-`nvcc`). `-DUSE_GPU_PIPELINE=ON` turns on both. See [GPU Pipeline](architecture.md#gpu-pipeline) for how it works, and
+### DALI as the alternative preprocessor
+
+DALI can replace the CUDA kernel as the GPU preprocessor. The two are exclusive:
+enabling both is a configure-time error.
+
+```bash
+# 1. Stage the DALI C++ libraries (one-time; extracts from a pinned Triton container):
+./scripts/fetch_dali.sh                      # -> ~/dependencies/dali
+
+# 2. Configure the pipeline with DALI preprocessing + CUDA postprocessing:
+cmake -S . -B build -G Ninja \
+  -DUSE_ONNX_RUNTIME=OFF \
+  -DUSE_TENSORRT=ON \
+  -DUSE_GPU_PIPELINE=ON \
+  -DUSE_DALI=ON \
+  -DDALI_ROOT=$HOME/dependencies/dali \
+  -DCMAKE_BUILD_TYPE=Release
+```
+
+The halves are independent: `-DUSE_CUDA_POSTPROCESS=ON` alone builds the CUDA
+segmentation postprocessing (needs `nvcc`, no preprocessor), `-DUSE_CUDA_PREPROCESS=ON`
+alone builds the CUDA preprocessing (needs `nvcc` and nvJPEG), and `-DUSE_DALI=ON`
+alone builds the DALI preprocessing (plain C++ against the DALI C API, no `nvcc`).
+`-DUSE_GPU_PIPELINE=ON` turns on a preprocessor and the postprocessing. See [GPU Pipeline](architecture.md#gpu-pipeline) for how it works, and
 [Usage](usage.md#gpu-pipeline)
 for the runtime flags.
 

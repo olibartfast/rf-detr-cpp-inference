@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # run_gate.sh — unattended driver for the gpu-verify checklist on a rented GPU box.
 #
-# Runs every part of .claude/skills/gpu-verify/SKILL.md that is executable today,
+# Runs every part of the gpu-verify checklist (AGENTS.md) that is executable today,
 # records the parts that are not, arms a deadline watchdog so a hang cannot bill
 # forever, and stops the instance when it is done.
 #
@@ -16,11 +16,11 @@
 # Pull results to your own machine at any time (run this locally, not here):
 #   rsync -av <instance>:~/gate-results/ ./gate-results/
 #
-# What it cannot do: the parity tolerances in the skill (preprocessed tensor
+# What it cannot do: the parity tolerances in the checklist (preprocessed tensor
 # 2e-2, scores 1e-3, box centres 1 px, mask IoU 0.999) are exercised by
 # integration_test_gpu_parity.cpp (the four pre/post combinations), which this
 # script runs in step 2/3. The default-path bit-identical check still has no
-# baseline artefact, so it is reported UNRUN. Per the skill: an unrun check is
+# baseline artefact, so it is reported UNRUN. Per the checklist: an unrun check is
 # reported as unrun, never implied to have passed.
 #
 # Deliberately NOT `set -e`: a failing check is data, not a reason to abandon the
@@ -111,7 +111,7 @@ arm_watchdog() {
 }
 
 # --- Environment --------------------------------------------------------------
-# Step 7 of the skill wants driver, CUDA, TensorRT and DALI versions in the
+# Step 7 of the checklist wants driver, CUDA, TensorRT and DALI versions in the
 # CHANGELOG, so these probes have to actually find something.
 
 # TensorRT is normally NOT a system package here: cmake/deps/packages/TensorRT.cmake
@@ -138,7 +138,7 @@ probe_tensorrt() {
         return
     fi
 
-    # TensorRT 10.x does not put the numbers on NV_TENSORRT_*: those expand to
+    # TensorRT may not put the numbers on NV_TENSORRT_*: those can expand to
     # TRT_<part>_ENTERPRISE, which is where the literal lives. Reading $3 blindly
     # yields "TRT_MAJOR_ENTERPRISE" and writes that into environment.txt, which
     # step 7 copies into the CHANGELOG. Resolve one level of indirection.
@@ -190,20 +190,43 @@ capture_env() {
 step_build() {
     note "=== step 1: build matrix ==="
 
+    # The default GPU pipeline: CUDA preprocessing (kernel + nvJPEG) and CUDA
+    # postprocessing.
     if cmake -S "$REPO" -B "$REPO/build-gpu" -G Ninja \
              -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON -DUSE_GPU_PIPELINE=ON \
-             -DDALI_ROOT="$DALI_ROOT" -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCH" \
+             -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCH" \
              -DCMAKE_BUILD_TYPE=Release -DWERROR=ON "${EXTRA_CMAKE[@]}" >> "$LOG" 2>&1 \
        && cmake --build "$REPO/build-gpu" --parallel >> "$LOG" 2>&1; then
-        pass "full TensorRT + DALI + CUDA build"
+        pass "full TensorRT + CUDA preprocess + CUDA postprocess build"
     else
         # Everything downstream needs this binary, so this is the one fatal step.
-        fail "full TensorRT + DALI + CUDA build"
+        fail "full TensorRT + CUDA preprocess + CUDA postprocess build"
         return 1
     fi
 
+    # The alternative pipeline: DALI preprocessing + CUDA postprocessing.
+    if cmake -S "$REPO" -B "$REPO/build-gpu-dali" -G Ninja \
+             -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON -DUSE_GPU_PIPELINE=ON -DUSE_DALI=ON \
+             -DDALI_ROOT="$DALI_ROOT" -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCH" \
+             -DCMAKE_BUILD_TYPE=Release -DWERROR=ON "${EXTRA_CMAKE[@]}" >> "$LOG" 2>&1 \
+       && cmake --build "$REPO/build-gpu-dali" --parallel >> "$LOG" 2>&1; then
+        pass "full TensorRT + DALI preprocess + CUDA postprocess build"
+    else
+        fail "full TensorRT + DALI preprocess + CUDA postprocess build"
+    fi
+
     # The halves must build independently — DALI needs no nvcc, CUDA postprocess
-    # needs no DALI. A change that silently couples them is a regression.
+    # needs no preprocessor. A change that silently couples them is a regression.
+    if cmake -S "$REPO" -B "$REPO/build-cudapre-only" -G Ninja \
+             -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON -DUSE_CUDA_PREPROCESS=ON \
+             -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCH" \
+             -DCMAKE_BUILD_TYPE=Release "${EXTRA_CMAKE[@]}" >> "$LOG" 2>&1 \
+       && cmake --build "$REPO/build-cudapre-only" --parallel >> "$LOG" 2>&1; then
+        pass "USE_CUDA_PREPROCESS=ON alone"
+    else
+        fail "USE_CUDA_PREPROCESS=ON alone"
+    fi
+
     if cmake -S "$REPO" -B "$REPO/build-dali-only" -G Ninja \
              -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON -DUSE_DALI=ON \
              -DDALI_ROOT="$DALI_ROOT" -DCMAKE_BUILD_TYPE=Release "${EXTRA_CMAKE[@]}" >> "$LOG" 2>&1 \
@@ -225,7 +248,7 @@ step_build() {
 
     # Guard check: these MUST fail at configure time. An architectural
     # commitment, so a successful configure here is the failure.
-    for opt in USE_DALI USE_CUDA_POSTPROCESS; do
+    for opt in USE_DALI USE_CUDA_PREPROCESS USE_CUDA_POSTPROCESS; do
         if cmake -S "$REPO" -B "$REPO/build-guard-$opt" -G Ninja \
                  -DUSE_ONNX_RUNTIME=ON "-D${opt}=ON" >> "$LOG" 2>&1; then
             fail "guard: ${opt} + ONNX Runtime should FATAL_ERROR but configured cleanly"
@@ -234,6 +257,16 @@ step_build() {
         fi
         rm -rf "$REPO/build-guard-$opt"
     done
+
+    # The two GPU preprocessors are alternatives: enabling both must fail.
+    if cmake -S "$REPO" -B "$REPO/build-guard-both-pre" -G Ninja \
+             -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON -DUSE_CUDA_PREPROCESS=ON -DUSE_DALI=ON \
+             -DDALI_ROOT="$DALI_ROOT" "${EXTRA_CMAKE[@]}" >> "$LOG" 2>&1; then
+        fail "guard: USE_CUDA_PREPROCESS + USE_DALI should FATAL_ERROR but configured cleanly"
+    else
+        pass "guard: USE_CUDA_PREPROCESS + USE_DALI rejected at configure time"
+    fi
+    rm -rf "$REPO/build-guard-both-pre"
 
     # Explicit: main() reads this to decide whether steps 2-5 have a binary to
     # run. Without it the status is whatever the guard loop's rm left behind.
@@ -265,19 +298,22 @@ step_combinations() {
     run_combo cpupre-gpupost --gpu-postprocess --segmentation
     run_combo gpu-gpu        --gpu-preprocess --gpu-postprocess --segmentation
 
-    # The four-combination parity tolerances live in integration_test_gpu_parity.cpp
-    # (compiled with USE_GPU_PIPELINE=ON). It skips when no model or no matching
-    # .dali pipeline is present.
-    if [[ -n "$MODEL" && -f "$MODEL" ]]; then
-        if RFDETR_TEST_MODEL="$MODEL" "$REPO/build-gpu/integration_tests" \
-                --gtest_filter='GpuParityIntegration.*' > "${RESULTS}/parity-integration.txt" 2>&1; then
-            pass "four-combination parity (integration_test_gpu_parity)"
-        else
-            fail "four-combination parity — see parity-integration.txt"
+    # The four-combination parity tolerances live in integration_test_gpu_parity.cpp,
+    # compiled into both GPU pipeline builds. The DALI build's run skips when no
+    # .dali pipeline matches the model's resolution.
+    local build
+    for build in build-gpu build-gpu-dali; do
+        if [[ ! -x "$REPO/${build}/integration_tests" ]]; then
+            unrun "four-combination parity (${build}) — integration_tests not built"
+            continue
         fi
-    else
-        unrun "four-combination parity — no MODEL set"
-    fi
+        if RFDETR_TEST_MODEL="$MODEL" "$REPO/${build}/integration_tests" \
+                --gtest_filter='GpuParityIntegration.*' > "${RESULTS}/parity-integration-${build}.txt" 2>&1; then
+            pass "four-combination parity, ${build} (integration_test_gpu_parity)"
+        else
+            fail "four-combination parity, ${build} — see parity-integration-${build}.txt"
+        fi
+    done
 }
 
 # --- Step 4: memory and long-run safety ---------------------------------------
@@ -291,9 +327,8 @@ step_sanitizer() {
         unrun "compute-sanitizer long run — binary not on PATH (install CUDA toolkit)"
         return
     fi
-    # Watch daliOutputRelease ordering here: releasing before the TensorRT
-    # enqueue produces intermittent garbage, not a crash, so a short clean run
-    # proves nothing. This is the check that catches it.
+    # Runs the default (CUDA preprocessing) build. Intermittent stream-ordering
+    # bugs produce garbage, not a crash, so a short clean run proves nothing.
     compute-sanitizer --tool memcheck "$REPO/build-gpu/inference_app" \
         "$MODEL" "$VIDEO" "$LABELS" --segmentation --gpu-preprocess --gpu-postprocess \
         > "${RESULTS}/compute-sanitizer.txt" 2>&1
@@ -332,7 +367,7 @@ step_benchmarks() {
     note "=== step 5: benchmarks ==="
     if cmake -S "$REPO" -B "$REPO/build-gpu-bench" -G Ninja \
              -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON -DUSE_GPU_PIPELINE=ON \
-             -DDALI_ROOT="$DALI_ROOT" -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCH" \
+             -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCH" \
              -DCMAKE_BUILD_TYPE=Release -DBENCHMARKS=ON "${EXTRA_CMAKE[@]}" >> "$LOG" 2>&1 \
        && cmake --build "$REPO/build-gpu-bench" --parallel >> "$LOG" 2>&1 \
        && "$REPO/build-gpu-bench/benchmarks" > "${RESULTS}/benchmarks.txt" 2>&1; then
@@ -367,7 +402,7 @@ step_default_path() {
         fail "default ONNX Runtime build or UnitTests — see unit-tests-default.txt"
     fi
 
-    # A green build and green UnitTests are not the skill's first step-6 box:
+    # A green build and green UnitTests are not the checklist's first step-6 box:
     # that one asks for output bit-identical to the pre-change baseline, which
     # needs an inference run and something to diff it against. Neither exists
     # here, so it is reported unrun rather than absorbed into the PASS above.

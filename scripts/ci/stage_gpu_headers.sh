@@ -34,7 +34,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../versions.sh"
 
 CUDA_REPO="https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64"
-DALI_INDEX="https://pypi.nvidia.com/nvidia-dali-cuda120"
+DALI_INDEX="https://pypi.nvidia.com/nvidia-dali-cuda130"
 
 DEST="${1:-${HOME}/dependencies}"
 TRT_DIR="${DEST}/tensorrt-headers"
@@ -70,7 +70,14 @@ if [[ -f "${DALI_DIR}/include/dali/c_api.h" ]]; then
     echo "DALI headers already staged at ${DALI_DIR}"
 else
     echo "Staging DALI ${DALI_VERSION} headers -> ${DALI_DIR}"
-    wheel="nvidia_dali_cuda120-${DALI_VERSION}-py3-none-manylinux2014_x86_64.whl"
+    # The manylinux tag is not part of the pin, so take the x86_64 wheel name from
+    # the index rather than spelling it out.
+    wheel="$(curl -fsSL "${DALI_INDEX}/" \
+        | grep -o "nvidia_dali_cuda130-${DALI_VERSION}-py3-none-[a-z0-9_]*x86_64\.whl" | head -n1)"
+    if [[ -z "${wheel}" ]]; then
+        echo "error: no x86_64 DALI ${DALI_VERSION} wheel at ${DALI_INDEX}" >&2
+        exit 1
+    fi
     curl -fsSL -o "${tmp}/${wheel}" "${DALI_INDEX}/${wheel}"
     unzip -q "${tmp}/${wheel}" 'nvidia/dali/include/*' -d "${tmp}/dali-root"
     mkdir -p "${DALI_DIR}"

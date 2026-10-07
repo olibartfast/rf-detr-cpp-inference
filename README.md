@@ -3,7 +3,7 @@
 [![C++](https://img.shields.io/badge/language-C++20-blue.svg)](https://en.cppreference.com/w/cpp)
 [![CMake](https://img.shields.io/badge/build%20system-CMake-blue.svg)](https://cmake.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.5.1-blue.svg)](https://github.com/olibartfast/rf-detr-cpp-inference/releases/tag/v0.5.1)
+[![Version](https://img.shields.io/badge/version-0.6.0-blue.svg)](https://github.com/olibartfast/rf-detr-cpp-inference/releases/tag/v0.6.0)
 
 Object detection, instance segmentation, and keypoint inference with the
 [RF-DETR](https://github.com/roboflow/rf-detr) model, in C++20.
@@ -67,7 +67,7 @@ The model is not shipped with the repo; export one from the `rfdetr` Python pack
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install "rfdetr[onnx]==1.10.1"
+pip install -r deploy/requirements.txt   # the pinned rfdetr[onnx]
 python deploy/export_detection.py --model_type nano     # -> output/rfdetr-nano.onnx
 ```
 
@@ -146,17 +146,21 @@ configure-time error.
 | **ExecuTorch** | `.pte` | On-device / edge deployment | `-DUSE_ONNX_RUNTIME=OFF -DUSE_EXECUTORCH=ON -DEXECUTORCH_ROOTDIR=<prefix>` |
 
 ```bash
-# TensorRT (NVIDIA GPU) — CUDA 13.0 must already be installed
+# TensorRT (NVIDIA GPU) — the CUDA Toolkit series CUDA_VERSION pins must already be installed
 cmake -S . -B build -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON -DCMAKE_BUILD_TYPE=Release
 
 # ExecuTorch (CPU, .pte) — needs an install prefix
 cmake -S . -B build -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_EXECUTORCH=ON \
   -DEXECUTORCH_ROOTDIR=$HOME/dependencies/executorch -DCMAKE_BUILD_TYPE=Release
 
-# TensorRT + the optional GPU pipeline (DALI preprocessing + CUDA postprocessing)
+# TensorRT + the optional GPU pipeline (CUDA preprocessing with nvJPEG + CUDA postprocessing)
+cmake -S . -B build -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON \
+  -DUSE_GPU_PIPELINE=ON -DCMAKE_BUILD_TYPE=Release
+
+# ...or with DALI as the alternative GPU preprocessor (stage it once first)
 ./scripts/fetch_dali.sh
 cmake -S . -B build -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON \
-  -DUSE_GPU_PIPELINE=ON -DDALI_ROOT=$HOME/dependencies/dali -DCMAKE_BUILD_TYPE=Release
+  -DUSE_GPU_PIPELINE=ON -DUSE_DALI=ON -DDALI_ROOT=$HOME/dependencies/dali -DCMAKE_BUILD_TYPE=Release
 ```
 
 The trade-offs, platform limits, and per-backend constraints — including why the ONNX Runtime
@@ -178,10 +182,10 @@ backend is CPU-only as shipped — are in
 |-----------|---------|-----------|
 | C++ compiler | Clang 15+ or GCC 12+ (C++20) | everything |
 | CMake | 3.12+ (3.17+ for the ExecuTorch source fallback) | everything |
-| **ONNX Runtime** | **1.21.0** | default backend — downloaded automatically |
-| **TensorRT** | **10.13.3.9** + CUDA Toolkit **13.0** series | TensorRT backend (CUDA installed manually) |
+| **ONNX Runtime** | **1.28.0** | default backend — downloaded automatically |
+| **TensorRT** | **11.2.1.2** + CUDA Toolkit **13.3** series | TensorRT backend (CUDA installed manually; its nvJPEG serves `-DUSE_CUDA_PREPROCESS=ON`) |
 | **ExecuTorch** | **v1.4.0** | ExecuTorch backend |
-| NVIDIA DALI | 1.51.2 (staged from `nvcr.io/nvidia/tritonserver:25.12-py3`) | `-DUSE_DALI=ON` |
+| NVIDIA DALI | 2.2.0 (staged from `nvcr.io/nvidia/tritonserver:26.08-py3`) | `-DUSE_DALI=ON` (alternative GPU preprocessor) |
 | FFmpeg / SDL2 | 5.x+ / 2.x (Conan pins 6.1 / 2.28.5) | default media backend — apt takes whatever the system has |
 | OpenCV | 4.x (Conan coordinate 4.8.1) | `-DUSE_OPENCV=ON` |
 | GoogleTest | 1.12.1 (auto-fetched) | tests |
@@ -191,13 +195,15 @@ backend is CPU-only as shipped — are in
 
 | Package | Pin | Provides |
 |---------|-----|----------|
-| `rfdetr[onnx]` | `==1.10.1` | `.onnx` export, ONNX opset 17 |
-| `rfdetr[executorch]` | `==1.10.1` | `.pte` export — check `pip show executorch` matches the pinned v1.4.0 runtime |
-| `rfdetr[tensorrt]` | `==1.10.1` | in-process engine builds (`tensorrt` + `polygraphy`) |
+| `rfdetr[onnx]` | `==1.11.2` | `.onnx` export, ONNX opset 17 |
+| `rfdetr[executorch]` | `==1.11.2` | `.pte` export — resolves ExecuTorch 1.3.x, whose `.pte` runs on the pinned v1.4.0 runtime |
+| `rfdetr[tensorrt]` | `==1.11.2` | in-process engine builds (`tensorrt` + `polygraphy`) |
 
-The `ARG` defaults in the backend Dockerfiles, `conanfile.txt`, `deploy/requirements.txt`, and
-the `deploy/export_*.py` opset defaults cannot read a file, so they restate these values;
-`./scripts/check_version_sync.sh` (CI job `Version Sync`) fails when they drift. See
+These two tables are the only prose that states pinned versions; everything else in `docs/`
+and `specs/` points at `versions.env`. The tables, the `ARG` defaults in the backend Dockerfiles,
+`conanfile.txt`, `deploy/requirements.txt`, and the `deploy/export_*.py` opset defaults cannot
+read a file, so they restate these values; `./scripts/check_version_sync.sh` (CI job
+`Version Sync`) fails when any of them drifts. See
 [Bumping a version](specs/tech-stack.md#bumping-a-version).
 
 ---
@@ -214,13 +220,14 @@ The handful you are likely to need. **The complete option list is in
 | `-DUSE_TENSORRT=ON/OFF` | `OFF` | TensorRT backend |
 | `-DUSE_EXECUTORCH=ON/OFF` | `OFF` | ExecuTorch backend for `.pte` models |
 | `-DUSE_OPENCV=ON/OFF` | `OFF` | Use OpenCV for image/video/display I/O instead of FFmpeg+SDL2+stb |
-| `-DUSE_GPU_PIPELINE=ON/OFF` | `OFF` | DALI preprocessing **and** CUDA postprocessing (TensorRT only) |
+| `-DUSE_GPU_PIPELINE=ON/OFF` | `OFF` | CUDA preprocessing (nvJPEG + kernel) **and** CUDA postprocessing (TensorRT only) |
+| `-DUSE_DALI=ON/OFF` | `OFF` | DALI as the GPU preprocessor instead of the CUDA kernel; never both (configure error) |
 | `-DBENCHMARKS=ON/OFF` | `OFF` | Build the Google Benchmark targets |
 | `-DSANITIZERS=ON/OFF` | `OFF` | AddressSanitizer + UndefinedBehaviorSanitizer |
 | `-DWERROR=ON/OFF` | `OFF` | Treat compiler warnings as errors (what CI does) |
 
-`CMakePresets.json` carries the default build, four diagnostic CPU presets, and `gpu-pipeline`
-for TensorRT + DALI + CUDA.
+`CMakePresets.json` carries the default build, four diagnostic CPU presets, `gpu-pipeline` for
+TensorRT + CUDA preprocessing + CUDA postprocessing, and `gpu-pipeline-dali` for the DALI variant.
 
 ---
 
@@ -256,7 +263,7 @@ Three GitHub Actions workflows run on every push/PR to `master` and `develop`:
 |----------|------|-------------|
 | **C++ Lint & Build** | `lint.yml` | Version sync, format check, clang-tidy, cppcheck, build with `-DWERROR=ON` |
 | **Build & Test** | `ci.yml` | Build with benchmarks, run unit tests, run benchmarks, run unit tests under ASan+UBSan |
-| **GPU Backend Compile** | `gpu-compile.yml` | Compiles the TensorRT backend and both GPU halves with `-DWERROR=ON`, across all four `USE_DALI`/`USE_CUDA_POSTPROCESS` combinations |
+| **GPU Backend Compile** | `gpu-compile.yml` | Compiles the TensorRT backend and the GPU halves with `-DWERROR=ON` against TensorRT 11 headers: TensorRT alone, each GPU preprocessor (CUDA, DALI), CUDA postprocessing, and both full pipelines; also checks the two preprocessors are rejected together |
 
 CI compiles the GPU paths but cannot execute them — see
 [CI coverage and its limits](docs/advanced-usage.md#ci-coverage-and-its-limits).
