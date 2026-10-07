@@ -72,6 +72,21 @@ elseif(THREAD_SANITIZER)
     message(STATUS "Sanitizer: ThreadSanitizer enabled")
 endif()
 
+# --- Profiling (opt-in, orthogonal to CMAKE_BUILD_TYPE and the sanitizer options above) ---
+# Preserves frame pointers and debug info on every compiled target, applied with
+# add_compile_options rather than target_compile_options so it also reaches the
+# rfdetr_inference_lib static library -- without that, perf/Valgrind call graphs terminate at the
+# library boundary instead of showing the frames inside it.
+option(PROFILING "Preserve frame pointers and debug info on every target for perf/Valgrind call graphs" OFF)
+if(PROFILING)
+    if(MSVC)
+        add_compile_options(/Oy- /Zi)
+    else()
+        add_compile_options(-fno-omit-frame-pointer -g)
+    endif()
+    message(STATUS "Profiling: frame pointers preserved and debug info enabled on every target for perf/Valgrind call graphs")
+endif()
+
 # --- Backend Selection Options ---
 option(USE_ONNX_RUNTIME "Build with ONNX Runtime backend support" ON)
 option(USE_TENSORRT "Build with TensorRT backend support" OFF)
@@ -486,7 +501,8 @@ if(BENCHMARKS)
     find_dependency_unified(GoogleBenchmark REQUIRED)
 
     add_executable(benchmarks "${TEST_DIR}/benchmark/bench_preprocessing.cpp"
-                              "${TEST_DIR}/benchmark/bench_gpu_pipeline.cpp")
+                              "${TEST_DIR}/benchmark/bench_gpu_pipeline.cpp"
+                              "${TEST_DIR}/benchmark/bench_cpu_pipeline.cpp")
     target_compile_options(benchmarks PRIVATE ${PROJECT_WARNING_FLAGS})
     target_link_libraries(benchmarks PRIVATE rfdetr_inference_lib Deps::GoogleBenchmark)
     target_include_directories(benchmarks PRIVATE "${TEST_DIR}/unit")
