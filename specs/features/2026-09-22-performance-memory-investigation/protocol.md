@@ -238,3 +238,20 @@ there" rule: the **planner drives the measurement scripts**, which are mechanica
 design authority, while authoring `results.md` — the part that requires judgement about what
 the numbers mean — stays delegated. This is a departure from "measurement workers write the
 raw artifacts" and is recorded rather than quietly adopted.
+
+## Third addendum — execution on Google Colab (2026-10-09)
+
+Fixed before this pass measured anything. The September pass never produced `results.md`; its
+raw artifacts under `/tmp` and its model no longer exist, so this pass measures afresh. It runs
+`run_profile.sh` (this directory), which executes the protocol above and both addenda unattended,
+and `summarize_profile.py`, which computes every summary statistic from the raw files.
+
+| # | Previously | This pass | Reason |
+|---|---|---|---|
+| D-15 | i5-11400H workstation | Colab CPU runtime, High-RAM | The workstation's `perf_event_paranoid` is 4 and Valgrind is no longer installed; both need the user's `sudo`. Colab provides root, Valgrind and user-space `perf`. Its numbers are not comparable with any figure from the workstation. |
+| D-16 | `cycles:u` call graph | `cycles:u`, falling back to `cpu-clock:u` | Colab's VM exposes no hardware PMU (`<not supported> instructions`, probe 2026-10-09). The fallback is the protocol's own. |
+| D-17 | Hardware counter groups on the same host | `{cycles,instructions}`, `{branches,branch-misses}` and `{cache-references,cache-misses}` are attempted, recorded `UNRUN` on Colab, and run separately on a host with a PMU | Not available in the VM. Software counters run on Colab. |
+| D-18 | `rfdetr-nano-1101.onnx` (rfdetr 1.10.1) | rf-detr nano detection at 640, exported on the runtime with the pinned `RFDETR_VERSION` | The earlier model is gone. Same family, size and input shape; a different export. |
+| D-19 | `taskset -c 0-5` | One CPU per physical core, read from `thread_siblings_list` at run time | The core count depends on the runtime Colab allocates. The mask and sibling map are recorded. |
+| D-20 | k3d and AnyDesk stopped by hand | Nothing to stop | A fresh Colab runtime runs only the notebook kernel. Load before and after each timing set is recorded. Colab VMs share physical hosts, so noise is still possible; the CV gate is the guard. |
+| D-21 | Arm C (D-14) built ad hoc | Arm C is an automatic worktree with `SetIntraOpNumThreads(<pinned cores>)`, timed on the 30-frame video | The same counterfactual, now scripted; the diff is kept as `env/threads-counterfactual.diff`. |
