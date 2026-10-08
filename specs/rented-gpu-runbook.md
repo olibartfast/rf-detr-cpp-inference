@@ -251,7 +251,7 @@ replace a run with `SKIP_BUILD_MATRIX=0` and Docker-staged DALI on some box, onc
 
 Things to watch on specific cards:
 
-- **T4 (sm_75).** Verified 2026-10-08 (CHANGELOG `[Unreleased]`). The TensorRT 11 tarball ships
+- **T4 (sm_75).** Verified 2026-10-08 ([record](features/2026-10-08-colab-gpu-gate/validation.md)). The TensorRT 11 tarball ships
   `libnvinfer_builder_resource_sm75`, and the Colab driver (580.82.07) runs the CUDA 13.3 build
   under minor-version compatibility without `cuda-compat`. Timings with High-RAM (8 vCPUs):
   setup about 4 min, both full builds about 6 min, `compute-sanitizer` over 1000 frames about 37 min.

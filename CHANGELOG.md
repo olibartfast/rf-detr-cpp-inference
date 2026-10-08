@@ -5,70 +5,20 @@ Notable user-visible changes to this project and compatibility updates for upstr
 
 ## [Unreleased]
 
-The GPU gate now runs on Google Colab, which covers cards nobody here owns, and its first Colab run
-verified the GPU paths on a **Tesla T4 (sm_75)**. It also verified `--display` on the GPU path,
-which v0.6.0 left unverified, using a new headless display check.
-
 ### Added
 
-- `scripts/colab/gpu_gate.ipynb` and `scripts/colab/setup_colab.sh` run `scripts/run_gate.sh` on
-  a Colab GPU runtime. Setup installs the pinned `CUDA_VERSION` toolkit, adds `cuda-compat` when
-  the driver predates CUDA 13, and stages DALI from pip, since Colab has no Docker. Procedure:
-  `specs/rented-gpu-runbook.md` → "Google Colab".
-- `DALI_SOURCE=pip ./scripts/fetch_dali.sh` stages DALI from the `nvidia-dali-cuda130` wheel with
-  the same file layout as the Triton image. The staged directory records its source in `SOURCE`.
-- `scripts/check_display.sh` verifies `--display` on a headless machine. It runs the app under
-  Xvfb and fails on `preview disabled`, on a missing or wrongly sized window, on a blank window
-  grab, or when `q` does not end the run cleanly. A plain headless run proves none of this: the
-  app silently disables the preview when SDL has no display.
-- `run_gate.sh`: `CUDA_ARCH` defaults to the card's compute capability. `SKIP_BUILD_MATRIX=1`
-  skips the card-independent builds and configure guards and reports them `UNRUN`.
-  `environment.txt` records the compute capability and whether forward compatibility was in use.
+- The GPU gate runs on Google Colab: `scripts/colab/gpu_gate.ipynb` and `setup_colab.sh`. First
+  run: Tesla T4 (sm_75) passes, including `--display` on the GPU path. Record:
+  [`specs/features/2026-10-08-colab-gpu-gate/validation.md`](specs/features/2026-10-08-colab-gpu-gate/validation.md).
+- `scripts/check_display.sh` verifies `--display` on a headless machine (Xvfb).
+- `DALI_SOURCE=pip ./scripts/fetch_dali.sh` stages DALI without Docker.
+- `run_gate.sh`: `CUDA_ARCH` defaults to the card's compute capability; new `SKIP_BUILD_MATRIX=1`.
 
 ### Fixed
 
-- `run_gate.sh` failed every engine build on a fresh machine with `Unable to load library:
-  libnvinfer_builder_resource_sm75.so.11.2.1`. The TensorRT lib directory was added to
-  `LD_LIBRARY_PATH` at startup, before step 1 downloads TensorRT. It is now added again after
-  step 1. The 2026-08-26 rented-box run hid this because TensorRT was left over from an earlier
-  configure.
-- `run_gate.sh` reported a missing DALI as a failed build; it is now `UNRUN`. `environment.txt`
-  no longer claims a pip-staged DALI came from the Triton image.
-- `setup_colab.sh` ignores the `CUDA_VERSION` that Colab, like every `nvidia/cuda`-derived
-  image, exports (`13.0.3`). `scripts/versions.sh` lets the environment win, so that value had
-  replaced the pin and setup tried to install `cuda-toolkit-13-0-3`. Other scripts that source
-  `versions.sh` inside an NVIDIA image have the same exposure. CMake does not: it reads only
-  `versions.env`.
-
-### Verified: Tesla T4 on Colab, 2026-10-08
-
-Tesla T4 (sm_75, 15 GB), driver 580.82.07 (CUDA 13.0), CUDA toolkit 13.3.73 under minor-version
-compatibility (no `cuda-compat` needed), TensorRT 11.2.1.2, DALI 2.2.0 **from pip**
-(`nvidia-dali-cuda130`, not the NGC build), on Ubuntu 24.04 with 8 vCPUs and High-RAM. Commit
-`31bbafe`. Model: rf-detr-seg-medium at 432, exported on the same runtime with rfdetr 1.11.2.
-
-| Check | Result |
-|-------|--------|
-| Full builds, CUDA pre + CUDA post and DALI pre + CUDA post, sm_75, `-DWERROR=ON` | PASS |
-| Four pre/post combinations through `inference_app` | PASS (smoke) |
-| `GpuParityIntegration.FourCombinationsAgree` on both builds; `PngFallbackMatchesCpu` | PASS — executed, none skipped |
-| `compute-sanitizer --tool memcheck`, 1000 frames, `--gpu-preprocess --gpu-postprocess --segmentation` | PASS — 1000 frames, `ERROR SUMMARY: 0 errors` (≈37 min) |
-| UnitTests on the GPU build (`test_gpu_postprocess` runs on the device) | PASS |
-| `--display`, plain and `--gpu-preprocess --gpu-postprocess --segmentation` (`check_display.sh`) | PASS — 768×576 window showing masks, boxes and labels; `q` stopped the run after 86 and 87 of 1000 frames with exit 0 |
-| Benchmarks | Ran (below) |
-
-T4 benchmarks: CUDA preprocessing 0.64 ms per frame against 4.3 ms on the CPU (432) and 4.9 ms
-with the tensor upload. JPEG preprocessing 2.5 ms (nvJPEG) against 14.2 ms on the CPU. Segmentation
-postprocessing 306 ms on the GPU against 2301 ms on the CPU.
-
-**Not verified:**
-- The independent-halves builds and configure guards (skipped with `SKIP_BUILD_MATRIX=1`; they do
-  not depend on the card).
-- The default ONNX Runtime path and its bit-identical check.
-- `SKIPPED` on a device-less host.
-- The per-stage benchmark with a real engine.
-- `--display` with GPU-accelerated drawing to a real screen: Xvfb renders in software.
-- DALI from the NGC container.
+- `run_gate.sh` failed every engine build on a fresh machine: TensorRT's libs were added to
+  `LD_LIBRARY_PATH` before step 1 had downloaded them.
+- `run_gate.sh` reported a missing DALI as `FAIL` instead of `UNRUN`.
 
 ## [v0.6.0] - 2026-10-07
 
