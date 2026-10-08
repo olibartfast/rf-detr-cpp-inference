@@ -19,9 +19,20 @@ LONG_RUNS="${LONG_RUNS:-5}"
 LABELS="$REPO/data/coco-labels-91.txt"
 IMAGE="$REPO/data/dog.jpg"
 
+# STEPS selects sections; inputs and builds are idempotent and always run.
+# A re-run of one section, e.g. STEPS=timing, appends to status.txt.
+STEPS="${STEPS:-timing perf memory bench}"
+want() { [[ " $STEPS " == *" $1 "* ]]; }
+
 mkdir -p "$OUT"/{env,inputs,timing,perf,memory,bench,outputs,logs}
 STATUS="$OUT/status.txt"
-: > "$STATUS"
+[[ "$STEPS" == "timing perf memory bench" ]] && : > "$STATUS"
+
+# Every tool up front: a missing /usr/bin/time made a whole Colab timing pass
+# fail with exit 127 on 2026-10-09.
+for tool in /usr/bin/time taskset "$PERF" valgrind ms_print ffmpeg ffprobe ninja cmake python3; do
+    command -v "$tool" > /dev/null || { echo "missing tool: $tool" >&2; exit 2; }
+done
 log()  { echo "[$(date -Is)] $*" | tee -a "$OUT/logs/run.log"; }
 mark() { printf '%-6s %s\n' "$1" "$2" | tee -a "$STATUS"; }
 
@@ -113,6 +124,7 @@ git -C "$WT" diff > "$OUT/env/threads-counterfactual.diff"
 build "$WT/build-prof" -DCMAKE_BUILD_TYPE=Release -DPROFILING=ON \
     && mark PASS "build counterfactual (IntraOpNumThreads=${THREADS})" || mark FAIL "build counterfactual"
 
+if want timing; then
 # --- Timing ----------------------------------------------------------------------
 timed() { # tag, app, input, expected-frames(0=image)
     local tag="$1" app="$2" input="$3" want="$4" i
@@ -164,6 +176,9 @@ timed_set "B-60f" "$REPO/build-prof/inference_app" "$OUT/inputs/dog-60f.mkv" 60 
 uptime > "$OUT/timing/load-after.txt"
 mark DONE "timing sets"
 
+fi
+
+if want perf; then
 # --- perf stat -------------------------------------------------------------------
 APP="$REPO/build-prof/inference_app"
 VID="$OUT/inputs/dog-30f.mkv"
@@ -203,6 +218,9 @@ log "perf record"
     > "$OUT/perf/report-dso.txt" 2> /dev/null
 [[ -s "$OUT/perf/report-self.txt" ]] && mark PASS "perf record + reports" || mark FAIL "perf record"
 
+fi
+
+if want memory; then
 # --- Memory ----------------------------------------------------------------------
 VAPP="$REPO/build-valg/inference_app"
 log "massif image"
@@ -224,11 +242,16 @@ log "memcheck image"
 echo "exit: $?" >> "$OUT/memory/memcheck.log"
 mark DONE "memcheck (findings do not invalidate the profile)"
 
+fi
+
+if want bench; then
 # --- Benchmarks ------------------------------------------------------------------
 log "benchmarks"
 "${PIN[@]}" "$REPO/build-bench/benchmarks" --benchmark_repetitions=5 --benchmark_report_aggregates_only=false \
     --benchmark_out="$OUT/bench/benchmarks.json" --benchmark_out_format=json > "$OUT/bench/benchmarks.txt" 2>&1 \
     && mark PASS "benchmarks" || mark FAIL "benchmarks"
+
+fi
 
 # --- Summary ---------------------------------------------------------------------
 python3 "$(dirname "${BASH_SOURCE[0]}")/summarize_profile.py" "$OUT" > "$OUT/summary.md" 2> "$OUT/logs/summary.err" \
