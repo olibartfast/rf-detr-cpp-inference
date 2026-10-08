@@ -6,7 +6,7 @@ Work this project has committed to, as a phased queue. Phases are ordered so eac
 
 ## Status
 
-- Last tag **v0.6.0** (2026-10-07). Flow is git-flow: `develop` → `release/vX.Y.Z` → `master`, merged back.
+- Last tag **v0.6.0** (2026-10-07). **Phase 7 in progress** — release hardening. Flow is git-flow: `develop` → `release/vX.Y.Z` → `master`, merged back.
 - **v0.6.0 is released** — Phase 6 (CUDA preprocessing as the default GPU preprocessor, DALI as the
   alternative), TensorRT 11 only on NGC 26.08, the rfdetr 1.11.2 export alignment, and ONNX Runtime
   1.28.0. Breaking for builds: see the migration note in `CHANGELOG.md`.
@@ -138,6 +138,24 @@ and the gate live in its `validation.md`.
 - [x] DALI kept as the alternative: `USE_DALI` and `USE_CUDA_PREPROCESS` exclusive at configure; presets, Docker `GPU_PIPELINE` values and the CI matrix cover both
 - [x] Constitution, README, AGENTS and docs updated
 - [x] Gate on real hardware — the [`gpu-verify`](../AGENTS.md#checklist-gpu-verify) workflow, RTX 3060 Laptop, 2026-10-02 (`--display` playback UNRUN: no display)
+
+---
+
+## Phase 7 — Release hardening after v0.6.0
+
+Closes what v0.6.0 shipped with open: advisory, unclean clang-tidy; a 300-line `main()`;
+`--display` unverified on the GPU path. Also finishes the stashed performance and memory
+investigation. No behaviour change: the CLI's output is held byte-identical to v0.6.0.
+
+Spec: [`features/2026-10-07-phase-7-release-hardening/`](features/2026-10-07-phase-7-release-hardening/)
+— the investigation keeps its own spec in
+[`features/2026-09-22-performance-memory-investigation/`](features/2026-09-22-performance-memory-investigation/).
+
+- [ ] Command-line parsing becomes the `rfdetr::cli` library unit with unit tests; `main()` is split under the complexity threshold
+- [ ] Every clang-tidy finding fixed, or `NOLINT`ed with a reason; `postprocess_keypoint_outputs` split
+- [ ] clang-tidy enforced in CI (`WarningsAsErrors: '*'`)
+- [ ] `--display` verified on the GPU path (CUDA and DALI builds) on real hardware with a display
+- [ ] `PROFILING` option and CPU benchmarks merged; measured profiling results published
 
 ---
 

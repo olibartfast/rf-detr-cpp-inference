@@ -1,5 +1,6 @@
 #include "video_reader.hpp"
 
+#include <array>
 #include <stdexcept>
 #include <string>
 
@@ -77,9 +78,9 @@ namespace {
 
 void check(int err, const std::string &what) {
     if (err < 0) {
-        char buf[AV_ERROR_MAX_STRING_SIZE] = {};
-        av_strerror(err, buf, sizeof(buf));
-        throw std::runtime_error(what + ": " + std::string(buf));
+        std::array<char, AV_ERROR_MAX_STRING_SIZE> buf{};
+        av_strerror(err, buf.data(), buf.size());
+        throw std::runtime_error(what + ": " + std::string(buf.data()));
     }
 }
 
@@ -98,9 +99,7 @@ struct VideoReader::Impl {
     int stream_index{-1};
     bool eof{false};
 
-    explicit Impl(const std::filesystem::path &path) {
-        frame = av_frame_alloc();
-        packet = av_packet_alloc();
+    explicit Impl(const std::filesystem::path &path) : frame(av_frame_alloc()), packet(av_packet_alloc()) {
         if (frame == nullptr || packet == nullptr) {
             throw std::runtime_error("VideoReader: av_frame/av_packet alloc failed");
         }
@@ -219,9 +218,12 @@ struct VideoReader::Impl {
                 }
 
                 out.resize(width, height);
-                uint8_t *dst_data[1] = {out.data()};
-                int dst_linesize[1] = {width * 3};
-                sws_scale(sws, frame->data, frame->linesize, 0, height, dst_data, dst_linesize);
+                std::array<uint8_t *, 1> dst_data{out.data()};
+                std::array<int, 1> dst_linesize{width * 3};
+                // frame->data/linesize are FFmpeg's AVFrame C-array members; AVFrame is third-party
+                // code, not ours to change.
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+                sws_scale(sws, frame->data, frame->linesize, 0, height, dst_data.data(), dst_linesize.data());
                 av_packet_unref(packet);
                 return true;
             }
