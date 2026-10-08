@@ -237,6 +237,13 @@ How Colab differs from a rented box, and what the notebook does about it:
 | Nothing to stop, runtime recycled at will | `WATCHDOG=0 SELF_STOP=0`; results written to Drive as they are produced |
 | Idle disconnects | The gate runs in the background; re-run the "follow" cell after reconnecting |
 
+`--display` is checked by [`scripts/check_display.sh`](../scripts/check_display.sh) (notebook cells
+9–10): it runs the app under Xvfb and fails on `preview disabled`, a missing or wrongly sized
+window, a blank window grab, or a `q` that does not end the run cleanly. A plain headless run cannot
+prove any of that, because the app silently disables the preview when SDL has no display. It works
+on any headless box, not only Colab, and proves the display code, not GPU-accelerated presentation
+(Xvfb renders in software).
+
 What a Colab pass adds: per-architecture evidence for steps 1 (full builds only), 2, 4 and 5 —
 that the kernels compile and run for that SM and the parity tolerances hold on it. It does not
 replace a run with `SKIP_BUILD_MATRIX=0` and Docker-staged DALI on some box, once per release.
