@@ -65,6 +65,12 @@ SKIP_BUILD_MATRIX="${SKIP_BUILD_MATRIX:-0}"
 # TensorRT (rather than letting cmake/deps download the pinned tarball) needs
 # -DTENSORRT_ROOTDIR=<prefix>, which is read as a CMake variable, not an env var.
 read -r -a EXTRA_CMAKE <<< "${EXTRA_CMAKE_ARGS:-}"
+# TENSORRT_ROOTDIR in the environment (setup_colab.sh sets it) becomes the CMake
+# variable too, so a prefix fetched ahead of time is used instead of the
+# configure-time download, which has timed out on Colab.
+if [[ -n "${TENSORRT_ROOTDIR:-}" && "${EXTRA_CMAKE_ARGS:-}" != *-DTENSORRT_ROOTDIR=* ]]; then
+    EXTRA_CMAKE+=("-DTENSORRT_ROOTDIR=${TENSORRT_ROOTDIR}")
+fi
 
 # Step 6's default ONNX Runtime build needs no GPU. On a rented box that is paid
 # time for nothing — run it at home first and set this to 1 to keep the metered

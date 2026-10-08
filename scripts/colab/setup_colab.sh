@@ -71,6 +71,19 @@ DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y -qq --no-install-recomme
 # detection; the PyPI build is current.
 python3 -m pip install --quiet --upgrade cmake
 
+step "TensorRT ${TENSORRT_VERSION}"
+# cmake/deps downloads this tarball at configure time, but its single attempt
+# timed out on a Colab L4. wget retries and resumes; the gate then uses the
+# prefix through TENSORRT_ROOTDIR.
+trt_tarball="TensorRT-Enterprise-${TENSORRT_VERSION}-Linux-x86_64-cuda-${CUDA_VERSION}-Release-external.tar.zst"
+TENSORRT_ROOTDIR="/content/TensorRT-${TENSORRT_VERSION}"
+if [[ ! -f "${TENSORRT_ROOTDIR}/include/NvInfer.h" ]]; then
+    wget -c --tries=20 --timeout=60 -nv -O "/content/${trt_tarball}" \
+        "https://developer.nvidia.com/downloads/compute/machine-learning/tensorrt/${TENSORRT_SHORT_VERSION}/tars/${trt_tarball}"
+    tar --zstd -xf "/content/${trt_tarball}" -C /content
+    rm -f "/content/${trt_tarball}"
+fi
+
 if [[ "$SKIP_DALI" != "1" ]]; then
     step "DALI ${DALI_VERSION} (pip source — Colab has no Docker)"
     DALI_SOURCE=pip "${REPO}/scripts/fetch_dali.sh" "$DALI_ROOT"
@@ -86,6 +99,7 @@ step "environment -> ${ENV_FILE}"
     echo "export LD_LIBRARY_PATH=\"${compat_dir:+${compat_dir}:}${CUDA_HOME}/lib64:\${LD_LIBRARY_PATH:-}\""
     echo "export CUDA_ARCH=\"${gpu_arch}\""
     echo "export DALI_ROOT=\"${DALI_ROOT}\""
+    echo "export TENSORRT_ROOTDIR=\"${TENSORRT_ROOTDIR}\""
     # Nothing to stop: Colab recycles the runtime itself, and the watchdog's
     # shutdown fallback is meaningless inside its container.
     echo "export WATCHDOG=0 SELF_STOP=0"
