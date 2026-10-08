@@ -19,15 +19,15 @@ restatement drifts. Run it after editing `versions.env`.
 
 | Layer | Choice | Version | Notes |
 |-------|--------|---------|-------|
-| Language | C++20 | — | `CMakeLists.txt:5`; CUDA C++20 for `.cu` (`:170`) |
+| Language | C++20 | — | `CMakeLists.txt:5`; CUDA C++20 for `.cu` (`:206`) |
 | Build | CMake | ≥ 3.12 | `CMakeLists.txt:1`; **3.17+** if ExecuTorch falls back to the source build |
 | Compiler | Clang 15+ / GCC 12+ | — | CI and Docker use clang-18 |
 | Generator | Ninja | — | Optional but assumed by every documented command |
 | Testing | GoogleTest | `GTEST_VERSION` | `versions.env`; used by `GTest.cmake`, `conanfile.txt` |
-| Benchmarks | Google Benchmark | `GOOGLE_BENCHMARK_VERSION` | `versions.env`; opt-in `-DBENCHMARKS=ON`; covers preprocessing only |
+| Benchmarks | Google Benchmark | `GOOGLE_BENCHMARK_VERSION` | `versions.env`; opt-in `-DBENCHMARKS=ON`; covers CPU and GPU preprocessing, the CPU decode path (scoring, top-k, drawing) and segmentation postprocessing |
 | Dependencies | apt / conan / vcpkg facade | — | `find_dependency_unified()`, `DEPS_MODE` default `apt` (`cmake/deps/Deps.cmake:6`) |
 | Format | clang-format | 18 | `.clang-format`: LLVM base, indent 4, column 120 |
-| Static analysis | clang-tidy 18, cppcheck | — | `.clang-tidy`; CI excludes `tensorrt_backend.cpp` from clang-tidy |
+| Static analysis | clang-tidy 18, cppcheck | — | `.clang-tidy`, **enforced**: `WarningsAsErrors: '*'`, so any finding fails the `Clang-Tidy` job; CI excludes `tensorrt_backend.cpp` |
 | Export tooling | `rfdetr[onnx]` | `RFDETR_VERSION` | `versions.env`, mirrored into `deploy/requirements.txt`; ONNX opset `ONNX_OPSET_VERSION` |
 | Vendored | stb, font8x8 | unversioned | `third_party/` — no install step |
 
@@ -74,20 +74,21 @@ The CUDA preprocessor runs at any resolution. For DALI, only resolutions **432**
 
 | Option | Default | Line |
 |--------|---------|------|
-| `USE_ONNX_RUNTIME` | **ON** | `CMakeLists.txt:76` |
-| `USE_TENSORRT` | OFF | `:77` |
-| `USE_EXECUTORCH` | OFF | `:78` |
-| `USE_OPENCV` | OFF | `:79` |
-| `EXECUTORCH_DELEGATE` | `xnnpack` (or `portable`) | `:86` |
-| `USE_DALI` | OFF (alternative to `USE_CUDA_PREPROCESS`) | `:121` |
-| `USE_CUDA_PREPROCESS` | OFF | `:122` |
-| `USE_CUDA_POSTPROCESS` | OFF | `:123` |
-| `USE_GPU_PIPELINE` | OFF (enables `USE_CUDA_PREPROCESS`, or DALI if `USE_DALI` is given, plus `USE_CUDA_POSTPROCESS`) | `:124` |
+| `USE_ONNX_RUNTIME` | **ON** | `CMakeLists.txt:91` |
+| `USE_TENSORRT` | OFF | `:92` |
+| `USE_EXECUTORCH` | OFF | `:93` |
+| `USE_OPENCV` | OFF | `:94` |
+| `EXECUTORCH_DELEGATE` | `xnnpack` (or `portable`) | `:101` |
+| `USE_DALI` | OFF (alternative to `USE_CUDA_PREPROCESS`) | `:136` |
+| `USE_CUDA_PREPROCESS` | OFF | `:137` |
+| `USE_CUDA_POSTPROCESS` | OFF | `:138` |
+| `USE_GPU_PIPELINE` | OFF (enables `USE_CUDA_PREPROCESS`, or DALI if `USE_DALI` is given, plus `USE_CUDA_POSTPROCESS`) | `:139` |
 | `WERROR` | OFF | `:28` |
 | `SANITIZERS` (ASan+UBSan) | OFF | `:38` |
 | `STRICT_UBSAN` | OFF | `:39` |
 | `THREAD_SANITIZER` | OFF | `:40` |
-| `BENCHMARKS` | OFF | `:482` |
+| `BENCHMARKS` | OFF | `:498` |
+| `PROFILING` | OFF (frame pointers + debug info on every target, for `perf`/Valgrind call graphs; orthogonal to `CMAKE_BUILD_TYPE`) | `:80` |
 | `DEPS_MODE` | `apt` (`apt\|conan\|vcpkg\|auto`) | `cmake/deps/Deps.cmake:6` |
 | `DEPS_DEBUG` | OFF | `cmake/deps/Deps.cmake` |
 | `RFDETR_VERSIONS_ENV` | `<repo>/versions.env` | `cmake/versions.cmake` |
@@ -110,7 +111,7 @@ These are enforced at configure time or by the runtime — not style preferences
 | Workflow | Jobs |
 |----------|------|
 | `ci.yml` — Build & Test | Build & Unit Tests (+ benchmarks), Sanitizers (ASan+UBSan), ThreadSanitizer, Valgrind Memcheck |
-| `lint.yml` — C++ Lint & Build | Version Sync (`scripts/check_version_sync.sh`), Format Check, Clang-Tidy, Cppcheck, Build with Strict Warnings (`-DWERROR=ON`) |
+| `lint.yml` — C++ Lint & Build | Version Sync (`scripts/check_version_sync.sh`), Format Check, Clang-Tidy (warnings are errors), Cppcheck, Build with Strict Warnings (`-DWERROR=ON`) |
 | `gpu-compile.yml` — GPU Backend Compile | Compile-only matrix, `-DWERROR=ON`: TensorRT alone, +CUDA preprocess, +DALI preprocess, +CUDA postprocess, full pipeline (CUDA), full pipeline (DALI), all against the pinned `TENSORRT_VERSION`/`DALI_VERSION` headers and the `CUDA_VERSION` toolkit; the TensorRT entry also checks that both preprocessors together fail at configure. Builds `rfdetr_inference_lib` only — the staged shared objects are stubs, so no target that links is reachable |
 | `deps-modes.yml` — Dependency Modes | `workflow_dispatch` only; matrix over apt / conan / vcpkg |
 
