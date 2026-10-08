@@ -23,5 +23,5 @@ Checks: >
   -modernize-return-braced-init-list,
   -modernize-use-auto
 
-WarningsAsErrors: ''
+WarningsAsErrors: '*'
 HeaderFilterRegex: 'src/.*'

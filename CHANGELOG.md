@@ -5,20 +5,82 @@ Notable user-visible changes to this project and compatibility updates for upstr
 
 ## [Unreleased]
 
-### Added
+### Phase 7 — release hardening after v0.6.0
 
-- The GPU gate runs on Google Colab: `scripts/colab/gpu_gate.ipynb` and `setup_colab.sh`. First
-  run: Tesla T4 (sm_75) passes, including `--display` on the GPU path. Record:
-  [`specs/features/2026-10-08-colab-gpu-gate/validation.md`](specs/features/2026-10-08-colab-gpu-gate/validation.md).
+This phase closes items v0.6.0 left open: clang-tidy was advisory and reported 80 findings,
+`main()` had a cognitive complexity of 108, and `--display` had not been run on the GPU path.
+It also revives the stashed performance and memory investigation. **Behaviour is unchanged.**
+For a fixed CLI workload of 13 invocations, stdout, stderr, exit codes and output images are
+byte-identical to v0.6.0 (45 hashes). The same holds for the four GPU pre/post combinations in
+both the CUDA and the DALI build, compared with one shared TensorRT 11 engine. The record is in
+[`specs/features/2026-10-07-phase-7-release-hardening/validation.md`](specs/features/2026-10-07-phase-7-release-hardening/validation.md).
+
+#### Changed
+
+- **clang-tidy is enforced.** `.clang-tidy` sets `WarningsAsErrors: '*'`, so the `Clang-Tidy`
+  job in `lint.yml` fails on any finding. All 80 findings in the CI configuration are resolved.
+  - Most were fixed in code.
+  - Five are suppressed line by line with a reason, where the code is correct for the API it
+    calls: FFmpeg's `AVFrame` C-array members passed to `sws_scale`, a destructor that must not
+    throw, and two encoder methods that mutate owned state through pointer members.
+- **Command-line parsing is now a library unit.** `rfdetr::cli::parse_cli` (`src/cli_options.*`)
+  has 47 unit tests that need no model. They pin the v0.6.0 behaviour, including its quirks:
+  - `--threshold nan` is accepted;
+  - unknown flags are ignored;
+  - a value flag in the last position is ignored.
+  Whether unknown flags should become errors is left open, because changing it would change
+  behaviour.
+- `main()` is split into usage, config-building, video, image and result-printing steps.
+  `postprocess_keypoint_outputs` is split into tensor-layout and per-query decode helpers.
+- `ModelType` has `std::uint8_t` as its underlying type. `KeypointResult::cov` is a
+  `std::array<float, 4>` (same size and indexing).
+- **`std::endl` → `'\n'`** throughout. stdout is no longer flushed line by line when piped. A
+  missing or corrupt `.mp4` still exits 1 with the same output, because the input is probed on
+  the main thread before the pipeline threads start.
+
+#### Added
+
+- `-DPROFILING=ON` (default `OFF`) keeps frame pointers and debug info on every target,
+  including `rfdetr_inference_lib`, so `perf` and Valgrind call graphs reach inside the
+  library. It is independent of `CMAKE_BUILD_TYPE`.
+- `tests/benchmark/bench_cpu_pipeline.cpp` adds CPU decode-path benchmarks: foreground
+  scoring, top-k selection against a bounded-heap baseline with the same ordering, and
+  detection drawing. Inputs are seeded and no fixture files are needed. The top-k comparison
+  measures the shipped function's per-call allocation as well as the algorithm.
+
+| File | Change |
+|------|--------|
+| `.clang-tidy` | `WarningsAsErrors: '*'` |
+| `src/cli_options.hpp`, `src/cli_options.cpp` | New: `rfdetr::cli::parse_cli` |
+| `src/main.cpp` | Uses `parse_cli`; split into named steps; no `std::endl` |
+| `src/rfdetr_inference.{hpp,cpp}` | Keypoint decode helpers; pass-by-value; `ModelType : std::uint8_t`; `kKeypointChannels` |
+| `src/rfdetr_types.hpp`, `src/media.cpp` | `std::array` for C arrays |
+| `src/video_reader.cpp`, `src/video_writer.cpp` | `std::array` + `.data()` for FFmpeg buffers; scoped `NOLINT`s with reasons |
+| `src/backends/onnx_runtime_backend.cpp` | `std::endl` → `'\n'` |
+| `CMakeLists.txt` | `PROFILING` option; `cli_options.cpp`, `test_cli_options.cpp` and `bench_cpu_pipeline.cpp` registered |
+| `tests/unit/test_cli_options.cpp` | New: 47 parser tests |
+| `tests/benchmark/bench_cpu_pipeline.cpp` | New: CPU decode-path benchmarks |
+| `README.md`, `docs/advanced-usage.md`, `docs/development.md`, `AGENTS.md`, `specs/tech-stack.md`, `specs/mission.md` | `PROFILING`, enforced clang-tidy, the new CLI unit, refreshed `CMakeLists.txt` line references |
+
+### GPU gate on Google Colab
+
+Runs `scripts/run_gate.sh` on Colab cards. Passed on a Tesla T4 (`develop`) and an L4 (the Phase 7
+code), including `--display` under Xvfb. Record:
+[`specs/features/2026-10-08-colab-gpu-gate/validation.md`](specs/features/2026-10-08-colab-gpu-gate/validation.md).
+
+#### Added
+
+- `scripts/colab/gpu_gate.ipynb` and `scripts/colab/setup_colab.sh`.
 - `scripts/check_display.sh` verifies `--display` on a headless machine (Xvfb).
 - `DALI_SOURCE=pip ./scripts/fetch_dali.sh` stages DALI without Docker.
 - `run_gate.sh`: `CUDA_ARCH` defaults to the card's compute capability; new `SKIP_BUILD_MATRIX=1`.
 
-### Fixed
+#### Fixed
 
 - `run_gate.sh` failed every engine build on a fresh machine: TensorRT's libs were added to
   `LD_LIBRARY_PATH` before step 1 had downloaded them.
 - `run_gate.sh` reported a missing DALI as `FAIL` instead of `UNRUN`.
+- On Colab, TensorRT is fetched with `wget` retries; the configure-time download timed out on an L4.
 
 ## [v0.6.0] - 2026-10-07
 
