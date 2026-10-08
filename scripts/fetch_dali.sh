@@ -63,6 +63,7 @@ case "${DALI_SOURCE}" in
     docker)
         docker run --rm -v "${dest_parent}:/out" "${TRITON_IMAGE}" \
             sh -lc "$(copy_dali "${NV_DIR}" "/out/${dest_name}")"
+        echo "${TRITON_IMAGE}" > "${DEST}/SOURCE"
         ;;
     pip)
         # The wheel name carries the CUDA major (cuda130 for CUDA 13.x).
@@ -72,6 +73,7 @@ case "${DALI_SOURCE}" in
         python3 -m pip install --quiet --target "${pip_dir}" \
             --extra-index-url https://pypi.nvidia.com "${dali_wheel}"
         sh -c "$(copy_dali "${pip_dir}/nvidia" "${DEST}")"
+        echo "pip ${dali_wheel}" > "${DEST}/SOURCE"
         ;;
     *)
         echo "error: DALI_SOURCE must be docker or pip, got '${DALI_SOURCE}'" >&2

@@ -83,11 +83,21 @@ LABELS="${LABELS:-$REPO/data/coco-labels-91.txt}"
 # an engine. Covers both TensorRT sources: an existing prefix and the tarball
 # cmake/deps downloads into build-gpu/_deps.
 # A prefix may arrive either as TENSORRT_ROOTDIR or inside EXTRA_CMAKE_ARGS.
+#
+# Called again after step 1: on a fresh box the tarball does not exist until
+# that configure downloads it, so a glob at startup finds nothing and every
+# engine build fails with "Unable to load library: libnvinfer_builder_resource_*"
+# (first seen on a fresh Colab T4; a re-used box hid it).
 TRT_PREFIX="${TENSORRT_ROOTDIR:-$(sed -n 's/.*-DTENSORRT_ROOTDIR=\([^ ]*\).*/\1/p' <<< "${EXTRA_CMAKE_ARGS:-}")}"
-for _trtlib in "${TRT_PREFIX:-/nonexistent}/lib" "$REPO"/build-gpu/_deps/TensorRT-*/lib; do
-    [[ -d "$_trtlib" ]] && LD_LIBRARY_PATH="${_trtlib}:${LD_LIBRARY_PATH:-}"
-done
-export LD_LIBRARY_PATH
+add_trt_libs() {
+    local trtlib
+    for trtlib in "${TRT_PREFIX:-/nonexistent}/lib" "$REPO"/build-gpu/_deps/TensorRT-*/lib; do
+        [[ -d "$trtlib" && ":${LD_LIBRARY_PATH:-}:" != *":${trtlib}:"* ]] \
+            && LD_LIBRARY_PATH="${trtlib}:${LD_LIBRARY_PATH:-}"
+    done
+    export LD_LIBRARY_PATH
+}
+add_trt_libs
 
 mkdir -p "$RESULTS"
 : > "$SUMMARY"
@@ -180,7 +190,8 @@ probe_dali() {
     # TRITON_IMAGE comes from scripts/versions.sh, sourced above — the same value
     # fetch_dali.sh resolves, so the recorded provenance follows the pin in
     # versions.env instead of duplicating it here.
-    echo "extracted from: ${TRITON_IMAGE}"
+    # fetch_dali.sh writes SOURCE; a prefix staged before it did is the Triton one.
+    echo "extracted from: $(cat "${DALI_ROOT}/SOURCE" 2>/dev/null || echo "${TRITON_IMAGE}")"
     find "$DALI_ROOT" -maxdepth 1 -name 'libdali*.so' -printf '%f %s bytes\n' 2>/dev/null
 }
 
@@ -458,6 +469,7 @@ main() {
 
     local build_ok=0
     step_build || build_ok=1
+    add_trt_libs
 
     # After step 1, not before: TensorRT is downloaded by that configure into
     # build-gpu/_deps, so probing earlier would report it missing on every box.
