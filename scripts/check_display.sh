@@ -27,6 +27,10 @@ WINDOW_TIMEOUT="${WINDOW_TIMEOUT:-900}"
 TITLE="RF-DETR Inference" # src/video_pipeline.cpp
 
 mkdir -p "$OUT"
+# The app runs from $OUT (it writes output_video.mp4 to its cwd), so every
+# path it is given must survive that cd.
+APP="$(realpath "$APP")" MODEL="$(realpath "$MODEL")"
+VIDEO="$(realpath "$VIDEO")" LABELS="$(realpath "$LABELS")"
 LOG="$OUT/app.log"
 status=0
 pass() { echo "PASS  $*"; }
@@ -36,15 +40,16 @@ for tool in Xvfb xdotool ffmpeg ffprobe python3; do
     command -v "$tool" >/dev/null || { echo "UNRUN display check — $tool not installed"; exit 2; }
 done
 
-read -r vw vh < <(ffprobe -v error -select_streams v:0 -show_entries stream=width,height \
-    -of csv=p=0:s=' ' "$VIDEO")
+IFS=x read -r vw vh < <(ffprobe -v error -select_streams v:0 -show_entries stream=width,height \
+    -of csv=p=0:s=x "$VIDEO")
+[[ "$vw" =~ ^[0-9]+$ && "$vh" =~ ^[0-9]+$ ]] || { echo "UNRUN display check — cannot read ${VIDEO}'s size"; exit 2; }
 frames="$(ffprobe -v error -count_packets -select_streams v:0 -show_entries stream=nb_read_packets \
     -of csv=p=0 "$VIDEO")"
 
 # A free display number, so a second run does not collide with the first.
 dnum=99
 while [[ -e "/tmp/.X11-unix/X${dnum}" ]]; do dnum=$((dnum + 1)); done
-Xvfb ":${dnum}" -screen 0 "$((vw + 64))x$((vh + 64))x24" -nolisten tcp &
+Xvfb ":${dnum}" -screen 0 "$((vw + 64))x$((vh + 64))x24" -nolisten tcp > "$OUT/xvfb.log" 2>&1 &
 xvfb_pid=$!
 app_pid=""
 # shellcheck disable=SC2329 # invoked by the EXIT trap
