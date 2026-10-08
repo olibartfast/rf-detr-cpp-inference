@@ -14,6 +14,10 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# Colab's image (like every nvidia/cuda-derived image) exports its own
+# CUDA_VERSION, e.g. 13.0.3. versions.sh lets the environment win, so without
+# this the preinstalled CUDA would silently replace the pin.
+unset CUDA_VERSION
 # shellcheck source=scripts/versions.sh
 source "${REPO}/scripts/versions.sh"
 
