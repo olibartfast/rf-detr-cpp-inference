@@ -47,7 +47,8 @@ Priorities, in order:
    works; more is comfortable.
 5. **VRAM and GPU class.** Last. 16 GB is already plenty.
 
-Set `CUDA_ARCH` to match the card — it is a property of the rented box, not of this project:
+`run_gate.sh` reads `CUDA_ARCH` from the card's compute capability; set it only to override. For
+reference — it is a property of the rented box, not of this project:
 
 | Card | `CUDA_ARCH` |
 |------|-------------|
@@ -55,6 +56,7 @@ Set `CUDA_ARCH` to match the card — it is a property of the rented box, not of
 | A4000, A5000, A10, A10G, A6000, A40 | `86` |
 | A100 | `80` |
 | T4 | `75` |
+| RTX PRO 6000 Blackwell (Colab "G4") | `120` |
 
 **Avoid RAM-starved machine families.** A C++ build with nvcc, TensorRT headers under C++20 and
 OpenCV routinely peaks at 1–2 GB per translation unit. A `highcpu`-class VM at ~0.9 GB per vCPU
@@ -124,16 +126,17 @@ tarball at configure time. You only need the CUDA toolkit, for `nvcc` and `compu
 #!/usr/bin/env bash
 set -euxo pipefail
 
+git clone https://github.com/olibartfast/rf-detr-cpp-inference.git ~/rfdetr_inference
+cd ~/rfdetr_inference && git checkout develop
+source scripts/versions.sh   # CUDA_VERSION
+
 wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
 sudo dpkg -i cuda-keyring_1.1-1_all.deb
 sudo apt-get update
-sudo apt-get install -y cuda-toolkit-13-0 \
+sudo apt-get install -y "cuda-toolkit-${CUDA_VERSION//./-}" \
     git ninja-build cmake g++ pkg-config libopencv-dev libgtest-dev tmux rsync
 
 echo 'export PATH=/usr/local/cuda/bin:$PATH' >> ~/.bashrc
-
-git clone https://github.com/olibartfast/rf-detr-cpp-inference.git ~/rfdetr_inference
-cd ~/rfdetr_inference && git checkout develop
 
 # ~25 GB image pulled to extract ~1 GB of DALI. Drop it afterwards.
 ./scripts/fetch_dali.sh
@@ -175,9 +178,10 @@ VIDEO=~/long.mp4 \
 |----------|---------|---------|
 | `MODEL` | *(unset)* | `.onnx` or `.engine`. Steps 2–5 report `UNRUN` without it |
 | `VIDEO` | *(unset)* | ≥ 1000 frames, for `compute-sanitizer` |
-| `CUDA_ARCH` | `89` | `CMAKE_CUDA_ARCHITECTURES` for the rented card |
+| `CUDA_ARCH` | *(the card's compute capability, else `89`)* | `CMAKE_CUDA_ARCHITECTURES` for the rented card |
 | `DEADLINE_HOURS` | `6` | Watchdog fires `brev stop` after this, run finished or not |
 | `SKIP_DEFAULT_PATH` | `0` | `1` skips step 6's default ONNX Runtime build, which needs no GPU. Step 6's UnitTests on the GPU build still run — `test_gpu_postprocess` needs the device |
+| `SKIP_BUILD_MATRIX` | `0` | `1` skips step 1's independent-halves builds and configure guards — card-independent, already compiled by `gpu-compile.yml` — and reports them `UNRUN` |
 | `SELF_STOP` | `1` | `0` leaves the instance up after a clean finish |
 | `WATCHDOG` | `1` | `0` does not arm the watchdog at all. **Set this when running at home** — without a `brev` CLI the watchdog falls back to `sudo shutdown -h`, which halts your own machine |
 | `EXTRA_CMAKE_ARGS` | *(empty)* | Extra `-D` flags for the four TensorRT configures, e.g. `-DTENSORRT_ROOTDIR=<prefix>` on a box that already has TensorRT |
@@ -208,6 +212,46 @@ delete the environment and confirm on the provider console that it is gone.
 Then gate step 7, which the script cannot do for you: put the versions from `environment.txt`
 (driver, CUDA, TensorRT, DALI) and the summary into `CHANGELOG.md`, **stating the `UNRUN` items
 plainly as unrun**. An unrun check is reported as unrun, never implied to have passed.
+
+---
+
+## Google Colab
+
+Colab is the cheap way to cover cards nobody here owns — T4 (sm_75), L4 (sm_89), A100 (sm_80) and
+G4, an RTX PRO 6000 Blackwell (sm_120). The gate itself is unchanged;
+[`scripts/colab/gpu_gate.ipynb`](../scripts/colab/gpu_gate.ipynb) drives it and
+[`scripts/colab/setup_colab.sh`](../scripts/colab/setup_colab.sh) prepares the runtime.
+
+Open the notebook in Colab (*File → Open notebook → GitHub*, or upload it), choose the GPU under
+*Runtime → Change runtime type*, and run the cells in order. Results land on Drive under
+`MyDrive/rfdetr-gate/<GPU>-<timestamp>/`, one directory per card.
+
+How Colab differs from a rented box, and what the notebook does about it:
+
+| Colab | Handling |
+|-------|----------|
+| No Docker | DALI staged with `DALI_SOURCE=pip ./scripts/fetch_dali.sh` — the same wheel tree the Triton image carries, but a PyPI build rather than the NGC one; record that next to the result |
+| Preinstalled CUDA is not `CUDA_VERSION` | `setup_colab.sh` installs the pinned toolkit from NVIDIA's apt repo and puts it first on `PATH`/`LD_LIBRARY_PATH` via `/content/rfdetr_gate_env.sh` |
+| Driver may predate CUDA 13 (needs R580+) | Installs `cuda-compat` for the pinned series and prepends it. Forward compat works on data-centre cards only, and `compute-sanitizer` may refuse to attach under it — the gate then reports step 4 `UNRUN`, not `FAIL` |
+| 2 vCPUs on the standard runtime | Turn High-RAM on; `SKIP_BUILD_MATRIX=1` (notebook default) drops the three card-independent builds |
+| Nothing to stop, runtime recycled at will | `WATCHDOG=0 SELF_STOP=0`; results written to Drive as they are produced |
+| Idle disconnects | The gate runs in the background; re-run the "follow" cell after reconnecting |
+
+What a Colab pass adds: per-architecture evidence for steps 1 (full builds only), 2, 4 and 5 —
+that the kernels compile and run for that SM and the parity tolerances hold on it. It does not
+replace a run with `SKIP_BUILD_MATRIX=0` and Docker-staged DALI on some box, once per release.
+
+Things to watch on specific cards:
+
+- **T4 (sm_75).** CUDA 13 still supports Turing; whether the pinned `TENSORRT_VERSION` does is a
+  TensorRT support-matrix question. An engine-build failure naming the SM is a finding about the
+  pin, not a code bug — record it.
+- **G4 (sm_120).** Blackwell needs a recent driver; if `setup_colab.sh`'s sanity probe fails there,
+  compat cannot help (it is not offered for every Blackwell SKU).
+- `CUDA_ARCH` comes from the card, so each run builds for exactly one SM. That is the point — a
+  PTX-JIT fallback from another arch would hide arch-specific breakage.
+- `setup_colab.sh` assumes Colab's Ubuntu has a matching NVIDIA CUDA apt repo
+  (`ubuntu<VERSION_ID>`); a runtime image update can break that.
 
 ---
 
