@@ -100,7 +100,8 @@ hardcode a version anywhere else.
 - Format apply: `find src tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format-18 -i`
 - Clang-tidy: 
   `cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`
-  `find src -name '*.cpp' ! -name 'tensorrt_backend.cpp' | xargs clang-tidy-18 -p build` (same exclusion as `lint.yml`; the default configure has no TensorRT headers)
+  `find src -name '*.cpp' ! -name 'tensorrt_backend.cpp' | xargs clang-tidy-18 -p build` (same exclusion as `lint.yml`; the default configure has no TensorRT headers). `.clang-tidy` sets `WarningsAsErrors: '*'`, so any finding exits non-zero and fails CI. Suppress only with a line-scoped `// NOLINT(<check>)` plus its reason, never a blanket disable
+- `./scripts/scoreboard.sh` (the delegated-work gate) runs format, build and tests but **not** clang-tidy or cppcheck; run those separately.
 - Cppcheck: `cppcheck --enable=all --std=c++20 --suppress=missingIncludeSystem --suppress=unmatchedSuppression --suppress=unusedFunction --error-exitcode=1 -I src src/`
 - Strict warnings (CI): `-DWERROR=ON` at configure time
 
@@ -150,7 +151,7 @@ Requires a plain Debug build (no sanitizers — ASan/TSan conflict with Valgrind
 - CPU/cache profile: `cmake --build build-valg --target callgrind` → read with `callgrind_annotate build-valg/callgrind.out.<pid>`
 - Heap profile: `cmake --build build-valg --target massif` → read with `ms_print build-valg/massif.out.<pid>`
 - Profilers run on `benchmarks` if built (`-DBENCHMARKS=ON`), else `inference_app` (pass args via `-DVALGRIND_PROFILE_ARGS="..."`).
-- Lower-overhead alternative: `perf record ./build/benchmarks && perf report`.
+- Lower-overhead alternative: `perf record -g ./build/benchmarks && perf report`. Configure with `-DPROFILING=ON` (frame pointers + debug info on every target, default `OFF`) so call graphs reach inside `rfdetr_inference_lib`.
 - Optional suppressions file: `valgrind.supp` at repo root is picked up automatically if present.
 
 ## Pre-commit

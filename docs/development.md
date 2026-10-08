@@ -153,7 +153,7 @@ backend — and every case skips (rather than fails) when no CUDA device is
 present, so CI can compile the GPU targets on runners without a GPU.
 
 ## Benchmarks
-Benchmarks use [Google Benchmark](https://github.com/google/benchmark) to measure preprocessing performance. Enable with `-DBENCHMARKS=ON`:
+Benchmarks use [Google Benchmark](https://github.com/google/benchmark) to measure preprocessing, the CPU decode path (foreground scoring, top-k selection, drawing) and segmentation postprocessing. Enable with `-DBENCHMARKS=ON`:
 
 ```bash
 cmake -S . -B build -DBENCHMARKS=ON
@@ -161,11 +161,21 @@ cmake --build build --target benchmarks --parallel
 ./build/benchmarks
 ```
 
+For `perf` call graphs, add `-DPROFILING=ON`: it keeps frame pointers and debug info on every
+target, including the `rfdetr_inference_lib` static library, without changing the optimisation
+level of the build type you chose.
+
+```bash
+cmake -S . -B build-prof -DCMAKE_BUILD_TYPE=Release -DPROFILING=ON -DBENCHMARKS=ON
+cmake --build build-prof --parallel
+perf record -g ./build-prof/benchmarks && perf report
+```
+
 ## Code Quality Tools
 | Tool | Purpose | How to run |
 |------|---------|------------|
 | `clang-format-18` | Code formatting | `find src tests -name '*.cpp' -o -name '*.hpp' \| xargs clang-format-18 -i` |
-| `clang-tidy-18` | Static analysis (AST-based) | `find src -name '*.cpp' \| xargs clang-tidy-18 -p build` |
+| `clang-tidy-18` | Static analysis (AST-based); every finding is an error | `find src -name '*.cpp' ! -name 'tensorrt_backend.cpp' \| xargs clang-tidy-18 -p build` |
 | `cppcheck` | Static analysis (flow-based) | `cppcheck --enable=all --std=c++20 -I src src/` |
 | AddressSanitizer(ASan) + UndefinedBehaviorSanitizer(UBSan) | Runtime memory/UB detection | `-DSANITIZERS=ON` at configure time |
 | Strict UndefinedBehaviorSanitizer (UBSan) | Extra bounds and vptr checks; Clang also enables implicit-conversion | `-DSTRICT_UBSAN=ON` at configure time |
