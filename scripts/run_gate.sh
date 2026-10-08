@@ -39,8 +39,13 @@ RESULTS="${RESULTS:-$HOME/gate-results}"
 LOG="${RESULTS}/gate.log"
 SUMMARY="${RESULTS}/gate.summary"
 
-# L4/L40S/RTX-Ada are 89, A4000/A10G/A10/A5000 are 86, A100 is 80, T4 is 75.
-CUDA_ARCH="${CUDA_ARCH:-89}"
+# L4/L40S/RTX-Ada are 89, A4000/A10G/A10/A5000 are 86, A100 is 80, T4 is 75,
+# RTX PRO 6000 Blackwell is 120. Unset, it is read from the first GPU's compute
+# capability, falling back to 89 when nvidia-smi cannot answer.
+if [[ -z "${CUDA_ARCH:-}" ]]; then
+    CUDA_ARCH="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 | tr -d '. ')"
+    [[ "$CUDA_ARCH" =~ ^[0-9]+$ ]] || CUDA_ARCH=89
+fi
 
 # Hard stop regardless of whether the gate finished. Re-armed on every run.
 DEADLINE_HOURS="${DEADLINE_HOURS:-6}"
@@ -49,6 +54,12 @@ SELF_STOP="${SELF_STOP:-1}"
 # metered instance; on a local machine its fallback (`sudo shutdown -h`) would
 # halt your own box, so set this to 0 when running the gate at home.
 WATCHDOG="${WATCHDOG:-1}"
+
+# 1 skips step 1's independent-halves builds and configure guards. None of them
+# depends on the card — gpu-compile.yml builds the halves on every PR — so when
+# the point of a run is another GPU (a Colab runtime has 2 vCPUs), they are three
+# builds of paid time that cannot differ from the last box. Reported UNRUN.
+SKIP_BUILD_MATRIX="${SKIP_BUILD_MATRIX:-0}"
 
 # Extra -D flags appended to every TensorRT configure. A box that already has
 # TensorRT (rather than letting cmake/deps download the pinned tarball) needs
@@ -177,6 +188,10 @@ capture_env() {
     note "=== environment ==="
     {
         echo "--- driver / GPU ---"; nvidia-smi 2>&1 | head -12
+        nvidia-smi --query-gpu=name,compute_cap,driver_version,memory.total \
+            --format=csv 2>&1
+        echo "--- CUDA forward compat ---"
+        grep -o '[^:]*compat[^:]*' <<< "${LD_LIBRARY_PATH:-}" || echo "not in use"
         echo "--- nvcc ---";         nvcc --version 2>&1 | tail -2
         echo "--- TensorRT ---";     probe_tensorrt
         echo "--- DALI ---";         probe_dali
@@ -205,7 +220,10 @@ step_build() {
     fi
 
     # The alternative pipeline: DALI preprocessing + CUDA postprocessing.
-    if cmake -S "$REPO" -B "$REPO/build-gpu-dali" -G Ninja \
+    if [[ ! -f "${DALI_ROOT}/include/dali/c_api.h" ]]; then
+        unrun "TensorRT + DALI preprocess + CUDA postprocess build — DALI not staged
+          at ${DALI_ROOT} (scripts/fetch_dali.sh)"
+    elif cmake -S "$REPO" -B "$REPO/build-gpu-dali" -G Ninja \
              -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON -DUSE_GPU_PIPELINE=ON -DUSE_DALI=ON \
              -DDALI_ROOT="$DALI_ROOT" -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCH" \
              -DCMAKE_BUILD_TYPE=Release -DWERROR=ON "${EXTRA_CMAKE[@]}" >> "$LOG" 2>&1 \
@@ -213,6 +231,12 @@ step_build() {
         pass "full TensorRT + DALI preprocess + CUDA postprocess build"
     else
         fail "full TensorRT + DALI preprocess + CUDA postprocess build"
+    fi
+
+    if [[ "$SKIP_BUILD_MATRIX" == "1" ]]; then
+        unrun "independent-halves builds and configure guards skipped
+          (SKIP_BUILD_MATRIX=1) — card-independent; run them on any CUDA box"
+        return 0
     fi
 
     # The halves must build independently — DALI needs no nvcc, CUDA postprocess
