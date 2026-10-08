@@ -195,7 +195,10 @@ for g in "${groups[@]}"; do
     for ((i = 1; i <= TIMING_RUNS; i++)); do
         ( cd "$OUT/outputs" && "${PIN[@]}" "$PERF" stat -x, -o "$OUT/perf/stat-${name}-${i}.csv" -e "$events" \
             "$APP" "$MODEL" "$VID" "$LABELS" --output "$OUT/outputs/perf.mp4" ) > /dev/null 2>&1
-        if grep -q -e '<not supported>' -e '<not counted>' "$OUT/perf/stat-${name}-${i}.csv"; then
+        # No PMU: perf may print <not supported>, or reject the whole {group} and
+        # write no counter row at all (Colab, 2026-10-09). Both are UNRUN.
+        if grep -q -e '<not supported>' -e '<not counted>' "$OUT/perf/stat-${name}-${i}.csv" \
+           || ! grep -q '^[0-9]' "$OUT/perf/stat-${name}-${i}.csv"; then
             mark UNRUN "perf stat ${name}: counters not supported on this host — see perf/stat-${name}-1.csv"
             break
         fi
