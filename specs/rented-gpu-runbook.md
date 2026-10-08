@@ -236,6 +236,7 @@ How Colab differs from a rented box, and what the notebook does about it:
 | 2 vCPUs on the standard runtime | Turn High-RAM on; `SKIP_BUILD_MATRIX=1` (notebook default) drops the three card-independent builds |
 | Nothing to stop, runtime recycled at will | `WATCHDOG=0 SELF_STOP=0`; results written to Drive as they are produced |
 | Idle disconnects | The gate runs in the background; re-run the "follow" cell after reconnecting |
+| Colab exports its own `CUDA_VERSION` | `setup_colab.sh` unsets it before sourcing `versions.sh`, which would otherwise let it replace the pin |
 
 `--display` is checked by [`scripts/check_display.sh`](../scripts/check_display.sh) (notebook cells
 9–10): it runs the app under Xvfb and fails on `preview disabled`, a missing or wrongly sized
@@ -250,9 +251,10 @@ replace a run with `SKIP_BUILD_MATRIX=0` and Docker-staged DALI on some box, onc
 
 Things to watch on specific cards:
 
-- **T4 (sm_75).** CUDA 13 still supports Turing; whether the pinned `TENSORRT_VERSION` does is a
-  TensorRT support-matrix question. An engine-build failure naming the SM is a finding about the
-  pin, not a code bug — record it.
+- **T4 (sm_75).** Verified 2026-10-08 (CHANGELOG `[Unreleased]`). The TensorRT 11 tarball ships
+  `libnvinfer_builder_resource_sm75`, and the Colab driver (580.82.07) runs the CUDA 13.3 build
+  under minor-version compatibility without `cuda-compat`. Timings with High-RAM (8 vCPUs):
+  setup about 4 min, both full builds about 6 min, `compute-sanitizer` over 1000 frames about 37 min.
 - **G4 (sm_120).** Blackwell needs a recent driver; if `setup_colab.sh`'s sanity probe fails there,
   compat cannot help (it is not offered for every Blackwell SKU).
 - `CUDA_ARCH` comes from the card, so each run builds for exactly one SM. That is the point — a
