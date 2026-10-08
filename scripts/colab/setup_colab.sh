@@ -53,6 +53,7 @@ packages=(
     ninja-build pkg-config zstd
     libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libsdl2-dev
     libgtest-dev ffmpeg
+    xvfb xdotool   # scripts/check_display.sh: --display on a headless runtime
 )
 compat_dir=""
 if [[ "$driver_major" -lt "$CUDA_MIN_DRIVER" ]]; then
