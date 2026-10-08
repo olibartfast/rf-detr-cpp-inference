@@ -41,3 +41,28 @@ Defects found by this run, fixed on the branch:
   libs were not yet on `LD_LIBRARY_PATH`.
 - Colab's own `CUDA_VERSION` replaced the pin in `setup_colab.sh`.
 - Re-running the notebook deleted the kernel's working directory.
+
+## NVIDIA L4, 2026-10-08 — PR #24 (`01b950b`) + Colab tooling
+
+PR #24 (`feature/clang-tidy-enforcement-and-cli-refactor`) rewrites the code `--display` goes
+through: CLI parsing moves to `src/cli_options.cpp`, and `video_reader.cpp`, `video_writer.cpp` and
+`rfdetr_inference.cpp` change. The T4 run above covered `develop`, so this run checks the PR's own
+source, with `scripts/` taken from `feature/colab-gpu-gate`.
+
+NVIDIA L4 (sm_89, 23 GB), driver 580.82.07 (CUDA 13.0), CUDA toolkit 13.3, TensorRT 11.2.1.2
+(pre-fetched with `wget`: the configure-time download timed out at 54 %), DALI 2.2.0 from pip.
+Same model as the T4 run.
+
+| Check | Result |
+|-------|--------|
+| Full builds, CUDA pre + CUDA post and DALI pre + CUDA post, sm_89, `-DWERROR=ON` | PASS |
+| Four pre/post combinations through `inference_app` | PASS (smoke) |
+| `GpuParityIntegration` on both builds | PASS (3 tests executed, none skipped) |
+| `compute-sanitizer --tool memcheck`, 1000 frames, full GPU pipeline | PASS: 1000 frames, 0 errors |
+| UnitTests on the GPU build | PASS |
+| `check_display.sh`, plain and `--gpu-preprocess --gpu-postprocess --segmentation` | PASS: 768×576 window with image content; `q` stopped the run at 402 and 396 of 1000 frames, exit 0 |
+
+Benchmarks (432): CUDA preprocessing 0.61 ms per frame against 4.1 ms on the CPU. Segmentation
+postprocessing 266 ms on the GPU against 2125 ms on the CPU.
+
+Not verified: the same items as the T4 run.
