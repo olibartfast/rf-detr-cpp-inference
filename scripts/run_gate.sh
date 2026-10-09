@@ -39,8 +39,13 @@ RESULTS="${RESULTS:-$HOME/gate-results}"
 LOG="${RESULTS}/gate.log"
 SUMMARY="${RESULTS}/gate.summary"
 
-# L4/L40S/RTX-Ada are 89, A4000/A10G/A10/A5000 are 86, A100 is 80, T4 is 75.
-CUDA_ARCH="${CUDA_ARCH:-89}"
+# L4/L40S/RTX-Ada are 89, A4000/A10G/A10/A5000 are 86, A100 is 80, T4 is 75,
+# RTX PRO 6000 Blackwell is 120. Unset, it is read from the first GPU's compute
+# capability, falling back to 89 when nvidia-smi cannot answer.
+if [[ -z "${CUDA_ARCH:-}" ]]; then
+    CUDA_ARCH="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 | tr -d '. ')"
+    [[ "$CUDA_ARCH" =~ ^[0-9]+$ ]] || CUDA_ARCH=89
+fi
 
 # Hard stop regardless of whether the gate finished. Re-armed on every run.
 DEADLINE_HOURS="${DEADLINE_HOURS:-6}"
@@ -50,10 +55,22 @@ SELF_STOP="${SELF_STOP:-1}"
 # halt your own box, so set this to 0 when running the gate at home.
 WATCHDOG="${WATCHDOG:-1}"
 
+# 1 skips step 1's independent-halves builds and configure guards. None of them
+# depends on the card — gpu-compile.yml builds the halves on every PR — so when
+# the point of a run is another GPU (a Colab runtime has 2 vCPUs), they are three
+# builds of paid time that cannot differ from the last box. Reported UNRUN.
+SKIP_BUILD_MATRIX="${SKIP_BUILD_MATRIX:-0}"
+
 # Extra -D flags appended to every TensorRT configure. A box that already has
 # TensorRT (rather than letting cmake/deps download the pinned tarball) needs
 # -DTENSORRT_ROOTDIR=<prefix>, which is read as a CMake variable, not an env var.
 read -r -a EXTRA_CMAKE <<< "${EXTRA_CMAKE_ARGS:-}"
+# TENSORRT_ROOTDIR in the environment (setup_colab.sh sets it) becomes the CMake
+# variable too, so a prefix fetched ahead of time is used instead of the
+# configure-time download, which has timed out on Colab.
+if [[ -n "${TENSORRT_ROOTDIR:-}" && "${EXTRA_CMAKE_ARGS:-}" != *-DTENSORRT_ROOTDIR=* ]]; then
+    EXTRA_CMAKE+=("-DTENSORRT_ROOTDIR=${TENSORRT_ROOTDIR}")
+fi
 
 # Step 6's default ONNX Runtime build needs no GPU. On a rented box that is paid
 # time for nothing — run it at home first and set this to 1 to keep the metered
@@ -72,11 +89,21 @@ LABELS="${LABELS:-$REPO/data/coco-labels-91.txt}"
 # an engine. Covers both TensorRT sources: an existing prefix and the tarball
 # cmake/deps downloads into build-gpu/_deps.
 # A prefix may arrive either as TENSORRT_ROOTDIR or inside EXTRA_CMAKE_ARGS.
+#
+# Called again after step 1: on a fresh box the tarball does not exist until
+# that configure downloads it, so a glob at startup finds nothing and every
+# engine build fails with "Unable to load library: libnvinfer_builder_resource_*"
+# (first seen on a fresh Colab T4; a re-used box hid it).
 TRT_PREFIX="${TENSORRT_ROOTDIR:-$(sed -n 's/.*-DTENSORRT_ROOTDIR=\([^ ]*\).*/\1/p' <<< "${EXTRA_CMAKE_ARGS:-}")}"
-for _trtlib in "${TRT_PREFIX:-/nonexistent}/lib" "$REPO"/build-gpu/_deps/TensorRT-*/lib; do
-    [[ -d "$_trtlib" ]] && LD_LIBRARY_PATH="${_trtlib}:${LD_LIBRARY_PATH:-}"
-done
-export LD_LIBRARY_PATH
+add_trt_libs() {
+    local trtlib
+    for trtlib in "${TRT_PREFIX:-/nonexistent}/lib" "$REPO"/build-gpu/_deps/TensorRT-*/lib; do
+        [[ -d "$trtlib" && ":${LD_LIBRARY_PATH:-}:" != *":${trtlib}:"* ]] \
+            && LD_LIBRARY_PATH="${trtlib}:${LD_LIBRARY_PATH:-}"
+    done
+    export LD_LIBRARY_PATH
+}
+add_trt_libs
 
 mkdir -p "$RESULTS"
 : > "$SUMMARY"
@@ -169,7 +196,8 @@ probe_dali() {
     # TRITON_IMAGE comes from scripts/versions.sh, sourced above — the same value
     # fetch_dali.sh resolves, so the recorded provenance follows the pin in
     # versions.env instead of duplicating it here.
-    echo "extracted from: ${TRITON_IMAGE}"
+    # fetch_dali.sh writes SOURCE; a prefix staged before it did is the Triton one.
+    echo "extracted from: $(cat "${DALI_ROOT}/SOURCE" 2>/dev/null || echo "${TRITON_IMAGE}")"
     find "$DALI_ROOT" -maxdepth 1 -name 'libdali*.so' -printf '%f %s bytes\n' 2>/dev/null
 }
 
@@ -177,6 +205,10 @@ capture_env() {
     note "=== environment ==="
     {
         echo "--- driver / GPU ---"; nvidia-smi 2>&1 | head -12
+        nvidia-smi --query-gpu=name,compute_cap,driver_version,memory.total \
+            --format=csv 2>&1
+        echo "--- CUDA forward compat ---"
+        grep -o '[^:]*compat[^:]*' <<< "${LD_LIBRARY_PATH:-}" || echo "not in use"
         echo "--- nvcc ---";         nvcc --version 2>&1 | tail -2
         echo "--- TensorRT ---";     probe_tensorrt
         echo "--- DALI ---";         probe_dali
@@ -205,7 +237,10 @@ step_build() {
     fi
 
     # The alternative pipeline: DALI preprocessing + CUDA postprocessing.
-    if cmake -S "$REPO" -B "$REPO/build-gpu-dali" -G Ninja \
+    if [[ ! -f "${DALI_ROOT}/include/dali/c_api.h" ]]; then
+        unrun "TensorRT + DALI preprocess + CUDA postprocess build — DALI not staged
+          at ${DALI_ROOT} (scripts/fetch_dali.sh)"
+    elif cmake -S "$REPO" -B "$REPO/build-gpu-dali" -G Ninja \
              -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON -DUSE_GPU_PIPELINE=ON -DUSE_DALI=ON \
              -DDALI_ROOT="$DALI_ROOT" -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCH" \
              -DCMAKE_BUILD_TYPE=Release -DWERROR=ON "${EXTRA_CMAKE[@]}" >> "$LOG" 2>&1 \
@@ -213,6 +248,12 @@ step_build() {
         pass "full TensorRT + DALI preprocess + CUDA postprocess build"
     else
         fail "full TensorRT + DALI preprocess + CUDA postprocess build"
+    fi
+
+    if [[ "$SKIP_BUILD_MATRIX" == "1" ]]; then
+        unrun "independent-halves builds and configure guards skipped
+          (SKIP_BUILD_MATRIX=1) — card-independent; run them on any CUDA box"
+        return 0
     fi
 
     # The halves must build independently — DALI needs no nvcc, CUDA postprocess
@@ -434,6 +475,7 @@ main() {
 
     local build_ok=0
     step_build || build_ok=1
+    add_trt_libs
 
     # After step 1, not before: TensorRT is downloaded by that configure into
     # build-gpu/_deps, so probing earlier would report it missing on every box.

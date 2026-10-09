@@ -179,6 +179,7 @@ extracts the C API libraries and headers from a pinned Triton container
 | `-DCMAKE_BUILD_TYPE=Release/Debug` | — | Build configuration |
 | `-DWERROR=ON/OFF` | `OFF` | Treat compiler warnings as errors (CI uses `ON`) |
 | `-DBENCHMARKS=ON/OFF` | `OFF` | Build the Google Benchmark targets |
+| `-DPROFILING=ON/OFF` | `OFF` | Keep frame pointers and debug info on every target, so `perf`/Valgrind call graphs reach inside the library; combine with `Release` |
 | `-DSANITIZERS=ON/OFF` | `OFF` | AddressSanitizer + UndefinedBehaviorSanitizer |
 | `-DSTRICT_UBSAN=ON/OFF` | `OFF` | Stricter UBSan — Clang: `undefined,local-bounds,vptr,implicit-conversion`; GCC: `undefined,bounds-strict,vptr` |
 | `-DTHREAD_SANITIZER=ON/OFF` | `OFF` | ThreadSanitizer / data-race detection |
@@ -400,9 +401,9 @@ regenerate — this needs Docker with `--gpus all`:
 ### CUDA architectures
 
 `-DCMAKE_CUDA_ARCHITECTURES` defaults to `86` (RTX 30-series). Set it to your card's
-capability — e.g. `89` for Ada — when building the CUDA kernels. Note that
-`scripts/run_gate.sh` deliberately defaults to `CUDA_ARCH=89`, matching the hardware the
-verification gate is usually rented on; it is not a pin.
+capability — e.g. `89` for Ada — when building the CUDA kernels. `scripts/run_gate.sh`
+reads `CUDA_ARCH` from the card it runs on (falling back to `89`), so the verification gate
+always builds for the GPU under test; neither value is a pin.
 
 Design constraints and how each half works: [architecture.md](architecture.md#gpu-pipeline) and
 [specs/gpu-pipeline.md](../specs/gpu-pipeline.md). The build:
@@ -502,7 +503,7 @@ The video driver's own knobs live in `VideoPipelineConfig` (`src/video_pipeline.
 
 | Workflow | File | What it does |
 |----------|------|-------------|
-| **C++ Lint & Build** | `lint.yml` | Version sync, Dockerfile shared blocks, format check, clang-tidy, cppcheck, build with `-DWERROR=ON` |
+| **C++ Lint & Build** | `lint.yml` | Version sync, Dockerfile shared blocks, format check, clang-tidy (any finding fails), cppcheck, build with `-DWERROR=ON` |
 | **Build & Test** | `ci.yml` | Build with benchmarks, run unit tests, run benchmarks, run unit tests under ASan+UBSan |
 | **GPU Backend Compile** | `gpu-compile.yml` | Compiles the TensorRT backend and the GPU halves with `-DWERROR=ON` against TensorRT 11 headers: TensorRT alone, each GPU preprocessor (CUDA, DALI), CUDA postprocessing, and both full pipelines; also checks the two preprocessors are rejected together |
 | **Dependency Modes** | `deps-modes.yml` | `workflow_dispatch` only; matrix over apt / conan / vcpkg |
@@ -524,9 +525,10 @@ All three push/PR workflows trigger on `master` and `develop`.
 
 So the TensorRT, GPU-pipeline, and ExecuTorch paths must be exercised by hand before they can
 be trusted. `./scripts/run_gate.sh` drives the executable part of that verification unattended
-and reports the rest as `UNRUN`. The checklist it implements and the procedure for running it on
-rented hardware are maintainer material, kept with the specs —
-[specs/rented-gpu-runbook.md](../specs/rented-gpu-runbook.md).
+and reports the rest as `UNRUN`; `scripts/colab/gpu_gate.ipynb` runs it on Google Colab GPUs, and
+`./scripts/check_display.sh` checks `--display` on a headless machine. The checklist they
+implement and the procedure for running them on rented or Colab hardware are maintainer material,
+kept with the specs — [specs/rented-gpu-runbook.md](../specs/rented-gpu-runbook.md).
 
 ---
 

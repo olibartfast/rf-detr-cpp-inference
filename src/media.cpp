@@ -3,6 +3,7 @@
 #include "processing_utils.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <font8x8_basic.h>
@@ -230,13 +231,14 @@ void preprocess_bgr_image(const Image &image, std::span<float> output, int resol
             const float wx = src_x - static_cast<float>(x0);
             const size_t dst = static_cast<size_t>(y) * res + static_cast<size_t>(x);
 
-            float bgr[3]{};
+            std::array<float, 3> bgr{};
             for (int c = 0; c < 3; ++c) {
                 const float p00 = bgr_at(y0, x0, c);
                 const float p01 = bgr_at(y0, x1, c);
                 const float p10 = bgr_at(y1, x0, c);
                 const float p11 = bgr_at(y1, x1, c);
-                bgr[c] = (p00 * (1.0f - wx) + p01 * wx) * (1.0f - wy) + (p10 * (1.0f - wx) + p11 * wx) * wy;
+                bgr[static_cast<size_t>(c)] =
+                    (p00 * (1.0f - wx) + p01 * wx) * (1.0f - wy) + (p10 * (1.0f - wx) + p11 * wx) * wy;
             }
 
             output[dst] = bgr[2] / 255.0f;

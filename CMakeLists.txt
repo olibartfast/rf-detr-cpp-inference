@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.12)
-project(rfdetr_inference VERSION 0.6.0 LANGUAGES CXX C)
+project(rfdetr_inference VERSION 0.6.1 LANGUAGES CXX C)
 
 # Set C++ standard to C++20
 set(CMAKE_CXX_STANDARD 20)
@@ -70,6 +70,21 @@ elseif(THREAD_SANITIZER)
     add_compile_options(-fsanitize=thread -fno-omit-frame-pointer)
     add_link_options(-fsanitize=thread)
     message(STATUS "Sanitizer: ThreadSanitizer enabled")
+endif()
+
+# --- Profiling (opt-in, orthogonal to CMAKE_BUILD_TYPE and the sanitizer options above) ---
+# Preserves frame pointers and debug info on every compiled target, applied with
+# add_compile_options rather than target_compile_options so it also reaches the
+# rfdetr_inference_lib static library -- without that, perf/Valgrind call graphs terminate at the
+# library boundary instead of showing the frames inside it.
+option(PROFILING "Preserve frame pointers and debug info on every target for perf/Valgrind call graphs" OFF)
+if(PROFILING)
+    if(MSVC)
+        add_compile_options(/Oy- /Zi)
+    else()
+        add_compile_options(-fno-omit-frame-pointer -g)
+    endif()
+    message(STATUS "Profiling: frame pointers preserved and debug info enabled on every target for perf/Valgrind call graphs")
 endif()
 
 # --- Backend Selection Options ---
@@ -247,6 +262,7 @@ set(RFDETR_SOURCES
     "${SOURCE_DIR}/video_writer.cpp"
     "${SOURCE_DIR}/display.cpp"
     "${SOURCE_DIR}/video_pipeline.cpp"
+    "${SOURCE_DIR}/cli_options.cpp"
     "${SOURCE_DIR}/backends/inference_backend.cpp"
     "${THIRD_PARTY_DIR}/font8x8/font8x8_basic.c"
 )
@@ -423,7 +439,7 @@ if(USE_ONNX_RUNTIME)
 endif()
 
 # --- Unit Tests ---
-set(UNIT_TEST_SOURCES "${TEST_DIR}/unit/test_rfdetr_inference.cpp")
+set(UNIT_TEST_SOURCES "${TEST_DIR}/unit/test_rfdetr_inference.cpp" "${TEST_DIR}/unit/test_cli_options.cpp")
 if(USE_CUDA_POSTPROCESS)
     # The GPU parity gate needs no model and no DALI: it feeds synthetic tensors
     # to a mock backend that serves them from both host and device memory. Every
@@ -485,7 +501,8 @@ if(BENCHMARKS)
     find_dependency_unified(GoogleBenchmark REQUIRED)
 
     add_executable(benchmarks "${TEST_DIR}/benchmark/bench_preprocessing.cpp"
-                              "${TEST_DIR}/benchmark/bench_gpu_pipeline.cpp")
+                              "${TEST_DIR}/benchmark/bench_gpu_pipeline.cpp"
+                              "${TEST_DIR}/benchmark/bench_cpu_pipeline.cpp")
     target_compile_options(benchmarks PRIVATE ${PROJECT_WARNING_FLAGS})
     target_link_libraries(benchmarks PRIVATE rfdetr_inference_lib Deps::GoogleBenchmark)
     target_include_directories(benchmarks PRIVATE "${TEST_DIR}/unit")
