@@ -16,6 +16,7 @@
 #include "gpu/dali_preprocessor.hpp"
 #endif
 
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -27,7 +28,7 @@
 using rfdetr::backend::create_backend;
 using rfdetr::backend::InferenceBackend;
 
-enum class ModelType { DETECTION, SEGMENTATION, KEYPOINT };
+enum class ModelType : std::uint8_t { DETECTION, SEGMENTATION, KEYPOINT };
 
 struct Config {
     int resolution{560};
@@ -74,11 +75,11 @@ struct Config {
 class RFDETRInference {
   public:
     RFDETRInference(const std::filesystem::path &model_path, const std::filesystem::path &label_file_path,
-                    const Config &config = Config{});
+                    Config config = Config{});
 
     // Test-friendly constructor: inject a custom backend (skips backend creation and model loading)
     RFDETRInference(std::unique_ptr<InferenceBackend> backend, const std::filesystem::path &label_file_path,
-                    const Config &config = Config{});
+                    Config config = Config{});
 
     ~RFDETRInference() = default;
 

@@ -71,7 +71,7 @@ chosen by which file you pass to `-f` (there is no bare `Dockerfile`):
 - Runtime flags (default off): `--gpu-preprocess` (whichever preprocessor was compiled in), `--gpu-postprocess` (segmentation only), `--dali-pipeline-dir <dir>` (DALI builds only, default `data/dali`)
 - DALI only: regenerate `.dali` pipelines for a new resolution with `./scripts/generate_dali_pipelines.sh <res>` (needs `--gpus all` Docker); 432 and 576 are checked in. The CUDA preprocessor runs at any resolution
 - GPU unit tests (`test_gpu_postprocess.cpp`, `test_gpu_parity.cpp`) `GTEST_SKIP()` without a CUDA device; like TensorRT, CI compiles but does not execute GPU paths — `gpu-compile.yml` builds TensorRT alone, each preprocessor (CUDA, DALI), CUDA postprocessing and both full pipelines with `-DWERROR=ON` against headers staged by `scripts/ci/stage_gpu_headers.sh`, so a compile break is a red PR, not a surprise on metered hardware. Behaviour still has to be tested manually with the [gpu-verify checklist](#checklist-gpu-verify)
-- On a rented GPU box, `./scripts/run_gate.sh` drives the executable part of that checklist unattended and reports the rest as `UNRUN`; it arms a deadline watchdog and stops the instance when done. Env knobs: `CUDA_ARCH` (default `89`), `DEADLINE_HOURS`, `SKIP_DEFAULT_PATH`, `SELF_STOP`, `MODEL`, `VIDEO`. End-to-end procedure — choosing an instance, export prep, setup script, collecting results: [specs/rented-gpu-runbook.md](specs/rented-gpu-runbook.md)
+- On a rented GPU box, `./scripts/run_gate.sh` drives the executable part of that checklist unattended and reports the rest as `UNRUN`; it arms a deadline watchdog and stops the instance when done. Env knobs: `CUDA_ARCH` (default: the card's compute capability), `DEADLINE_HOURS`, `SKIP_DEFAULT_PATH`, `SKIP_BUILD_MATRIX`, `SELF_STOP`, `MODEL`, `VIDEO`. On Google Colab (other GPU generations, no Docker), use `scripts/colab/gpu_gate.ipynb`; DALI is then staged with `DALI_SOURCE=pip ./scripts/fetch_dali.sh`. End-to-end procedure — choosing an instance, export prep, setup script, collecting results: [specs/rented-gpu-runbook.md](specs/rented-gpu-runbook.md)
 - Design constraints: [specs/gpu-pipeline.md](specs/gpu-pipeline.md) — remaining phases: [specs/roadmap.md](specs/roadmap.md)
 
 ## Dependency Versions
@@ -100,7 +100,8 @@ hardcode a version anywhere else.
 - Format apply: `find src tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format-18 -i`
 - Clang-tidy: 
   `cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`
-  `find src -name '*.cpp' ! -name 'tensorrt_backend.cpp' | xargs clang-tidy-18 -p build` (same exclusion as `lint.yml`; the default configure has no TensorRT headers)
+  `find src -name '*.cpp' ! -name 'tensorrt_backend.cpp' | xargs clang-tidy-18 -p build` (same exclusion as `lint.yml`; the default configure has no TensorRT headers). `.clang-tidy` sets `WarningsAsErrors: '*'`, so any finding exits non-zero and fails CI. Suppress only with a line-scoped `// NOLINT(<check>)` plus its reason, never a blanket disable
+- `./scripts/scoreboard.sh` (the delegated-work gate) runs format, build and tests but **not** clang-tidy or cppcheck; run those separately.
 - Cppcheck: `cppcheck --enable=all --std=c++20 --suppress=missingIncludeSystem --suppress=unmatchedSuppression --suppress=unusedFunction --error-exitcode=1 -I src src/`
 - Strict warnings (CI): `-DWERROR=ON` at configure time
 
@@ -115,7 +116,7 @@ hardcode a version anywhere else.
   `Versions at a Glance`, `Common Build Options` and `Choosing a Backend` sections); the exhaustive
   reference — every CMake option, the per-backend constraints, the ONNX Runtime archive table — lives in
   `docs/advanced-usage.md`. Both must be updated together, and the README must keep linking to it.
-- If a release intentionally needs no README change, say why in `CHANGELOG.md` or the PR/release notes.
+- If a release intentionally needs no README change, say why in the PR/release notes.
 
 ## Testing
 - Unit tests: `ctest --test-dir build --output-on-failure -R UnitTests`
@@ -150,7 +151,7 @@ Requires a plain Debug build (no sanitizers — ASan/TSan conflict with Valgrind
 - CPU/cache profile: `cmake --build build-valg --target callgrind` → read with `callgrind_annotate build-valg/callgrind.out.<pid>`
 - Heap profile: `cmake --build build-valg --target massif` → read with `ms_print build-valg/massif.out.<pid>`
 - Profilers run on `benchmarks` if built (`-DBENCHMARKS=ON`), else `inference_app` (pass args via `-DVALGRIND_PROFILE_ARGS="..."`).
-- Lower-overhead alternative: `perf record ./build/benchmarks && perf report`.
+- Lower-overhead alternative: `perf record -g ./build/benchmarks && perf report`. Configure with `-DPROFILING=ON` (frame pointers + debug info on every target, default `OFF`) so call graphs reach inside `rfdetr_inference_lib`.
 - Optional suppressions file: `valgrind.supp` at repo root is picked up automatically if present.
 
 ## Pre-commit
@@ -263,8 +264,8 @@ Every tolerance must be a number. "Close enough" is not a gate.
 
 #### Closing a phase
 
-When `validation.md` is fully ticked: update `CHANGELOG.md` under `[Unreleased]` in the house style
-(prose plus a per-file table), tick the phase's items in `specs/roadmap.md` and mark the heading
+When `validation.md` is fully ticked: add one-line bullets to `CHANGELOG.md` under `[Unreleased]` (see
+[Changelog style](#changelog-style)), tick the phase's items in `specs/roadmap.md` and mark the heading
 `(Complete)`, then merge into `develop` and delete the branch.
 
 ### Checklist: rfdetr-alignment
@@ -328,10 +329,10 @@ Per the Spec Sync rule in `AGENTS.md`:
       covers `deploy/requirements.txt` and the README tables; other prose names the variable)
 - [ ] Remaining README statements verified against `CMakeLists.txt`, `CMakePresets.json`,
       `dockerfile.*`, `docs/export.md`
-- [ ] `CHANGELOG.md` entry under `[Unreleased]`: a heading naming the release, a link to the
-      upstream release tag, prose on what changed upstream and why it does or does not reach C++,
-      and a per-file change table
-- [ ] If the alignment needs **no** README change, write down in the CHANGELOG why not — that
+- [ ] `CHANGELOG.md` bullet under `[Unreleased]`: "Export tooling aligned with rfdetr X.Y.Z"
+      linking the upstream tag, plus a few words on any contract change. The analysis of why it
+      does or does not reach C++ goes in the spec, not the CHANGELOG
+- [ ] If the alignment needs **no** README change, write down in the spec why not — that
       statement is required, not optional
 
 #### Step 5 — Verify
@@ -341,8 +342,8 @@ Per the Spec Sync rule in `AGENTS.md`:
 - [ ] If the TensorRT, ExecuTorch, or GPU paths are implicated, run
       [`gpu-verify`](#checklist-gpu-verify) or the equivalent manual backend check — **CI tests
       none of them**
-- [ ] Any behaviour that could not be verified is stated plainly in the CHANGELOG rather than
-      implied to work
+- [ ] Any behaviour that could not be verified is stated plainly in the spec's `validation.md`
+      (and as a CHANGELOG known issue if users hit it) rather than implied to work
 
 ### Checklist: release
 
@@ -359,13 +360,16 @@ release includes an upstream `rfdetr` alignment, verify that release against
 
 `specs/roadmap.md` says which phases the release is gated on. Do not cut a release with an unticked
 gating phase unless the user explicitly decides to — and if they do, record that decision in the
-CHANGELOG.
+release spec, and list the open item under the CHANGELOG's known issues.
 
 For anything touching TensorRT, ExecuTorch, DALI, or CUDA: **CI has never built or run it.** Run
 [`gpu-verify`](#checklist-gpu-verify) and the manual backend checks first, or state in the release
 notes exactly what went out unverified.
 
 #### Step 2 — Reconcile the version statements
+
+**The version number is the maintainer's decision.** Ask for it; never pick the bump level
+yourself. Hardening, refactors, tooling and fixes with no behaviour change are a patch release.
 
 The project version is stated in four places, and they must agree (the first three were reconciled
 in v0.5.0):
@@ -395,15 +399,23 @@ From `AGENTS.md`. Every box is mandatory:
       the pip packages used for export tooling
 - [ ] `specs/tech-stack.md` matches the files that own each pin
 - [ ] Any completed roadmap phase is ticked `[x]` and its heading marked `(Complete)`
-- [ ] If the release intentionally needs no README change, the reason is written in `CHANGELOG.md`
+- [ ] If the release intentionally needs no README change, the reason is written in the release spec
 
 #### Step 4 — CHANGELOG
 
 - Move `[Unreleased]` to `[vX.Y.Z]` with the date; open a fresh empty `[Unreleased]`.
 - Review the **Known Issues** table: close what this release fixes, and leave what it does not with
   its reason intact.
-- Keep the house style — prose explaining *why*, plus per-file change tables. This project does not
-  generate its changelog from `git log`; a bullet per commit would lose the reasoning.
+- Follow the [Changelog style](#changelog-style).
+
+#### Changelog style
+
+`CHANGELOG.md` is a changelog, not documentation. [Keep a Changelog](https://keepachangelog.com/en/1.1.0/):
+- Sections `Breaking`, `Added`, `Changed`, `Removed`, `Fixed`, `Known issues` — omit empty ones.
+- One line per user-visible change. No intro paragraphs, no per-file tables, no rationale, no
+  benchmark numbers, no hardware/validation records, no "why the README did not change".
+- Reasoning, measurements and verification records go in `specs/features/<dir>/`; commit messages
+  carry the per-file detail.
 
 #### Step 5 — Cut it
 
@@ -542,7 +554,7 @@ cmake --build build-gpu-bench --parallel && ./build-gpu-bench/benchmarks
 
 #### 7. Record it
 
-- [ ] `CHANGELOG.md` updated with what was verified, on which hardware, and with which driver,
-      CUDA, TensorRT and DALI versions
+- [ ] The spec's `validation.md` records what was verified, on which hardware, and with which
+      driver, CUDA, TensorRT and DALI versions (not the CHANGELOG)
 - [ ] Anything **not** verified is stated plainly. An unrun check is reported as unrun, never
       implied to have passed

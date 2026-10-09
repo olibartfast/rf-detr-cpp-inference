@@ -70,4 +70,6 @@ Closes open question 3 of the Phase 6 spec.
 - PASS: roadmap Status records v0.6.0.
 - No Docker-coupled file changed in the release commit. The Dockerfiles were last built and run
   for ONNX Runtime 1.28.0 (PR #21) and for every `GPU_PIPELINE` value in Phase 6 (PR #18).
-- Pending: merge to `master`, tag `v0.6.0`, back-merge to `develop`, push — on user approval.
+- Released 2026-10-07: merged to `master` (`74d008f`), annotated tag `v0.6.0`, back-merged to `develop`,
+  pushed, GitHub release created. Post-release: a fresh clone of the tag builds with the default
+  backend and its unit tests pass. Not verified: `--display` playback on the GPU path (no display).

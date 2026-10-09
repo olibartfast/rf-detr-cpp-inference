@@ -10,7 +10,7 @@ The project is kept deliberately in step with upstream [`rfdetr`](https://github
 
 These are the invariants. Breaking one is a design change, not a bug fix.
 
-- **Exactly one inference backend compiles in.** Enabling two is a configure-time error (`CMakeLists.txt:93-108`). This became an error in v0.4.0; before that the build silently fell back to ONNX Runtime.
+- **Exactly one inference backend compiles in.** Enabling two is a configure-time error (`CMakeLists.txt:108-123`). This became an error in v0.4.0; before that the build silently fell back to ONNX Runtime.
 - **Backends live behind an interface.** Every backend implements `rfdetr::backend::InferenceBackend` (`src/backends/inference_backend.hpp:19`) and is constructed by `create_backend()`. Adding or changing a backend means working inside that interface — never adding backend branches to `RFDETRInference`.
 - **Media and display are swappable the same way.** `USE_OPENCV` selects OpenCV or FFmpeg+SDL2+stb behind `src/media.hpp` and `src/display.hpp`. No backend-specific type may leak into core code.
 - **CPU and GPU postprocessing stay numerically in step.** They are two implementations of one contract. The v0.4.0 bilinear-resize fix landed in `src/media.cpp` *and* was mirrored into `src/gpu/rfdetr_postprocess.cu` for exactly this reason. Never fix one alone.
@@ -21,7 +21,8 @@ These are the invariants. Breaking one is a design change, not a bug fix.
 
 | Path | Role |
 |------|------|
-| `src/main.cpp` | CLI entry point; parses flags, routes image vs. video by file extension |
+| `src/main.cpp` | CLI entry point; prints usage, builds `Config`, routes image vs. video by file extension |
+| `src/cli_options.*` | `rfdetr::cli::parse_cli` — argv → `CliOptions` and the flag/range/build checks, unit-tested without a model |
 | `src/rfdetr_inference.*` | Orchestrator — `Config`, `ModelType`, preprocess → infer → postprocess → draw |
 | `src/backends/` | `InferenceBackend` interface, the three implementations, and the factory |
 | `src/media.*` | Image/mask types, load/save, CPU preprocessing, drawing and text |

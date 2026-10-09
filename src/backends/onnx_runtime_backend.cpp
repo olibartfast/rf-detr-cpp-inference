@@ -36,7 +36,7 @@ std::vector<int64_t> OnnxRuntimeBackend::initialize(const std::filesystem::path 
 
         if (shape.size() == 4 && shape[2] == shape[3] && shape[2] > 0) {
             detected_shape = shape;
-            std::cout << "[ONNX Runtime] Auto-detected input resolution: " << shape[2] << "x" << shape[3] << std::endl;
+            std::cout << "[ONNX Runtime] Auto-detected input resolution: " << shape[2] << "x" << shape[3] << "\n";
         } else {
             throw std::runtime_error("Could not auto-detect valid input resolution from model.");
         }
@@ -44,13 +44,13 @@ std::vector<int64_t> OnnxRuntimeBackend::initialize(const std::filesystem::path 
 
     // Get output names from model
     const size_t num_outputs = session_->GetOutputCount();
-    std::cout << "[ONNX Runtime] Model has " << num_outputs << " outputs:" << std::endl;
+    std::cout << "[ONNX Runtime] Model has " << num_outputs << " outputs:\n";
 
     output_name_strings_.reserve(num_outputs);
     for (size_t i = 0; i < num_outputs; ++i) {
         Ort::AllocatedStringPtr output_name_ptr = session_->GetOutputNameAllocated(i, allocator_);
         std::string output_name(output_name_ptr.get());
-        std::cout << "  Output " << i << ": " << output_name << std::endl;
+        std::cout << "  Output " << i << ": " << output_name << "\n";
         output_name_strings_.push_back(output_name);
     }
 
