@@ -84,9 +84,9 @@ done
 sha256sum "$MODEL" "$IMAGE" "$LABELS" "$OUT"/inputs/*.mkv > "$OUT/inputs/SHA256SUMS"
 
 # --- Builds ----------------------------------------------------------------------
-build() { # dir, cmake args...
+build() { # dir, cmake args... — sources from $SRC (default $REPO)
     local dir="$1"; shift
-    cmake -S "$REPO" -B "$dir" -G Ninja "$@" > "$OUT/logs/$(basename "$dir").log" 2>&1 \
+    cmake -S "${SRC:-$REPO}" -B "$dir" -G Ninja "$@" > "$OUT/logs/$(basename "$dir").log" 2>&1 \
         && cmake --build "$dir" --parallel >> "$OUT/logs/$(basename "$dir").log" 2>&1
 }
 log "builds"
@@ -121,7 +121,10 @@ WT="$OUT/worktree-threads"
 git -C "$REPO" worktree add -f --detach "$WT" HEAD > /dev/null 2>&1
 sed -i "s/SetIntraOpNumThreads(1)/SetIntraOpNumThreads(${THREADS})/" "$WT/src/backends/onnx_runtime_backend.cpp"
 git -C "$WT" diff > "$OUT/env/threads-counterfactual.diff"
-build "$WT/build-prof" -DCMAKE_BUILD_TYPE=Release -DPROFILING=ON \
+[[ -s "$OUT/env/threads-counterfactual.diff" ]] || mark FAIL "counterfactual patch did not apply"
+# SRC matters: without it this compiled $REPO, i.e. the shipped value, and arm C
+# silently timed arm B again (Colab, 2026-10-09: C = 1.00x B at 102 % CPU).
+SRC="$WT" build "$WT/build-prof" -DCMAKE_BUILD_TYPE=Release -DPROFILING=ON \
     && mark PASS "build counterfactual (IntraOpNumThreads=${THREADS})" || mark FAIL "build counterfactual"
 
 if want timing; then
@@ -164,6 +167,7 @@ timed_set() { # tag, app, input, frames, runs
 uptime > "$OUT/timing/load-before.txt"
 for arm in A:build-perf B:build-prof C:counterfactual; do
     tag="${arm%%:*}"; dir="${arm#*:}"
+    [[ " ${ARMS:-A B C} " == *" $tag "* ]] || continue
     app="$REPO/$dir/inference_app"; [[ "$tag" == C ]] && app="$WT/build-prof/inference_app"
     log "timing arm ${tag}"
     TIMING_RUNS_NOW=1 timed "warmup-${tag}-image" "$app" "$IMAGE" 0
@@ -172,7 +176,8 @@ for arm in A:build-perf B:build-prof C:counterfactual; do
     timed_set "${tag}-30f" "$app" "$OUT/inputs/dog-30f.mkv" 30 "$TIMING_RUNS"
 done
 log "timing arm B, 60f"
-timed_set "B-60f" "$REPO/build-prof/inference_app" "$OUT/inputs/dog-60f.mkv" 60 "$LONG_RUNS"
+[[ " ${ARMS:-A B C} " == *" B "* ]] \
+    && timed_set "B-60f" "$REPO/build-prof/inference_app" "$OUT/inputs/dog-60f.mkv" 60 "$LONG_RUNS"
 uptime > "$OUT/timing/load-after.txt"
 mark DONE "timing sets"
 
