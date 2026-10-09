@@ -131,7 +131,7 @@ All three push/PR workflows (`ci.yml`, `lint.yml`, `gpu-compile.yml`) trigger on
 
 - The README version tables restate `versions.env` for readers at a glance; `AGENTS.md`
   requires them, and `check_version_sync.sh` verifies them. No other prose states a pinned value.
-- `project()` declares `VERSION 0.6.0`; `vcpkg.json` and the README badge agree. This is a *project*
+- `project()` declares `VERSION 0.6.1`; `vcpkg.json` and the README badge agree. This is a *project*
   version, not a dependency pin, so `versions.env` does not cover it.
 - `dockerfile.trt` forwards `--build-arg TENSORRT_VERSION` to CMake as `-DTENSORRT_VERSION`, because the TensorRT shim directory it creates must match what CMake looks for. Any future build arg that names a pin needs the same forwarding.
 - `scripts/run_gate.sh` defaults `CUDA_ARCH=89` rather than the build default
