@@ -58,9 +58,9 @@ Written before any code change. The baseline was captured on `cc0d4f9`, as descr
 
 | ID | Req | Check | Pass when | Result |
 |----|-----|-------|-----------|--------|
-| V-16 | R-7 | CUDA-pipeline build: video with `--display --gpu-preprocess --gpu-postprocess --segmentation`, with X forwarded into the container | The user confirms the window opens, plays the annotated frames with masks, closes cleanly at the end of the stream and on window close, and the app exits 0 | |
-| V-17 | R-7 | The same as V-16 in the DALI build | As V-16 | |
-| V-18 | R-7 | CPU/CPU `--display` in the GPU build (control) | As V-16. A failure here makes V-16/V-17 failures not GPU-specific | |
+| V-16 | R-7 | CUDA-pipeline build: video with `--display --gpu-preprocess --gpu-postprocess --segmentation`, with X forwarded into the container | The user confirms the window opens, plays the annotated frames with masks, closes cleanly at the end of the stream and on window close, and the app exits 0 | Headless evidence only (L4, Xvfb, `check_display.sh`, 2026-10-08): window at video size, annotated frames, `q` exits 0. End-of-stream close, window close and a watched real display not checked; see `specs/features/2026-10-08-colab-gpu-gate/validation.md` |
+| V-17 | R-7 | The same as V-16 in the DALI build | As V-16 | UNRUN: the Colab display check ran the CUDA build only |
+| V-18 | R-7 | CPU/CPU `--display` in the GPU build (control) | As V-16. A failure here makes V-16/V-17 failures not GPU-specific | Headless evidence only (L4, Xvfb, `check_display.sh`, 2026-10-08): window at video size, annotated frames, `q` exits 0. End-of-stream close, window close and a watched real display not checked; see `specs/features/2026-10-08-colab-gpu-gate/validation.md` |
 
 A window that opens but is not watched is recorded as "opened, not inspected" (Q-2), never as a pass.
 

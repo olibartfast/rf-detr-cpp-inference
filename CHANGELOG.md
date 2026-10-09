@@ -62,6 +62,26 @@ both the CUDA and the DALI build, compared with one shared TensorRT 11 engine. T
 | `tests/benchmark/bench_cpu_pipeline.cpp` | New: CPU decode-path benchmarks |
 | `README.md`, `docs/advanced-usage.md`, `docs/development.md`, `AGENTS.md`, `specs/tech-stack.md`, `specs/mission.md` | `PROFILING`, enforced clang-tidy, the new CLI unit, refreshed `CMakeLists.txt` line references |
 
+### GPU gate on Google Colab
+
+Runs `scripts/run_gate.sh` on Colab cards. Passed on a Tesla T4 (`develop`) and an L4 (the Phase 7
+code), including `--display` under Xvfb. Record:
+[`specs/features/2026-10-08-colab-gpu-gate/validation.md`](specs/features/2026-10-08-colab-gpu-gate/validation.md).
+
+#### Added
+
+- `scripts/colab/gpu_gate.ipynb` and `scripts/colab/setup_colab.sh`.
+- `scripts/check_display.sh` verifies `--display` on a headless machine (Xvfb).
+- `DALI_SOURCE=pip ./scripts/fetch_dali.sh` stages DALI without Docker.
+- `run_gate.sh`: `CUDA_ARCH` defaults to the card's compute capability; new `SKIP_BUILD_MATRIX=1`.
+
+#### Fixed
+
+- `run_gate.sh` failed every engine build on a fresh machine: TensorRT's libs were added to
+  `LD_LIBRARY_PATH` before step 1 had downloaded them.
+- `run_gate.sh` reported a missing DALI as `FAIL` instead of `UNRUN`.
+- On Colab, TensorRT is fetched with `wget` retries; the configure-time download timed out on an L4.
+
 ## [v0.6.0] - 2026-10-07
 
 CUDA preprocessing becomes the default GPU preprocessor, the GPU stack moves to TensorRT 11 only,

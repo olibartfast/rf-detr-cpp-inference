@@ -9,6 +9,13 @@
 #
 #   ./scripts/fetch_dali.sh [dest]        # default dest: ~/dependencies/dali
 #   TRITON_IMAGE=nvcr.io/nvidia/tritonserver:26.01-py3 ./scripts/fetch_dali.sh
+#   DALI_SOURCE=pip ./scripts/fetch_dali.sh   # no Docker (e.g. Google Colab)
+#
+# DALI_SOURCE=pip installs nvidia-dali-cuda<major>0==${DALI_VERSION} and its
+# dependency wheels into a scratch directory with pip and copies the same files
+# out of it. The Triton image's DALI backend is that same wheel tree, so the
+# layout matches; the provenance differs (PyPI build vs the NGC one), which is
+# why Docker stays the default.
 #
 # Then configure with -DDALI_ROOT=<dest>.
 set -euo pipefail
@@ -19,7 +26,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/versions.sh"
 DEST="${1:-${HOME}/dependencies/dali}"
 NV_DIR="/opt/tritonserver/backends/dali/wheel/dali/nvidia"
-WHEEL_DIR="${NV_DIR}/dali"
+DALI_SOURCE="${DALI_SOURCE:-docker}"
 
 if [[ -f "${DEST}/include/dali/c_api.h" ]]; then
     echo "DALI already staged at ${DEST}"
@@ -38,17 +45,41 @@ dest_name="$(basename "${DEST}")"
 # from sibling wheel directories. ldd cannot see them, and without them
 # --gpu-preprocess fails at decode time, so they are flattened next to libdali.so,
 # where the $ORIGIN entries of DALI's and the codec extensions' RUNPATHs reach them.
-docker run --rm -v "${dest_parent}:/out" "${TRITON_IMAGE}" \
-    sh -lc "cp -a ${WHEEL_DIR}/include /out/${dest_name}/ \
-         && cp -a ${WHEEL_DIR}/.libs /out/${dest_name}/ \
-         && cp -a ${WHEEL_DIR}/libdali.so ${WHEEL_DIR}/libdali_core.so \
-                  ${WHEEL_DIR}/libdali_kernels.so ${WHEEL_DIR}/libdali_operators.so \
-                  /out/${dest_name}/ \
-         && cp -a ${NV_DIR}/nvimgcodec/libnvimgcodec.so.0 ${NV_DIR}/nvimgcodec/extensions \
-                  /out/${dest_name}/ \
+copy_dali() { # nv_dir, out_dir — runs inside the container or on the host
+    local nv="$1" out="$2" wheel="$1/dali"
+    printf '%s' "cp -a ${wheel}/include ${out}/ \
+         && cp -a ${wheel}/.libs ${out}/ \
+         && cp -a ${wheel}/libdali.so ${wheel}/libdali_core.so \
+                  ${wheel}/libdali_kernels.so ${wheel}/libdali_operators.so \
+                  ${out}/ \
+         && cp -a ${nv}/nvimgcodec/libnvimgcodec.so.0 ${nv}/nvimgcodec/extensions \
+                  ${out}/ \
          && for lib_dir in cu13/lib libnvcomp/lib64 nvjpeg2k/lib nvtiff/lib; do \
-                cp -a ${NV_DIR}/\${lib_dir}/*.so* /out/${dest_name}/ || exit 1; \
+                cp -a ${nv}/\${lib_dir}/*.so* ${out}/ || exit 1; \
             done"
+}
+
+case "${DALI_SOURCE}" in
+    docker)
+        docker run --rm -v "${dest_parent}:/out" "${TRITON_IMAGE}" \
+            sh -lc "$(copy_dali "${NV_DIR}" "/out/${dest_name}")"
+        echo "${TRITON_IMAGE}" > "${DEST}/SOURCE"
+        ;;
+    pip)
+        # The wheel name carries the CUDA major (cuda130 for CUDA 13.x).
+        dali_wheel="nvidia-dali-cuda${CUDA_VERSION%%.*}0==${DALI_VERSION}"
+        pip_dir="$(mktemp -d)"
+        trap 'rm -rf "${pip_dir}"' EXIT
+        python3 -m pip install --quiet --target "${pip_dir}" \
+            --extra-index-url https://pypi.nvidia.com "${dali_wheel}"
+        sh -c "$(copy_dali "${pip_dir}/nvidia" "${DEST}")"
+        echo "pip ${dali_wheel}" > "${DEST}/SOURCE"
+        ;;
+    *)
+        echo "error: DALI_SOURCE must be docker or pip, got '${DALI_SOURCE}'" >&2
+        exit 1
+        ;;
+esac
 
 if [[ ! -f "${DEST}/include/dali/c_api.h" ]]; then
     echo "error: ${DEST}/include/dali/c_api.h missing after extraction" >&2
