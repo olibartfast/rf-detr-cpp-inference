@@ -17,20 +17,20 @@ the deliverable. It remains incomplete until the metrics rows below pass.
 | V-6 / R-6 | Evidence honesty | Search for unsupported “measured”, “proved”, “improved”, and unlabeled estimates; compare with tool inventory | PASS | Runtime profiling explicitly UNRUN; 1.55 GiB example labeled hypothetical |
 | V-7 / scope | No implementation or unrelated edits | `git status --short` and `git diff --check` | PASS | Only this feature directory is untracked; diff check clean |
 | V-8 / regression | Repository gate | `./scripts/scoreboard.sh` once by documentation worker | PASS | `SCOREBOARD: PASS`; configure/build succeeded and 10/10 tests passed |
-| V-9 / R-7 | Actual application workload | Run checked-in model/image/labels and generated video; record frame count and output | Pending | Pending |
-| V-10 / R-8 | Repeated timing and counters | Fixed `perf stat` groups with repeated runs and raw logs | Pending | Pending |
-| V-11 / R-9 | Hotspot call graph | `perf record` plus noninteractive report with symbols | Pending | Pending |
-| V-12 / R-10 | Native and heap peaks | `/usr/bin/time -v`, Massif, and `ms_print` peak tree | Pending | Pending |
-| V-13 / R-11 | Results record | Review `results.md` against raw artifacts and exact commands | Pending | Pending |
-| V-14 / R-15 | `PROFILING` build option | Configure with and without `-DPROFILING=ON`; confirm default `OFF` changes nothing, and that `-fno-omit-frame-pointer` reaches a library target's compile line, not only `inference_app` | Pending | Pending |
-| V-15 / R-12, R-13 | Steady-state benchmarks | Build `-DBENCHMARKS=ON`; run `benchmarks`; every added case reports real time, CPU time and iterations | Pending | Pending |
-| V-16 / R-16 | Benchmark rigor | Each added case is size-parameterized; the decode case has a competing implementation; every observation point uses `DoNotOptimize`/`ClobberMemory` | Pending | Pending |
-| V-17 / R-14 | Deferral claim tested | `results.md` states whether measured decode cost supports or contradicts the roadmap's "not a bottleneck" reason | Pending | Pending |
-| V-18 / R-15 scope | Option documented | `PROFILING` appears in `README.md`, `docs/advanced-usage.md`, and `specs/tech-stack.md`; `CHANGELOG.md` has the entry | Pending | Pending |
-| V-19 / D-10 | Controlled comparison | Both build arms reported with dispersion; no difference inside the noise reported as a speedup | Pending | Pending |
-| V-21 / regression | Pre-existing benchmark build break | Build `-DBENCHMARKS=ON -DWERROR=ON` without DALI | FAIL (pre-existing), fix dispatched | `bench_gpu_pipeline.cpp:44` defines `encode_jpeg` outside the `#ifdef USE_DALI` guard holding its only call site (`:95`), so `-Wunused-function` fires under `-Werror`. Broken since that file landed; CI misses it because `BENCHMARKS` defaults `OFF` and the GPU job builds the library only |
+| V-9 / R-7 | Actual application workload | Run checked-in model/image/labels and generated video; record frame count and output | PASS | Colab 2026-10-09: image + 5/30/60-frame FFV1 videos; every video run printed the expected `Processed N frames`; [results.md](results.md) Environment |
+| V-10 / R-8 | Repeated timing and counters | Fixed `perf stat` groups with repeated runs and raw logs | PASS (split host) | Timing n=7 per set, CV ≤ 3.89 %; software counters on Colab, IPC 2.236 / branch miss 1.013 % / cache miss 6.111 % on the workstation (no PMU on Colab, D-16/D-17); [results.md](results.md) |
+| V-11 / R-9 | Hotspot call graph | `perf record` plus noninteractive report with symbols | FAIL at symbol level, PASS at DSO level | 12K samples, 0 lost; 98.96 % unresolved because ONNX Runtime 1.28.0 ships stripped; DSO attribution: ONNX Runtime 95.97 %, app 0.51 %; [results.md](results.md) |
+| V-12 / R-10 | Native and heap peaks | `/usr/bin/time -v`, Massif, and `ms_print` peak tree | PASS (image) / UNRUN (5-frame Massif, D-22) | RSS image 324.2 MiB, video 674.6 MiB; Massif peak 390.9 MiB, owners cover 97.2 %; Memcheck 0 errors, 0 lost; [results.md](results.md) |
+| V-13 / R-11 | Results record | Review `results.md` against raw artifacts and exact commands | PASS with a stated gap | `results.md` written from `summary.md`; raw artifacts not retained (user choice), checksums recorded |
+| V-14 / R-15 | `PROFILING` build option | Configure with and without `-DPROFILING=ON`; confirm default `OFF` changes nothing, and that `-fno-omit-frame-pointer` reaches a library target's compile line, not only `inference_app` | PASS | `PROFILING=ON` puts `-fno-omit-frame-pointer` on `rfdetr_inference_lib`; `OFF` does not (`env/profiling-{on,off}.cmd`) |
+| V-15 / R-12, R-13 | Steady-state benchmarks | Build `-DBENCHMARKS=ON`; run `benchmarks`; every added case reports real time, CPU time and iterations | PASS | `benchmarks` built `-DWERROR=ON`, 5 repetitions; real, CPU, iterations and CV reported for every case |
+| V-16 / R-16 | Benchmark rigor | Each added case is size-parameterized; the decode case has a competing implementation; every observation point uses `DoNotOptimize`/`ClobberMemory` | PASS | Added cases size-parameterised; top-k has a competing implementation; shipped is 6.3–6.5 % faster, outside the dispersion |
+| V-17 / R-14 | Deferral claim tested | `results.md` states whether measured decode cost supports or contradicts the roadmap's "not a bottleneck" reason | PASS | Decode 0.43 ms/frame vs 1,964 ms/frame = 0.022 %: supports the "not a bottleneck" deferral |
+| V-18 / R-15 scope | Option documented | `PROFILING` appears in `README.md`, `docs/advanced-usage.md`, and `specs/tech-stack.md`; `CHANGELOG.md` has the entry | PASS | `PROFILING` in `README.md`, `docs/advanced-usage.md`, `specs/tech-stack.md`; CHANGELOG entry landed with Phase 7 (PR #24) |
+| V-19 / D-10 | Controlled comparison | Both build arms reported with dispersion; no difference inside the noise reported as a speedup | PASS | Arm A 61.360 s (CV 2.23 %) vs arm B 61.070 s (CV 1.10 %): inside the noise, no difference claimed |
+| V-21 / regression | Pre-existing benchmark build break | Build `-DBENCHMARKS=ON -DWERROR=ON` without DALI | PASS 2026-10-09 (fixed on `develop` by Phase 7: `encode_jpeg` now behind the right `#if`); first recorded as FAIL | `bench_gpu_pipeline.cpp:44` defines `encode_jpeg` outside the `#ifdef USE_DALI` guard holding its only call site (`:95`), so `-Wunused-function` fires under `-Werror`. Broken since that file landed; CI misses it because `BENCHMARKS` defaults `OFF` and the GPU job builds the library only |
 | V-22 / R-15 | Flag reaches a library TU | `ninja -C build-bench -t commands rfdetr_inference_lib` with `-DPROFILING=ON` | PASS | Compile line carries `-fno-omit-frame-pointer -g -O3`, confirming `add_compile_options` reaches `rfdetr_inference_lib` and not merely `inference_app` |
-| V-20 / scope | Writable-path boundary | `git status --short` and `git diff --name-only` show only the paths R-12/R-15 permit, and `.claude/skills/release/SKILL.md` keeps the user's modification | Pending | Pending |
+| V-20 / scope | Writable-path boundary | `git status --short` and `git diff --name-only` show only the paths R-12/R-15 permit, and `.claude/skills/release/SKILL.md` keeps the user's modification | PASS | This pass changed only this directory; `src/` untouched (the threads counterfactual lived in a worktree) |
 
 ## Baseline Environment
 
@@ -87,12 +87,12 @@ respects; the corrected values, not the stale ones, govern the execution pass:
 | Worker scoreboard | PASS | 2026-09-22 | Run exactly once; configure/build passed and 10/10 tests passed; Valgrind target disabled because Valgrind unavailable |
 | Planner content review | PASS | 2026-09-22 | Commands, formulas, source hypotheses, qualifications, estimates, and official links reviewed |
 | Scope diff | PASS | 2026-09-22 | Only `specs/features/2026-09-22-performance-memory-investigation/` changed |
-| Actual workload metrics | Pending | — | Feature reopened; documentation is insufficient |
+| Actual workload metrics | PASS | 2026-10-09 | Colab + workstation pass; [results.md](results.md) |
 
 ## Definition of Done
 
-- [ ] Every matrix row has an executed result and concrete evidence.
-- [ ] Required application metrics are present in `results.md`.
-- [ ] Failures and unavailable checks remain visible as `FAIL` or `UNRUN`.
-- [ ] Guide and spec describe actual delivered scope.
+- [x] Every matrix row has an executed result and concrete evidence.
+- [x] Required application metrics are present in `results.md`.
+- [x] Failures and unavailable checks remain visible as `FAIL` or `UNRUN` (V-11 symbol level, D-22).
+- [x] Guide and spec describe actual delivered scope.
 - [x] No roadmap phase or release is marked complete by this investigation.

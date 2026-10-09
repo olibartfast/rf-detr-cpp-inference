@@ -39,7 +39,7 @@ Written before any code change. The baseline was captured on `cc0d4f9`, as descr
 | V-9 | all | ASan+UBSan: `cmake -S . -B build-san -DCMAKE_BUILD_TYPE=Debug -DSANITIZERS=ON`, then `./build-san/unit_tests` | 0 sanitizer reports || PASS 2026-10-07 at `c032044`: ASan+UBSan Debug, 103/103 unit tests, 0 sanitizer reports |
 | V-10 | R-3 | `-DUSE_OPENCV=ON -DWERROR=ON` builds `inference_app` and `unit_tests` | Builds; unit tests pass || PASS 2026-10-07 at `c032044`: `-DUSE_OPENCV=ON -DWERROR=ON` builds; 103/103 unit tests |
 | V-11 | R-9 | `./scripts/check_version_sync.sh` | Passes || PASS 2026-10-07: "All pins agree with versions.env." |
-| V-12 | R-8 | The investigation's V-14…V-22 (its `validation.md`) | Per that file; its own tolerances govern | |
+| V-12 | R-8 | The investigation's V-14…V-22 (its `validation.md`) | Per that file; its own tolerances govern | PASS 2026-10-09 with recorded gaps: V-14…V-22 executed; symbol-level attribution FAIL (stripped ONNX Runtime) and the 5-frame Massif UNRUN (D-22). `results.md` published |
 
 ## Automated — with a device (RTX 3060 Laptop, `rfdetr-p6:*` images)
 

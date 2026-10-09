@@ -17,16 +17,20 @@ find src tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format-18 --dry-run 
 find src tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format-18 -i
 ```
 
-## Static Analysis (Optional)
-If you have `clang-tidy-18` installed, you can run static analysis using the compile commands database:
+## Static Analysis
+`clang-tidy-18` is enforced in CI: `.clang-tidy` sets `WarningsAsErrors: '*'`, so any finding
+fails the `Clang-Tidy` job. Run it locally before pushing, with the compile commands database:
 
 ```bash
 # Generate compile_commands.json first:
 cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
-# Run clang-tidy on project sources:
-find src -name '*.cpp' | xargs clang-tidy-18 -p build
+# Run clang-tidy on project sources (same exclusion as lint.yml: the default
+# configure has no TensorRT headers):
+find src -name '*.cpp' ! -name 'tensorrt_backend.cpp' | xargs clang-tidy-18 -p build
 ```
+
+Suppress a finding only with a line-scoped `// NOLINT(<check>)` and its reason.
 
 ## Cppcheck (Optional)
 If you have `cppcheck` installed, you can run additional static analysis:
@@ -170,6 +174,9 @@ cmake -S . -B build-prof -DCMAKE_BUILD_TYPE=Release -DPROFILING=ON -DBENCHMARKS=
 cmake --build build-prof --parallel
 perf record -g ./build-prof/benchmarks && perf report
 ```
+
+A measured profile of the CPU ONNX Runtime path (timing, counters, call graph, heap) is in
+[specs/features/2026-09-22-performance-memory-investigation/results.md](../specs/features/2026-09-22-performance-memory-investigation/results.md).
 
 ## Code Quality Tools
 | Tool | Purpose | How to run |
