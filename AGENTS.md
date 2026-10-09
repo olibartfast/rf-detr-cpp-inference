@@ -116,7 +116,7 @@ hardcode a version anywhere else.
   `Versions at a Glance`, `Common Build Options` and `Choosing a Backend` sections); the exhaustive
   reference — every CMake option, the per-backend constraints, the ONNX Runtime archive table — lives in
   `docs/advanced-usage.md`. Both must be updated together, and the README must keep linking to it.
-- If a release intentionally needs no README change, say why in `CHANGELOG.md` or the PR/release notes.
+- If a release intentionally needs no README change, say why in the PR/release notes.
 
 ## Testing
 - Unit tests: `ctest --test-dir build --output-on-failure -R UnitTests`
@@ -264,8 +264,8 @@ Every tolerance must be a number. "Close enough" is not a gate.
 
 #### Closing a phase
 
-When `validation.md` is fully ticked: update `CHANGELOG.md` under `[Unreleased]` in the house style
-(prose plus a per-file table), tick the phase's items in `specs/roadmap.md` and mark the heading
+When `validation.md` is fully ticked: add one-line bullets to `CHANGELOG.md` under `[Unreleased]` (see
+[Changelog style](#changelog-style)), tick the phase's items in `specs/roadmap.md` and mark the heading
 `(Complete)`, then merge into `develop` and delete the branch.
 
 ### Checklist: rfdetr-alignment
@@ -329,10 +329,10 @@ Per the Spec Sync rule in `AGENTS.md`:
       covers `deploy/requirements.txt` and the README tables; other prose names the variable)
 - [ ] Remaining README statements verified against `CMakeLists.txt`, `CMakePresets.json`,
       `dockerfile.*`, `docs/export.md`
-- [ ] `CHANGELOG.md` entry under `[Unreleased]`: a heading naming the release, a link to the
-      upstream release tag, prose on what changed upstream and why it does or does not reach C++,
-      and a per-file change table
-- [ ] If the alignment needs **no** README change, write down in the CHANGELOG why not — that
+- [ ] `CHANGELOG.md` bullet under `[Unreleased]`: "Export tooling aligned with rfdetr X.Y.Z"
+      linking the upstream tag, plus a few words on any contract change. The analysis of why it
+      does or does not reach C++ goes in the spec, not the CHANGELOG
+- [ ] If the alignment needs **no** README change, write down in the spec why not — that
       statement is required, not optional
 
 #### Step 5 — Verify
@@ -342,8 +342,8 @@ Per the Spec Sync rule in `AGENTS.md`:
 - [ ] If the TensorRT, ExecuTorch, or GPU paths are implicated, run
       [`gpu-verify`](#checklist-gpu-verify) or the equivalent manual backend check — **CI tests
       none of them**
-- [ ] Any behaviour that could not be verified is stated plainly in the CHANGELOG rather than
-      implied to work
+- [ ] Any behaviour that could not be verified is stated plainly in the spec's `validation.md`
+      (and as a CHANGELOG known issue if users hit it) rather than implied to work
 
 ### Checklist: release
 
@@ -360,13 +360,16 @@ release includes an upstream `rfdetr` alignment, verify that release against
 
 `specs/roadmap.md` says which phases the release is gated on. Do not cut a release with an unticked
 gating phase unless the user explicitly decides to — and if they do, record that decision in the
-CHANGELOG.
+release spec, and list the open item under the CHANGELOG's known issues.
 
 For anything touching TensorRT, ExecuTorch, DALI, or CUDA: **CI has never built or run it.** Run
 [`gpu-verify`](#checklist-gpu-verify) and the manual backend checks first, or state in the release
 notes exactly what went out unverified.
 
 #### Step 2 — Reconcile the version statements
+
+**The version number is the maintainer's decision.** Ask for it; never pick the bump level
+yourself. Hardening, refactors, tooling and fixes with no behaviour change are a patch release.
 
 The project version is stated in four places, and they must agree (the first three were reconciled
 in v0.5.0):
@@ -396,15 +399,23 @@ From `AGENTS.md`. Every box is mandatory:
       the pip packages used for export tooling
 - [ ] `specs/tech-stack.md` matches the files that own each pin
 - [ ] Any completed roadmap phase is ticked `[x]` and its heading marked `(Complete)`
-- [ ] If the release intentionally needs no README change, the reason is written in `CHANGELOG.md`
+- [ ] If the release intentionally needs no README change, the reason is written in the release spec
 
 #### Step 4 — CHANGELOG
 
 - Move `[Unreleased]` to `[vX.Y.Z]` with the date; open a fresh empty `[Unreleased]`.
 - Review the **Known Issues** table: close what this release fixes, and leave what it does not with
   its reason intact.
-- Keep the house style — prose explaining *why*, plus per-file change tables. This project does not
-  generate its changelog from `git log`; a bullet per commit would lose the reasoning.
+- Follow the [Changelog style](#changelog-style).
+
+#### Changelog style
+
+`CHANGELOG.md` is a changelog, not documentation. [Keep a Changelog](https://keepachangelog.com/en/1.1.0/):
+- Sections `Breaking`, `Added`, `Changed`, `Removed`, `Fixed`, `Known issues` — omit empty ones.
+- One line per user-visible change. No intro paragraphs, no per-file tables, no rationale, no
+  benchmark numbers, no hardware/validation records, no "why the README did not change".
+- Reasoning, measurements and verification records go in `specs/features/<dir>/`; commit messages
+  carry the per-file detail.
 
 #### Step 5 — Cut it
 
@@ -543,7 +554,7 @@ cmake --build build-gpu-bench --parallel && ./build-gpu-bench/benchmarks
 
 #### 7. Record it
 
-- [ ] `CHANGELOG.md` updated with what was verified, on which hardware, and with which driver,
-      CUDA, TensorRT and DALI versions
+- [ ] The spec's `validation.md` records what was verified, on which hardware, and with which
+      driver, CUDA, TensorRT and DALI versions (not the CHANGELOG)
 - [ ] Anything **not** verified is stated plainly. An unrun check is reported as unrun, never
       implied to have passed

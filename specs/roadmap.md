@@ -6,10 +6,11 @@ Work this project has committed to, as a phased queue. Phases are ordered so eac
 
 ## Status
 
-- Last tag **v0.6.0** (2026-10-07). **Phase 7 in progress** — release hardening. Flow is git-flow: `develop` → `release/vX.Y.Z` → `master`, merged back.
+- Last tag **v0.6.1** (2026-10-09). **Phase 7 in progress**: only the `--display` real-screen and DALI item is open; v0.6.1 shipped with it open by decision. Flow is git-flow: `develop` → `release/vX.Y.Z` → `master`, merged back.
+- **v0.6.1 is released** — Phase 7 hardening (enforced clang-tidy, `rfdetr::cli`, `PROFILING`), the Colab GPU gate and the measured CPU profile. No behaviour change.
 - **v0.6.0 is released** — Phase 6 (CUDA preprocessing as the default GPU preprocessor, DALI as the
   alternative), TensorRT 11 only on NGC 26.08, the rfdetr 1.11.2 export alignment, and ONNX Runtime
-  1.28.0. Breaking for builds: see the migration note in `CHANGELOG.md`.
+  1.28.0. Breaking for builds: see `Breaking` under v0.6.0 in `CHANGELOG.md`.
 - **v0.5.1 is released** — a documentation-only patch: the README quick start, the new `docs/advanced-usage.md`, `docs/usage.md` trimmed to operations, and the maintainer procedures moved to `specs/`. No behaviour, build option, or pin changed.
 - **v0.5.0 is released** — the rfdetr 1.9.1 and 1.9.2 alignments and the whole GPU pipeline shipped. Phases 1–5 are complete.
 - GPU pipeline: preprocessing and segmentation postprocessing **work end to end**; the test, build,
