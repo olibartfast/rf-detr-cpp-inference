@@ -401,9 +401,9 @@ regenerate — this needs Docker with `--gpus all`:
 ### CUDA architectures
 
 `-DCMAKE_CUDA_ARCHITECTURES` defaults to `86` (RTX 30-series). Set it to your card's
-capability — e.g. `89` for Ada — when building the CUDA kernels. Note that
-`scripts/run_gate.sh` deliberately defaults to `CUDA_ARCH=89`, matching the hardware the
-verification gate is usually rented on; it is not a pin.
+capability — e.g. `89` for Ada — when building the CUDA kernels. `scripts/run_gate.sh`
+reads `CUDA_ARCH` from the card it runs on (falling back to `89`), so the verification gate
+always builds for the GPU under test; neither value is a pin.
 
 Design constraints and how each half works: [architecture.md](architecture.md#gpu-pipeline) and
 [specs/gpu-pipeline.md](../specs/gpu-pipeline.md). The build:
@@ -525,9 +525,10 @@ All three push/PR workflows trigger on `master` and `develop`.
 
 So the TensorRT, GPU-pipeline, and ExecuTorch paths must be exercised by hand before they can
 be trusted. `./scripts/run_gate.sh` drives the executable part of that verification unattended
-and reports the rest as `UNRUN`. The checklist it implements and the procedure for running it on
-rented hardware are maintainer material, kept with the specs —
-[specs/rented-gpu-runbook.md](../specs/rented-gpu-runbook.md).
+and reports the rest as `UNRUN`; `scripts/colab/gpu_gate.ipynb` runs it on Google Colab GPUs, and
+`./scripts/check_display.sh` checks `--display` on a headless machine. The checklist they
+implement and the procedure for running them on rented or Colab hardware are maintainer material,
+kept with the specs — [specs/rented-gpu-runbook.md](../specs/rented-gpu-runbook.md).
 
 ---
 
