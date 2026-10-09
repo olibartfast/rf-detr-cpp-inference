@@ -151,11 +151,14 @@ Spec: [`features/2026-10-07-phase-7-release-hardening/`](features/2026-10-07-pha
 — the investigation keeps its own spec in
 [`features/2026-09-22-performance-memory-investigation/`](features/2026-09-22-performance-memory-investigation/).
 
-- [ ] Command-line parsing becomes the `rfdetr::cli` library unit with unit tests; `main()` is split under the complexity threshold
-- [ ] Every clang-tidy finding fixed, or `NOLINT`ed with a reason; `postprocess_keypoint_outputs` split
-- [ ] clang-tidy enforced in CI (`WarningsAsErrors: '*'`)
+- [x] Command-line parsing becomes the `rfdetr::cli` library unit with unit tests; `main()` is split under the complexity threshold
+- [x] Every clang-tidy finding fixed, or `NOLINT`ed with a reason; `postprocess_keypoint_outputs` split
+- [x] clang-tidy enforced in CI (`WarningsAsErrors: '*'`)
 - [ ] `--display` verified on the GPU path (CUDA and DALI builds) on real hardware with a display
-- [ ] `PROFILING` option and CPU benchmarks merged; measured profiling results published
+  - Partial, 2026-10-08: CUDA build verified headless under Xvfb on a Colab T4 and an L4
+    (`specs/features/2026-10-08-colab-gpu-gate/validation.md`). A watched real display and the
+    DALI build's display remain open.
+- [x] `PROFILING` option and CPU benchmarks merged; measured profiling results published
 
 ---
 
