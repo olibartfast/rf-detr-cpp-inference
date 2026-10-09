@@ -194,7 +194,7 @@ if os.path.exists(mc):
         m = re.search(rf"{k}: ([\d,]+) bytes in ([\d,]+) blocks", t)
         print(f"- Memcheck {k}: {m.group(1) + ' bytes in ' + m.group(2) + ' blocks' if m else 'not reported'}")
     e = re.search(r"ERROR SUMMARY: (\d+) errors", t)
-    x = re.search(r"exit: (\d+)", t)
+    x = re.search(r"^exit: (\d+)", t, re.M)  # not "in use at exit: N bytes"
     print(f"- Memcheck errors: {e.group(1) if e else '?'}; exit {x.group(1) if x else '?'}")
 print()
 
