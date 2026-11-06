@@ -31,12 +31,13 @@ LiteRT is CPU only and needs no GPU. Existing GPU skip rules remain unchanged; n
 
 - [x] CHANGELOG and all backend/constitution documentation updated.
 - [x] Validation recorded honestly; unavailable checks are UNRUN with reasons.
-- [ ] Roadmap ticked only after merge; feature branch merged and deleted (requires separate authorization for outward-facing publication).
+- [x] Roadmap ticked after merge; feature branch merged into `develop` (tagging and publication are owned by the [v0.7.0 release](../2026-11-06-release-v0.7.0/)).
 
 ## Results
 
 Verified locally on 2026-11-06, branch `feature/litert-backend`, based on current `origin/develop`.
-No commit, merge, push or tag was made. Roadmap boxes intentionally remain open until merge.
+The feature was merged into `develop` for v0.7.0; release publication is recorded in the
+[v0.7.0 release validation](../2026-11-06-release-v0.7.0/validation.md).
 
 ### Environment and artifact provenance
 

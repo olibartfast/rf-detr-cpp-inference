@@ -5,6 +5,8 @@ Validation records live in `specs/features/`, not here.
 
 ## [Unreleased]
 
+## [v0.7.0] - 2026-11-06
+
 ### Added
 - LiteRT CPU inference for RF-DETR detection and instance segmentation using `.tflite` models.
 - Scripts to install the matching LiteRT SDK and export float32 models, including experimental pose export.
@@ -143,7 +145,8 @@ Validation records live in `specs/features/`, not here.
 ## [v0.1.0] - 2026-02-14
 - Initial release.
 
-[Unreleased]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.6.1...develop
+[Unreleased]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.7.0...develop
+[v0.7.0]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.6.1...v0.7.0
 [v0.6.1]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.6.0...v0.6.1
 [v0.6.0]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.5.1...v0.6.0
 [v0.5.1]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.5.0...v0.5.1
