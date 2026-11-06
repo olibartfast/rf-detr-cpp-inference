@@ -5,6 +5,23 @@ Validation records live in `specs/features/`, not here.
 
 ## [Unreleased]
 
+### Added
+- LiteRT CPU inference for RF-DETR detection and instance segmentation using `.tflite` models.
+- Scripts to install the matching LiteRT SDK and export float32 models, including experimental pose export.
+
+### Changed
+- Image drawing and saving helpers can be called directly on `RFDETRInference` without loading a model.
+
+### Fixed
+- Static-analysis failures in image utilities and OpenCV preview cleanup.
+
+### Known issues
+- LiteRT supports CPU float32 inference only; GPU/NPU acceleration and quantized models are not supported.
+- Experimental pose output at low confidence thresholds can include false positives on background objects.
+- ONNX Runtime runs on one CPU thread.
+- GPU JPEG decoding can differ slightly from CPU decoding.
+- DALI preview and GPU playback on a real screen remain unverified.
+
 ## [v0.6.1] - 2026-10-09
 
 ### Added

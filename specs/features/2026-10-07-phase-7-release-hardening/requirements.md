@@ -126,3 +126,10 @@ v0.6.0 shipped with three open items, and one older investigation is still unfin
 - **Q-2** — R-7 needs the user's `DISPLAY` and X authorisation (`xhost +local:docker` or an
   Xauthority mount) at run time. If the window opens but cannot be watched, R-7 is recorded as
   "window opened, not inspected" and not as a pass.
+
+## Constitution sync — LiteRT backend
+
+The project now also permits an exclusive LiteRT CPU backend (`USE_LITERT`, `LITERT_VERSION`, converter pin `LITERT_TORCH_VERSION`),
+behind the same InferenceBackend interface. This does not change this spec’s backend scope or
+its existing validation obligations; GPU pipeline options still require TensorRT. See
+[the LiteRT spec](../2026-11-06-litert-backend/requirements.md).

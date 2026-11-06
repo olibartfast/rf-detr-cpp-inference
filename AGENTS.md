@@ -41,6 +41,11 @@ Exactly one backend is compiled in; enabling two is a configure-time error.
   - The prefix must be built with `-DEXECUTORCH_BUILD_KERNELS_OPTIMIZED=ON` (defaults to `OFF`): `.pte` files from rfdetr 1.9.1+ call `aten::linear.out`, which only `optimized_native_cpu_ops_lib` registers. The build links that lib when present and warns + falls back to `portable_ops_lib` when not — exactly one op library, since duplicate kernel registration aborts at startup. See [docs/building.md](docs/building.md#building-the-executorch-install-prefix), "Building the ExecuTorch install prefix".
   - The `extension/evalue_util` install-path patch is only needed on v1.3.1 and older; v1.4.0 fixed it upstream.
 
+- LiteRT (CPU float32 detection/pose/segmentation, direct `.tflite` export):
+  `./scripts/fetch_litert.sh` then `cmake -S . -B build-litert -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_LITERT=ON -DLITERT_ROOTDIR=$HOME/dependencies/litert -DCMAKE_BUILD_TYPE=Release && cmake --build build-litert --parallel`
+  - `LITERT_VERSION` owns the native SDK/runtime pin; `LITERT_TORCH_VERSION` pins the direct export converter. Python is for staging/export only. No GPU/NPU, quantized I/O or NHWC support. Keypoints use the export-only Linear reshape adapter in deploy/litert_keypoint_export.py; revalidate its pinned private exporter hook at every rfdetr alignment.
+  - CMake uses a supplied prefix; there is no automatic source build or LiteRT Dockerfile.
+
 ## Docker
 Three backend Dockerfiles build the inference-backend × media-backend matrix; the backend is
 chosen by which file you pass to `-f` (there is no bare `Dockerfile`):
@@ -102,7 +107,8 @@ hardcode a version anywhere else.
   `cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`
   `find src -name '*.cpp' ! -name 'tensorrt_backend.cpp' | xargs clang-tidy-18 -p build` (same exclusion as `lint.yml`; the default configure has no TensorRT headers). `.clang-tidy` sets `WarningsAsErrors: '*'`, so any finding exits non-zero and fails CI. Suppress only with a line-scoped `// NOLINT(<check>)` plus its reason, never a blanket disable
 - `./scripts/scoreboard.sh` (the delegated-work gate) runs format, build and tests but **not** clang-tidy or cppcheck; run those separately.
-- Cppcheck: `cppcheck --enable=all --std=c++20 --suppress=missingIncludeSystem --suppress=unmatchedSuppression --suppress=unusedFunction --error-exitcode=1 -I src src/`
+- Cppcheck: `cppcheck --enable=all --check-level=exhaustive --std=c++20 --suppress=missingIncludeSystem --suppress=unmatchedSuppression --suppress=unusedFunction --error-exitcode=1 -I src src/`
+- Cppcheck uses exhaustive analysis so `--enable=all` does not fail on the normal branch-analysis budget notice in newer versions. No diagnostic class is disabled.
 - Strict warnings (CI): `-DWERROR=ON` at configure time
 
 ## Spec Sync
@@ -166,10 +172,10 @@ Requires a plain Debug build (no sanitizers — ASan/TSan conflict with Valgrind
 - TensorRT engine: use .engine or .trt model file
 
 ## Notes
-- Only one backend (ONNX Runtime, TensorRT, or ExecuTorch) can be enabled at compile time.
+- Only one backend (ONNX Runtime, TensorRT, ExecuTorch, or LiteRT) can be enabled at compile time.
 - TensorRT requires manually installed CUDA toolkit.
 - Data directory is auto-created by CMake.
-- CI compiles the TensorRT backend and the GPU pipeline (`gpu-compile.yml`) but cannot run them; ExecuTorch is neither compiled nor run by CI. Test the behaviour of all three manually.
+- CI compiles the TensorRT backend and the GPU pipeline (`gpu-compile.yml`) but cannot run them; ExecuTorch is neither compiled nor run by CI. LiteRT is built and unit-tested on CPU in `ci.yml`; real-model parity remains a manual integration gate. Test alternate-backend behaviour manually.
 
 ## Workflow Checklists
 The four workflows from the [Workflow](#workflow) table. Each was a `.claude/skills/<name>/SKILL.md` file; they live here now so every agent and human reads them from the one file.

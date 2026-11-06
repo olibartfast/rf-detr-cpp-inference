@@ -35,6 +35,7 @@ prints is specialized to whichever backend it was built with.
 | **ONNX Runtime** | `.onnx` | Easy setup, no GPU or extra SDK needed | CPU only as shipped (see below) |
 | **TensorRT** | `.engine` / `.trt` (also accepts `.onnx`, building and caching an engine beside it) | Maximum performance | GPU-only, requires CUDA/TensorRT |
 | **ExecuTorch** | `.pte` | Small runtime, delegate-based (XNNPACK) | Requires an ExecuTorch install; rfdetr 1.9.0+ to export |
+| **LiteRT** | `.tflite` | Native CPU runtime | Fixed batch-1 NCHW float32 detection/pose/segmentation, direct LiteRT export only |
 
 ### ONNX Runtime (default)
 
@@ -104,6 +105,24 @@ The full prefix recipe, including why exactly one op library may be linked, is i
 
 ---
 
+### LiteRT
+
+Stage the native SDK with `scripts/fetch_litert.sh` (Linux wheels), then configure with
+`-DUSE_ONNX_RUNTIME=OFF -DUSE_LITERT=ON -DLITERT_ROOTDIR=<prefix>`.
+The prefix contains `include/litert/c/`, generated `include/litert/build_common/build_config.h`,
+and `lib/libLiteRt.so`. An independently built matching SDK can also supply the prefix.
+The runtime version is `LITERT_VERSION` in `versions.env`; Python is needed only to stage/export.
+
+Export with `deploy/export_litert.py` and use `.tflite` exactly like the other model paths.
+Use `--segmentation` with segmentation exports and `--keypoint` with pose exports. The backend reads the fixed resolution automatically;
+an explicit resolution must match. Inputs stay NCHW; outputs are positional boxes `[1,Q,4]`,
+class logits `[1,Q,C]`, and optional mask logits `[1,Q,H,W]` or keypoint parameters `[1,Q,K,8]`. No extra sigmoid or box decoding
+runs inside the backend. Quantized I/O, GPU/NPU delegates, NHWC and custom ONNX
+conversion operators are unsupported. Shared CPU preprocessing/postprocessing remain in use.
+LiteRT requires no CUDA installation and cannot enable the TensorRT GPU pipeline flags.
+The staging helper supports Linux wheel targets; other platforms need a supplied SDK and are unverified.
+There is no dedicated LiteRT Dockerfile.
+
 ## Media & Display Backends
 
 Image load/save, video decode/encode, and the `--display` preview window are backed by either
@@ -137,6 +156,8 @@ The complete list. The README carries only the handful most builds need.
 | `-DUSE_ONNX_RUNTIME=ON/OFF` | `ON` | ONNX Runtime backend |
 | `-DUSE_TENSORRT=ON/OFF` | `OFF` | TensorRT backend |
 | `-DUSE_EXECUTORCH=ON/OFF` | `OFF` | ExecuTorch backend for `.pte` models |
+| `-DUSE_LITERT=ON/OFF` | `OFF` | LiteRT CPU backend for direct `.tflite` exports |
+| `-DLITERT_ROOTDIR=<path>` | — | Staged LiteRT SDK prefix |
 | `-DEXECUTORCH_ROOTDIR=<path>` | — | ExecuTorch install prefix; without it ExecuTorch is built from source |
 | `-DEXECUTORCH_DELEGATE=xnnpack/portable` | `xnnpack` | ExecuTorch delegate library to link |
 
@@ -500,6 +521,13 @@ The video driver's own knobs live in `VideoPipelineConfig` (`src/video_pipeline.
 ---
 
 ## CI Coverage and Its Limits
+
+`ci.yml` also stages LiteRT and builds its CPU backend with strict warnings, then runs model-free
+unit tests. Real-model parity is manual: generate reference tensors with
+`tests/integration/generate_litert_reference.py MODEL.tflite OUTPUT_DIR`, then set
+`RFDETR_LITERT_MODEL` and `RFDETR_LITERT_REFERENCE` when running
+`./build-litert/integration_tests --gtest_filter=LiteRTIntegration.*`. This compares every
+float against the Python interpreter, repeats inference, and checks failed/successful reloads.
 
 | Workflow | File | What it does |
 |----------|------|-------------|

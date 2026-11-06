@@ -144,6 +144,7 @@ configure-time error.
 | **ONNX Runtime** (default) | `.onnx` | Development, CPU inference | *(nothing — it is the default)* |
 | **TensorRT** | `.engine` / `.trt` (also `.onnx`) | Production on NVIDIA GPUs | `-DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON` |
 | **ExecuTorch** | `.pte` | On-device / edge deployment | `-DUSE_ONNX_RUNTIME=OFF -DUSE_EXECUTORCH=ON -DEXECUTORCH_ROOTDIR=<prefix>` |
+| **LiteRT** | `.tflite` | CPU detection, pose and segmentation | `-DUSE_ONNX_RUNTIME=OFF -DUSE_LITERT=ON -DLITERT_ROOTDIR=<prefix>` |
 
 ```bash
 # TensorRT (NVIDIA GPU) — the CUDA Toolkit series CUDA_VERSION pins must already be installed
@@ -152,6 +153,11 @@ cmake -S . -B build -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON -DCMAKE_BU
 # ExecuTorch (CPU, .pte) — needs an install prefix
 cmake -S . -B build -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_EXECUTORCH=ON \
   -DEXECUTORCH_ROOTDIR=$HOME/dependencies/executorch -DCMAKE_BUILD_TYPE=Release
+
+# LiteRT (Linux CPU): stage headers and the matching native runtime once
+./scripts/fetch_litert.sh
+cmake -S . -B build-litert -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_LITERT=ON \
+  -DLITERT_ROOTDIR=$HOME/dependencies/litert -DCMAKE_BUILD_TYPE=Release
 
 # TensorRT + the optional GPU pipeline (CUDA preprocessing with nvJPEG + CUDA postprocessing)
 cmake -S . -B build -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON \
@@ -162,6 +168,9 @@ cmake -S . -B build -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON \
 cmake -S . -B build -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON \
   -DUSE_GPU_PIPELINE=ON -DUSE_DALI=ON -DDALI_ROOT=$HOME/dependencies/dali -DCMAKE_BUILD_TYPE=Release
 ```
+
+LiteRT accepts fixed batch-1 NCHW float32 models from the project export helper. Detection, pose
+and segmentation are supported; quantized I/O and GPU/NPU delegates remain outside scope. See [LiteRT export](docs/export.md#litert-model-export).
 
 The trade-offs, platform limits, and per-backend constraints — including why the ONNX Runtime
 backend is CPU-only as shipped — are in
@@ -185,6 +194,7 @@ backend is CPU-only as shipped — are in
 | **ONNX Runtime** | **1.28.0** | default backend — downloaded automatically |
 | **TensorRT** | **11.2.1.2** + CUDA Toolkit **13.3** series | TensorRT backend (CUDA installed manually; its nvJPEG serves `-DUSE_CUDA_PREPROCESS=ON`) |
 | **ExecuTorch** | **v1.4.0** | ExecuTorch backend |
+| **LiteRT** | **2.3.0** | Native CPU C API, staged SDK prefix |
 | NVIDIA DALI | 2.2.0 (staged from `nvcr.io/nvidia/tritonserver:26.08-py3`) | `-DUSE_DALI=ON` (alternative GPU preprocessor) |
 | FFmpeg / SDL2 | 5.x+ / 2.x (Conan pins 6.1 / 2.28.5) | default media backend — apt takes whatever the system has |
 | OpenCV | 4.x (Conan coordinate 4.8.1) | `-DUSE_OPENCV=ON` |
@@ -197,6 +207,8 @@ backend is CPU-only as shipped — are in
 |---------|-----|----------|
 | `rfdetr[onnx]` | `==1.11.2` | `.onnx` export, ONNX opset 17 |
 | `rfdetr[executorch]` | `==1.11.2` | `.pte` export — resolves ExecuTorch 1.3.x, whose `.pte` runs on the pinned v1.4.0 runtime |
+| `rfdetr[litert]` | `==1.11.2` | Direct float32 `.tflite` export through litert-torch |
+| `litert-torch` | `==0.10.0` | Pinned direct converter; pose uses the project Linear reshape adapter |
 | `rfdetr[tensorrt]` | `==1.11.2` | in-process engine builds (`tensorrt` + `polygraphy`) |
 
 These two tables are the only prose that states pinned versions; everything else in `docs/`
@@ -219,6 +231,8 @@ The handful you are likely to need. **The complete option list is in
 | `-DUSE_ONNX_RUNTIME=ON/OFF` | `ON` | ONNX Runtime backend |
 | `-DUSE_TENSORRT=ON/OFF` | `OFF` | TensorRT backend |
 | `-DUSE_EXECUTORCH=ON/OFF` | `OFF` | ExecuTorch backend for `.pte` models |
+| `-DUSE_LITERT=ON/OFF` | `OFF` | LiteRT CPU backend for direct `.tflite` exports |
+| `-DLITERT_ROOTDIR=<path>` | — | LiteRT headers and native library prefix |
 | `-DUSE_OPENCV=ON/OFF` | `OFF` | Use OpenCV for image/video/display I/O instead of FFmpeg+SDL2+stb |
 | `-DUSE_GPU_PIPELINE=ON/OFF` | `OFF` | CUDA preprocessing (nvJPEG + kernel) **and** CUDA postprocessing (TensorRT only) |
 | `-DUSE_DALI=ON/OFF` | `OFF` | DALI as the GPU preprocessor instead of the CUDA kernel; never both (configure error) |

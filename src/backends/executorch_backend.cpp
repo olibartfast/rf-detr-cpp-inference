@@ -41,7 +41,7 @@ std::vector<int64_t> meta_output_shape(const executorch::runtime::MethodMeta &me
 
 } // anonymous namespace
 
-void ExecuTorchBackend::validate_output_order(const executorch::runtime::MethodMeta &meta) const {
+void ExecuTorchBackend::validate_output_order(const executorch::runtime::MethodMeta &meta) {
     // RFDETRInference::postprocess_outputs() addresses outputs positionally: index 0 is the boxes
     // tensor (dets, [B,N,4]) and index 1 the class logits (labels, [B,N,num_classes]). ONNX Runtime
     // preserves that order through named outputs, but an ExecuTorch program returns an unnamed

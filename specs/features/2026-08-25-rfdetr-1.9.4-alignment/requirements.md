@@ -98,3 +98,10 @@ Unlike 1.9.2, these two **do** change the decode contract, so this is not a pins
   `class_id` is now a label index. They are correctly distinguished in
   `postprocess_keypoint_outputs()` via `slot_for_foreground_column()`, but a non-background-first
   keypoint checkpoint would also need `keypoint_counts` re-based. No such checkpoint ships today.
+
+## Constitution sync — LiteRT backend
+
+The project now also permits an exclusive LiteRT CPU backend (`USE_LITERT`, `LITERT_VERSION`, converter pin `LITERT_TORCH_VERSION`),
+behind the same InferenceBackend interface. This does not change this spec’s backend scope or
+its existing validation obligations; GPU pipeline options still require TensorRT. See
+[the LiteRT spec](../2026-11-06-litert-backend/requirements.md).

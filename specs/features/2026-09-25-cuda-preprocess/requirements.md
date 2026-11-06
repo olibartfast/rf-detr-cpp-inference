@@ -105,3 +105,10 @@ All of that is unchanged by this phase.
      calls only `run_gpu_frame()`, which never touches it.
   3. CMYK / greyscale JPEGs: nvJPEG converts to BGRI; confirm on one greyscale fixture that the
      CPU path (stb, `req_comp=3`) agrees within the encoded tolerance.
+
+## Constitution sync — LiteRT backend
+
+The project now also permits an exclusive LiteRT CPU backend (`USE_LITERT`, `LITERT_VERSION`, converter pin `LITERT_TORCH_VERSION`),
+behind the same InferenceBackend interface. This does not change this spec’s backend scope or
+its existing validation obligations; GPU pipeline options still require TensorRT. See
+[the LiteRT spec](../2026-11-06-litert-backend/requirements.md).

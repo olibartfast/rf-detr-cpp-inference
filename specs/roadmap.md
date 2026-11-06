@@ -163,6 +163,17 @@ Spec: [`features/2026-10-07-phase-7-release-hardening/`](features/2026-10-07-pha
 
 ---
 
+## Phase 8 — LiteRT CPU backend
+
+Spec: [features/2026-11-06-litert-backend/](features/2026-11-06-litert-backend/).
+
+- [ ] Add an exclusive LiteRT backend behind InferenceBackend, CPU float32 detection, pose and segmentation
+- [ ] Stage the pinned native SDK and provide direct RF-DETR LiteRT export tooling
+- [ ] Pass contract tests, strict builds and real-model native/Python parity
+- [ ] Update constitution, README, build/export documentation and CHANGELOG; merge into develop
+
+---
+
 ## Deferred
 
 Not started, each for a recorded reason. Reopening one is a decision, not a task.
