@@ -136,8 +136,11 @@ gates passed locally with clang 18.1.8 (see [Results](#results)); this was an im
 failure, not a finding in the release tree. `9c95c35` pins every `lint.yml` job to `ubuntu-24.04`,
 installs clang 18 explicitly and adds a `v*` tag trigger; all three workflows are green on it.
 
-`v0.7.0` itself was **not** linted by CI: the tag trigger landed in `9c95c35`, after the tag was
-published. The tag therefore stays at `156373f` with a red Format Check / Clang-Tidy run on its
-commit. Moving a published tag would rewrite it; the alternatives (move `v0.7.0` with explicit
-maintainer approval, or let the fix ship in the next release) are left to the maintainer rather
-than decided here.
+`v0.7.0` itself was **not** linted by CI at first: the tag trigger landed in `9c95c35`, after the
+tag was published, so the red Format Check / Clang-Tidy run stays in the history of `156373f`.
+
+The maintainer approved re-cutting the release rather than publishing a tag with red gates. The
+published tag and GitHub release are removed once `develop` and `master` are green, and `v0.7.0` is
+recreated on the `master` merge commit that contains the fix. Because `lint.yml` now runs on `v*`
+tags, the tag itself is linted before the release is republished; the exact objects and run results
+are recorded under [Re-cut publication](#re-cut-publication) once they exist.
