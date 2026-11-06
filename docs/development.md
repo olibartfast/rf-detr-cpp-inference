@@ -17,6 +17,11 @@ find src tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format-18 --dry-run 
 find src tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format-18 -i
 ```
 
+Ubuntu 26.04 and newer no longer ship clang 18 in the archive. Install the pinned
+version from PyPI instead (`pip install clang-format==18.1.8`, which provides a
+`clang-format` binary), or run `pre-commit`, whose mirror pins the same version.
+CI pins `ubuntu-24.04` for the same reason.
+
 ## Static Analysis
 `clang-tidy-18` is enforced in CI: `.clang-tidy` sets `WarningsAsErrors: '*'`, so any finding
 fails the `Clang-Tidy` job. Run it locally before pushing, with the compile commands database:

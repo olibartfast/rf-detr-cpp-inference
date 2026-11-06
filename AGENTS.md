@@ -110,6 +110,7 @@ hardcode a version anywhere else.
 - Cppcheck: `cppcheck --enable=all --check-level=exhaustive --std=c++20 --suppress=missingIncludeSystem --suppress=unmatchedSuppression --suppress=unusedFunction --error-exitcode=1 -I src src/`
 - Cppcheck uses exhaustive analysis so `--enable=all` does not fail on the normal branch-analysis budget notice in newer versions. No diagnostic class is disabled.
 - Strict warnings (CI): `-DWERROR=ON` at configure time
+- The `lint.yml` jobs pin `ubuntu-24.04` and install `clang-format-18` / `clang-tidy-18` explicitly: this repo pins clang 18, while `ubuntu-latest` (Ubuntu 26.04 since October 2026) ships clang 20/21/22 only. The install step fails the job if the pinned tools are unavailable, so the gate can never silently run a different clang or be skipped. `lint.yml` also runs on `v*` tags, so every release tag is linted.
 
 ## Spec Sync
 - Mandatory: `git fetch` and check the branch against its upstream **before starting any work** — not just before pushing. A stale local branch hides the rules you are supposed to follow: on 2026-08-24 an alignment pass was written against a `develop` four commits behind `origin/develop`, missing an already-completed 1.9.2 alignment, the `specs/` tree, and the `rfdetr-alignment` workflow that governs the task. If the branch is behind, integrate or at least read what landed, then re-read `AGENTS.md` and `specs/` before planning.
@@ -368,6 +369,11 @@ release includes an upstream `rfdetr` alignment, verify that release against
 gating phase unless the user explicitly decides to — and if they do, record that decision in the
 release spec, and list the open item under the CHANGELOG's known issues.
 
+**Format Check and Clang-Tidy are mandatory on every release.** The release commit must have all
+`lint.yml` jobs green (Format Check, Clang-Tidy, Cppcheck, Version Sync, Build with Strict
+Warnings); a missing tool is a red job to fix, never a reason to skip or soften the check. `lint.yml`
+runs again on the `v*` tag, and the tag is only published once that run is green.
+
 For anything touching TensorRT, ExecuTorch, DALI, or CUDA: **CI has never built or run it.** Run
 [`gpu-verify`](#checklist-gpu-verify) and the manual backend checks first, or state in the release
 notes exactly what went out unverified.
@@ -450,7 +456,8 @@ Push `master`, `develop`, and the tag only once the user has approved.
 
 *Runs the manual GPU and alternate-backend verification that CI cannot — build the TensorRT/CUDA/DALI matrix, run the four pre/post combinations against the parity tolerances, compute-sanitizer a long video run, record benchmarks. Trigger when the user says "verify the GPU path", "run the GPU gate", "test TensorRT manually", "parity check".*
 
-**CI runners are all `ubuntu-latest` with no GPU. TensorRT, ExecuTorch, DALI and CUDA paths are
+**CI runners are hosted Ubuntu VMs with no GPU** (`ubuntu-latest`, except `lint.yml` and
+`gpu-compile.yml`, which pin `ubuntu-24.04`). **TensorRT, ExecuTorch, DALI and CUDA paths are
 never built or run by CI** ([specs/tech-stack.md](specs/tech-stack.md)). This checklist is
 the only thing standing between those paths and an unverified release. It is the roadmap Phase 4
 exit gate, and it is also required before any release that touches them.

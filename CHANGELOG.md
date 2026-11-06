@@ -16,6 +16,7 @@ Validation records live in `specs/features/`, not here.
 
 ### Fixed
 - Static-analysis failures in image utilities and OpenCV preview cleanup.
+- Format Check and Clang-Tidy CI jobs install clang 18 explicitly on a pinned Ubuntu 24.04 runner, after `ubuntu-latest` moved to Ubuntu 26.04 and stopped shipping `clang-format-18`/`clang-tidy-18`. `lint.yml` now also runs on `v*` tags.
 
 ### Known issues
 - LiteRT supports CPU float32 inference only; GPU/NPU acceleration and quantized models are not supported.

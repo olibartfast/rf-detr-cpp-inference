@@ -28,7 +28,8 @@ sudo apt-get install -y libopencv-dev
 # Optional (faster incremental builds):
 sudo apt-get install -y ninja-build
 
-# Optional (linting and formatting — use version 18+ for GCC 14 compatibility):
+# Optional (linting and formatting — use version 18 to match CI; not in the Ubuntu 26.04
+# archive, where `pip install clang-format==18.1.8` provides the pinned formatter):
 sudo apt-get install -y clang-format-18 clang-tidy-18
 ```
 

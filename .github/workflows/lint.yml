@@ -1,15 +1,29 @@
 name: C++ Lint & Build
 
+# Every job here is a release gate: formatting, clang-tidy, cppcheck and strict
+# warnings must all pass before a release is tagged, and they run again on the
+# `v*` tag itself (see `on.push.tags`).
+#
+# The runner image is pinned to Ubuntu 24.04 because this repository pins clang 18
+# for formatting and static analysis (AGENTS.md -> Code Quality). `ubuntu-latest`
+# moved to Ubuntu 26.04 in October 2026, which ships clang 20/21/22 only, so the
+# `clang-format-18` / `clang-tidy-18` binaries vanished and both jobs failed with
+# exit 127. The tools are installed explicitly below rather than taken from the
+# image, so the jobs fail loudly if they ever disappear again instead of running
+# a different clang. Build/test coverage of the newest Ubuntu stays in ci.yml,
+# which intentionally keeps `ubuntu-latest`.
+
 on:
   push:
     branches: [master, develop]
+    tags: ['v*']
   pull_request:
     branches: [master, develop]
 
 jobs:
   version-sync:
     name: Version Sync
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -28,9 +42,15 @@ jobs:
 
   format-check:
     name: Format Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install clang-format 18
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format-18
+          clang-format-18 --version
 
       - name: Check formatting
         run: |
@@ -39,10 +59,16 @@ jobs:
 
   clang-tidy:
     name: Clang-Tidy
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-deps
+
+      - name: Install clang-tidy 18
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-tidy-18
+          clang-tidy-18 --version
 
       - name: Generate compile_commands.json
         run: cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
@@ -54,7 +80,7 @@ jobs:
 
   cppcheck:
     name: Cppcheck
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -73,7 +99,7 @@ jobs:
 
   build-warnings:
     name: Build with Strict Warnings
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-deps
