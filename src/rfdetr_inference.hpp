@@ -102,13 +102,13 @@ class RFDETRInference {
                                           std::vector<BoundingBox> &boxes, std::vector<rfdetr::media::Mask> &masks);
 
     // Draw detections on the image
-    void draw_detections(rfdetr::media::Image &image, std::span<const BoundingBox> boxes,
-                         std::span<const int> class_ids, std::span<const float> scores);
+    static void draw_detections(rfdetr::media::Image &image, std::span<const BoundingBox> boxes,
+                                std::span<const int> class_ids, std::span<const float> scores);
 
     // Draw segmentation masks on the image
-    void draw_segmentation_masks(rfdetr::media::Image &image, std::span<const BoundingBox> boxes,
-                                 std::span<const int> class_ids, std::span<const float> scores,
-                                 std::span<const rfdetr::media::Mask> masks);
+    static void draw_segmentation_masks(rfdetr::media::Image &image, std::span<const BoundingBox> boxes,
+                                        std::span<const int> class_ids, std::span<const float> scores,
+                                        std::span<const rfdetr::media::Mask> masks);
 
     // Post-process inference outputs for keypoint detection
     void postprocess_keypoint_outputs(float scale_w, float scale_h, int orig_h, int orig_w, std::vector<float> &scores,
@@ -120,8 +120,8 @@ class RFDETRInference {
                         std::span<const float> scores, std::span<const std::vector<KeypointResult>> keypoints);
 
     // Save the output image
-    std::optional<std::filesystem::path> save_output_image(const rfdetr::media::Image &image,
-                                                           const std::filesystem::path &output_path);
+    static std::optional<std::filesystem::path> save_output_image(const rfdetr::media::Image &image,
+                                                                  const std::filesystem::path &output_path);
 
     // Getters for testing
     [[nodiscard]] const std::vector<std::string> &get_coco_labels() const noexcept { return coco_labels_; }

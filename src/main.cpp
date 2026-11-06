@@ -22,6 +22,10 @@ bool is_video_file(const std::filesystem::path &path) {
 constexpr const char *kExampleModel = "./model.engine";
 constexpr const char *kBackendDescription = "TensorRT — .engine/.trt, or .onnx to build an engine";
 constexpr const char *kBackendBuildFlags = "-DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON";
+#elif defined(USE_LITERT)
+constexpr const char *kExampleModel = "./model.tflite";
+constexpr const char *kBackendDescription = "LiteRT CPU — .tflite exported with format=litert";
+constexpr const char *kBackendBuildFlags = "-DUSE_ONNX_RUNTIME=OFF -DUSE_LITERT=ON -DLITERT_ROOTDIR=<prefix>";
 #elif defined(USE_EXECUTORCH)
 constexpr const char *kExampleModel = "./model.pte";
 constexpr const char *kBackendDescription = "ExecuTorch — .pte exported by rfdetr 1.9.0+";
@@ -217,13 +221,13 @@ void run_image(const rfdetr::cli::CliOptions &opts, const Config &config) {
     if (opts.keypoint) {
         inference.draw_keypoints(image, boxes, class_ids, scores, keypoints);
     } else if (opts.segmentation) {
-        inference.draw_segmentation_masks(image, boxes, class_ids, scores, masks);
+        RFDETRInference::draw_segmentation_masks(image, boxes, class_ids, scores, masks);
     } else {
-        inference.draw_detections(image, boxes, class_ids, scores);
+        RFDETRInference::draw_detections(image, boxes, class_ids, scores);
     }
 
     const std::filesystem::path output_path = opts.output_path.value_or("output_image.jpg");
-    if (const auto saved_path = inference.save_output_image(image, output_path)) {
+    if (const auto saved_path = RFDETRInference::save_output_image(image, output_path)) {
         std::cout << "Output image saved to: " << saved_path->string() << '\n';
     } else {
         throw std::runtime_error("Could not save output image to " + output_path.string());

@@ -233,6 +233,25 @@ Export a model with [`deploy/export_executorch.py`](../deploy/export_executorch.
 > exported by hand. See
 > [backend-parity-segmentation-video.md](backend-parity-segmentation-video.md).
 
+## Build with LiteRT Backend
+
+The runtime pin is `LITERT_VERSION` in `versions.env`. On Linux, stage the official release
+headers and the matching wheel’s native C runtime (requires Python with `venv` and `pip`):
+
+```bash
+./scripts/fetch_litert.sh  # default: ~/dependencies/litert; optional first argument overrides it
+cmake -S . -B build-litert -G Ninja -DUSE_ONNX_RUNTIME=OFF -DUSE_LITERT=ON \
+  -DLITERT_ROOTDIR=$HOME/dependencies/litert -DCMAKE_BUILD_TYPE=Release
+cmake --build build-litert --parallel
+ctest --test-dir build-litert --output-on-failure -R UnitTests
+```
+
+Set `PYTHON=/path/to/python` for staging with another interpreter. CMake also accepts a compatible
+manually supplied SDK prefix; it never downloads or builds LiteRT automatically. Python is not
+needed at inference time. The executable uses the native library in the prefix, so retain that
+prefix for execution. Add `-DUSE_OPENCV=ON` for the alternative media backend.
+See [LiteRT export](export.md#litert-model-export) for supported models and constraints.
+
 ## Build with the GPU Pipeline (TensorRT + CUDA)
 The GPU pipeline requires the TensorRT backend — the preprocessor writes into, and
 the CUDA kernels read from, the inference engine's device buffers, and only the

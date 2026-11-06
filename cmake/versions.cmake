@@ -82,6 +82,8 @@ endmacro()
 
 _rfdetr_read_versions_env("${RFDETR_VERSIONS_ENV}")
 
+rfdetr_declare_version(LITERT_VERSION "LiteRT native runtime version")
+rfdetr_declare_version(LITERT_TORCH_VERSION "Direct PyTorch to LiteRT converter version")
 rfdetr_declare_version(ONNX_RUNTIME_VERSION     "ONNX Runtime version")
 rfdetr_declare_version(TENSORRT_VERSION         "TensorRT version (four components)")
 rfdetr_declare_version(EXECUTORCH_VERSION       "ExecuTorch git tag")
@@ -110,5 +112,5 @@ if(NOT TENSORRT_SHORT_VERSION)
 endif()
 
 message(STATUS "Dependency pins from ${RFDETR_VERSIONS_ENV}:")
-message(STATUS "  ONNX Runtime ${ONNX_RUNTIME_VERSION} | TensorRT ${TENSORRT_VERSION} | ExecuTorch ${EXECUTORCH_VERSION}")
+message(STATUS "  ONNX Runtime ${ONNX_RUNTIME_VERSION} | TensorRT ${TENSORRT_VERSION} | ExecuTorch ${EXECUTORCH_VERSION} | LiteRT ${LITERT_VERSION}")
 message(STATUS "  CUDA ${CUDA_VERSION} | DALI ${DALI_VERSION} | NGC ${NGC_CONTAINER_TAG}")

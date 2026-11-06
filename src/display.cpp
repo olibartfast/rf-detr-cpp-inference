@@ -52,8 +52,9 @@ struct Display::Impl {
         if (ok) {
             try {
                 cv::destroyWindow(title);
+                // NOLINTNEXTLINE(bugprone-empty-catch): Window teardown must not throw from the destructor.
             } catch (const cv::Exception &) {
-                // Ignore teardown errors.
+                // The window may already have been closed externally.
             }
         }
     }

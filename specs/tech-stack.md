@@ -29,6 +29,7 @@ restatement drifts. Run it after editing `versions.env`.
 | Format | clang-format | 18 | `.clang-format`: LLVM base, indent 4, column 120 |
 | Static analysis | clang-tidy 18, cppcheck | — | `.clang-tidy`, **enforced**: `WarningsAsErrors: '*'`, so any finding fails the `Clang-Tidy` job; CI excludes `tensorrt_backend.cpp` |
 | Export tooling | `rfdetr[onnx]` | `RFDETR_VERSION` | `versions.env`, mirrored into `deploy/requirements.txt`; ONNX opset `ONNX_OPSET_VERSION` |
+| LiteRT export converter | `litert-torch` | `LITERT_TORCH_VERSION` | `versions.env`; used by direct LiteRT export and the keypoint reshape adapter |
 | Vendored | stb, font8x8 | unversioned | `third_party/` — no install step |
 
 ## Inference backends
@@ -40,6 +41,7 @@ Exactly one is compiled in.
 | ONNX Runtime (default) | `ONNX_RUNTIME_VERSION` | `versions.env` | **CPU only** | `.onnx` |
 | TensorRT | `TENSORRT_VERSION` (11.x only) | `versions.env` | NVIDIA GPU | `.engine`, `.trt`, `.onnx` |
 | ExecuTorch | `EXECUTORCH_VERSION` | `versions.env` | CPU (XNNPACK or portable) | `.pte` |
+| LiteRT | `LITERT_VERSION` | `versions.env` | CPU | `.tflite` (direct LiteRT export) |
 
 `TENSORRT_VERSION` is the full four-component number. NVIDIA truncates it differently per
 artefact, so the loaders *derive* the rest rather than pinning them separately:
@@ -58,6 +60,8 @@ NVIDIA's name for standard TensorRT from 11.x, under the same license).
 - **TensorRT** implies the CUDA Toolkit series `CUDA_VERSION` pins, which must be installed manually. The backend supports TensorRT 11 only (`NV_TENSORRT_MAJOR < 11` is a compile error, `TENSORRT_VERSION < 11` a configure error). TensorRT 11 is strongly typed only: an `.onnx` build takes the model's own precision (FP16 needs a converted ONNX). Engine I/O must be float32.
 - **ExecuTorch** requires a prefix built with `EXECUTORCH_BUILD_KERNELS_OPTIMIZED=ON` (it defaults `OFF`): `.pte` files from rfdetr 1.9.1+ call `aten::linear.out`, registered only by `optimized_native_cpu_ops_lib`. The linked delegate must match the one baked into the `.pte`.
 
+- **LiteRT** uses the native C API with CPU acceleration and a supplied `LITERT_ROOTDIR` SDK prefix. `scripts/fetch_litert.sh` stages official release headers and the matching ai-edge-litert wheel’s native library on Linux. Direct RF-DETR LiteRT export is fixed NCHW float32, batch 1; detection, pose and segmentation. Python is for staging/export, never inference. No automatic source build or Dockerfile.
+
 ## Media and GPU stack
 
 | Layer | Choice | Version | Notes |
@@ -72,18 +76,20 @@ The CUDA preprocessor runs at any resolution. For DALI, only resolutions **432**
 
 ## CMake options
 
-| Option | Default | Line |
-|--------|---------|------|
-| `USE_ONNX_RUNTIME` | **ON** | `CMakeLists.txt:91` |
-| `USE_TENSORRT` | OFF | `:92` |
-| `USE_EXECUTORCH` | OFF | `:93` |
-| `USE_OPENCV` | OFF | `:94` |
-| `EXECUTORCH_DELEGATE` | `xnnpack` (or `portable`) | `:101` |
-| `USE_DALI` | OFF (alternative to `USE_CUDA_PREPROCESS`) | `:136` |
-| `USE_CUDA_PREPROCESS` | OFF | `:137` |
-| `USE_CUDA_POSTPROCESS` | OFF | `:138` |
-| `USE_GPU_PIPELINE` | OFF (enables `USE_CUDA_PREPROCESS`, or DALI if `USE_DALI` is given, plus `USE_CUDA_POSTPROCESS`) | `:139` |
-| `WERROR` | OFF | `:28` |
+| Option | Default | Where |
+|--------|---------|-------|
+| `USE_ONNX_RUNTIME` | **ON** | `CMakeLists.txt` |
+| `USE_TENSORRT` | OFF | `CMakeLists.txt` |
+| `USE_EXECUTORCH` | OFF | `CMakeLists.txt` |
+| `USE_LITERT` | OFF | `CMakeLists.txt` |
+| `LITERT_ROOTDIR` | supplied prefix | `cmake/deps/packages/LiteRT.cmake` |
+| `USE_OPENCV` | OFF | `CMakeLists.txt` |
+| `EXECUTORCH_DELEGATE` | `xnnpack` (or `portable`) | `CMakeLists.txt` |
+| `USE_DALI` | OFF (alternative to `USE_CUDA_PREPROCESS`) | `CMakeLists.txt` |
+| `USE_CUDA_PREPROCESS` | OFF | `CMakeLists.txt` |
+| `USE_CUDA_POSTPROCESS` | OFF | `CMakeLists.txt` |
+| `USE_GPU_PIPELINE` | OFF (enables `USE_CUDA_PREPROCESS`, or DALI if `USE_DALI` is given, plus `USE_CUDA_POSTPROCESS`) | `CMakeLists.txt` |
+| `WERROR` | OFF | `CMakeLists.txt` |
 | `SANITIZERS` (ASan+UBSan) | OFF | `:38` |
 | `STRICT_UBSAN` | OFF | `:39` |
 | `THREAD_SANITIZER` | OFF | `:40` |
@@ -99,7 +105,7 @@ The CUDA preprocessor runs at any resolution. For DALI, only resolutions **432**
 
 These are enforced at configure time or by the runtime — not style preferences.
 
-- Exactly one of `USE_ONNX_RUNTIME` / `USE_TENSORRT` / `USE_EXECUTORCH`. Two is a `FATAL_ERROR`.
+- Exactly one of `USE_ONNX_RUNTIME` / `USE_TENSORRT` / `USE_EXECUTORCH` / `USE_LITERT`. Two is a `FATAL_ERROR`.
 - The three sanitizer modes are mutually exclusive. Valgrind needs a plain Debug build — ASan and TSan conflict with it.
 - `USE_CUDA_PREPROCESS`, `USE_DALI` and `USE_CUDA_POSTPROCESS` require the TensorRT backend. Any of them with ONNX Runtime is a `FATAL_ERROR`.
 - `USE_CUDA_PREPROCESS` and `USE_DALI` are alternative GPU preprocessors. Both together is a `FATAL_ERROR`.
@@ -110,7 +116,7 @@ These are enforced at configure time or by the runtime — not style preferences
 
 | Workflow | Jobs |
 |----------|------|
-| `ci.yml` — Build & Test | Build & Unit Tests (+ benchmarks), Sanitizers (ASan+UBSan), ThreadSanitizer, Valgrind Memcheck |
+| `ci.yml` — Build & Test | Build & Unit Tests (+ benchmarks), LiteRT CPU Build & Unit Tests, Sanitizers (ASan+UBSan), ThreadSanitizer, Valgrind Memcheck |
 | `lint.yml` — C++ Lint & Build | Version Sync (`scripts/check_version_sync.sh`), Format Check, Clang-Tidy (warnings are errors), Cppcheck, Build with Strict Warnings (`-DWERROR=ON`) |
 | `gpu-compile.yml` — GPU Backend Compile | Compile-only matrix, `-DWERROR=ON`: TensorRT alone, +CUDA preprocess, +DALI preprocess, +CUDA postprocess, full pipeline (CUDA), full pipeline (DALI), all against the pinned `TENSORRT_VERSION`/`DALI_VERSION` headers and the `CUDA_VERSION` toolkit; the TensorRT entry also checks that both preprocessors together fail at configure. Builds `rfdetr_inference_lib` only — the staged shared objects are stubs, so no target that links is reachable |
 | `deps-modes.yml` — Dependency Modes | `workflow_dispatch` only; matrix over apt / conan / vcpkg |
@@ -131,7 +137,7 @@ All three push/PR workflows (`ci.yml`, `lint.yml`, `gpu-compile.yml`) trigger on
 
 - The README version tables restate `versions.env` for readers at a glance; `AGENTS.md`
   requires them, and `check_version_sync.sh` verifies them. No other prose states a pinned value.
-- `project()` declares `VERSION 0.6.1`; `vcpkg.json` and the README badge agree. This is a *project*
+- `project()` declares `VERSION 0.7.0`; `vcpkg.json` and the README badge agree. This is a *project*
   version, not a dependency pin, so `versions.env` does not cover it.
 - `dockerfile.trt` forwards `--build-arg TENSORRT_VERSION` to CMake as `-DTENSORRT_VERSION`, because the TensorRT shim directory it creates must match what CMake looks for. Any future build arg that names a pin needs the same forwarding.
 - `scripts/run_gate.sh` defaults `CUDA_ARCH=89` rather than the build default

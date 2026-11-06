@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.12)
-project(rfdetr_inference VERSION 0.6.1 LANGUAGES CXX C)
+project(rfdetr_inference VERSION 0.7.0 LANGUAGES CXX C)
 
 # Set C++ standard to C++20
 set(CMAKE_CXX_STANDARD 20)
@@ -90,6 +90,7 @@ endif()
 # --- Backend Selection Options ---
 option(USE_ONNX_RUNTIME "Build with ONNX Runtime backend support" ON)
 option(USE_TENSORRT "Build with TensorRT backend support" OFF)
+option(USE_LITERT "Build with LiteRT CPU backend support (.tflite models)" OFF)
 option(USE_EXECUTORCH "Build with ExecuTorch backend support (.pte models)" OFF)
 option(USE_OPENCV "Use OpenCV for image/video/display I/O instead of FFmpeg+SDL2+stb" OFF)
 
@@ -106,7 +107,7 @@ set_property(CACHE EXECUTORCH_DELEGATE PROPERTY STRINGS xnnpack portable)
 # by the #ifdef/#elif chain in src/backends/inference_backend.cpp, and the binary would use a
 # backend the user did not ask for.
 set(_ENABLED_BACKENDS "")
-foreach(_be USE_ONNX_RUNTIME USE_TENSORRT USE_EXECUTORCH)
+foreach(_be USE_ONNX_RUNTIME USE_TENSORRT USE_EXECUTORCH USE_LITERT)
     if(${_be})
         list(APPEND _ENABLED_BACKENDS ${_be})
     endif()
@@ -114,7 +115,7 @@ endforeach()
 list(LENGTH _ENABLED_BACKENDS _NUM_BACKENDS)
 if(_NUM_BACKENDS EQUAL 0)
     message(FATAL_ERROR
-        "At least one backend must be enabled. Set USE_ONNX_RUNTIME=ON, USE_TENSORRT=ON, or USE_EXECUTORCH=ON")
+        "At least one backend must be enabled. Set USE_ONNX_RUNTIME=ON, USE_TENSORRT=ON, USE_EXECUTORCH=ON, or USE_LITERT=ON")
 elseif(_NUM_BACKENDS GREATER 1)
     string(REPLACE ";" ", " _BACKEND_LIST "${_ENABLED_BACKENDS}")
     message(FATAL_ERROR
@@ -167,6 +168,7 @@ message(STATUS "  TensorRT:     ${USE_TENSORRT}")
 message(STATUS "  DALI preprocessing:      ${USE_DALI}")
 message(STATUS "  CUDA preprocessing:      ${USE_CUDA_PREPROCESS}")
 message(STATUS "  CUDA postprocessing:     ${USE_CUDA_POSTPROCESS}")
+message(STATUS "  LiteRT:       ${USE_LITERT}")
 message(STATUS "  ExecuTorch:   ${USE_EXECUTORCH}")
 if(USE_EXECUTORCH)
     message(STATUS "  ET delegate:  ${EXECUTORCH_DELEGATE}")
@@ -233,6 +235,10 @@ if(USE_EXECUTORCH)
     find_dependency_unified(ExecuTorch REQUIRED)
 endif()
 
+if(USE_LITERT)
+    find_dependency_unified(LiteRT REQUIRED)
+endif()
+
 if(USE_OPENCV)
     find_dependency_unified(OpenCV REQUIRED)
 else()
@@ -264,6 +270,7 @@ set(RFDETR_SOURCES
     "${SOURCE_DIR}/video_pipeline.cpp"
     "${SOURCE_DIR}/cli_options.cpp"
     "${SOURCE_DIR}/backends/inference_backend.cpp"
+    "${SOURCE_DIR}/backends/litert_contract.cpp"
     "${THIRD_PARTY_DIR}/font8x8/font8x8_basic.c"
 )
 
@@ -274,6 +281,10 @@ endif()
 
 if(USE_TENSORRT)
     list(APPEND RFDETR_SOURCES "${SOURCE_DIR}/backends/tensorrt_backend.cpp")
+endif()
+
+if(USE_LITERT)
+    list(APPEND RFDETR_SOURCES "${SOURCE_DIR}/backends/litert_backend.cpp")
 endif()
 
 # GPU pipeline sources
@@ -331,6 +342,10 @@ endif()
 
 if(USE_ONNX_RUNTIME)
     target_link_libraries(rfdetr_inference_lib PUBLIC Deps::OnnxRuntime)
+endif()
+
+if(USE_LITERT)
+    target_link_libraries(rfdetr_inference_lib PUBLIC Deps::LiteRT)
 endif()
 
 if(USE_EXECUTORCH)
@@ -439,7 +454,8 @@ if(USE_ONNX_RUNTIME)
 endif()
 
 # --- Unit Tests ---
-set(UNIT_TEST_SOURCES "${TEST_DIR}/unit/test_rfdetr_inference.cpp" "${TEST_DIR}/unit/test_cli_options.cpp")
+set(UNIT_TEST_SOURCES "${TEST_DIR}/unit/test_rfdetr_inference.cpp" "${TEST_DIR}/unit/test_cli_options.cpp"
+    "${TEST_DIR}/unit/test_litert_contract.cpp")
 if(USE_CUDA_POSTPROCESS)
     # The GPU parity gate needs no model and no DALI: it feeds synthetic tensors
     # to a mock backend that serves them from both host and device memory. Every
@@ -469,6 +485,9 @@ if((USE_DALI OR USE_CUDA_PREPROCESS) AND USE_CUDA_POSTPROCESS)
     # End-to-end GPU parity: the four pre/post combinations against a real engine.
     # Skips at runtime without a model (or, for DALI, a matching .dali pipeline).
     list(APPEND INTEGRATION_TEST_SOURCES "${TEST_DIR}/integration/integration_test_gpu_parity.cpp")
+endif()
+if(USE_LITERT)
+    list(APPEND INTEGRATION_TEST_SOURCES "${TEST_DIR}/integration/integration_test_litert.cpp")
 endif()
 add_executable(integration_tests ${INTEGRATION_TEST_SOURCES})
 target_compile_options(integration_tests PRIVATE ${PROJECT_WARNING_FLAGS})

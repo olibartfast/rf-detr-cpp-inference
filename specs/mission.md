@@ -2,7 +2,7 @@
 
 RF-DETR C++ Inference runs the RF-DETR model — object detection, instance segmentation, and keypoint estimation — as a native C++20 command-line application, with no Python in the loop at inference time.
 
-The point is portability across runtimes. The same source builds against ONNX Runtime, TensorRT, or ExecuTorch, chosen at compile time, so the same postprocessing and drawing code serves a CPU laptop, an NVIDIA server, and an edge device. It handles single images and video, the latter through a multi-threaded ring-buffer pipeline, with an opt-in GPU pipeline (CUDA preprocessing with nvJPEG, or DALI as the alternative, plus CUDA segmentation postprocessing) on the TensorRT backend.
+The point is portability across runtimes. The same source builds against ONNX Runtime, TensorRT, ExecuTorch, or LiteRT, chosen at compile time, so the same postprocessing and drawing code serves a CPU laptop, an NVIDIA server, and an edge device. It handles single images and video, the latter through a multi-threaded ring-buffer pipeline, with an opt-in GPU pipeline (CUDA preprocessing with nvJPEG, or DALI as the alternative, plus CUDA segmentation postprocessing) on the TensorRT backend.
 
 The project is kept deliberately in step with upstream [`rfdetr`](https://github.com/roboflow/rf-detr) releases — the one currently tracked is `RFDETR_VERSION` in [`versions.env`](../versions.env). Every upstream release triggers an alignment pass, recorded in [CHANGELOG.md](../CHANGELOG.md).
 
@@ -24,7 +24,7 @@ These are the invariants. Breaking one is a design change, not a bug fix.
 | `src/main.cpp` | CLI entry point; prints usage, builds `Config`, routes image vs. video by file extension |
 | `src/cli_options.*` | `rfdetr::cli::parse_cli` — argv → `CliOptions` and the flag/range/build checks, unit-tested without a model |
 | `src/rfdetr_inference.*` | Orchestrator — `Config`, `ModelType`, preprocess → infer → postprocess → draw |
-| `src/backends/` | `InferenceBackend` interface, the three implementations, and the factory |
+| `src/backends/` | `InferenceBackend` interface, the four implementations, and the factory |
 | `src/media.*` | Image/mask types, load/save, CPU preprocessing, drawing and text |
 | `src/display.*` | Live preview window (`--display`), no-op when headless |
 | `src/video_reader.*`, `src/video_writer.*` | Decode/encode behind pimpl |
@@ -32,7 +32,7 @@ These are the invariants. Breaking one is a design change, not a bug fix.
 | `src/processing_utils.*` | Pure helpers: sigmoid, normalize, box convert/scale/clamp |
 | `src/gpu/` | Opt-in GPU pipeline: CUDA context, preprocessing kernel + nvJPEG decoder, DALI preprocessor (alternative), segmentation kernels |
 | `cmake/deps/` | Dependency-resolution facade over apt / conan / vcpkg |
-| `deploy/` | Python export tooling (`.onnx`, `.pte`, DALI pipelines) |
+| `deploy/` | Python export tooling (`.onnx`, `.pte`, `.tflite`, DALI pipelines) |
 | `scripts/` | DALI staging and pipeline generation |
 
 ## Out of scope

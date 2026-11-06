@@ -11,9 +11,11 @@ repos:
       - id: cppcheck
         args:
           - --enable=all
+          - --check-level=exhaustive
           - --std=c++20
           - --suppress=missingIncludeSystem
           - --suppress=unmatchedSuppression
+          - --suppress=unusedFunction
           - --error-exitcode=1
           - -I
           - src

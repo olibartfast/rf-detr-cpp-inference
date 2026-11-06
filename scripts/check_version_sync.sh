@@ -95,6 +95,8 @@ expect README.md "TENSORRT_VERSION" "${TENSORRT_VERSION}" \
     "^\| \*\*TensorRT\*\* \| \*\*$(lit "${TENSORRT_VERSION}")\*\* \+ CUDA Toolkit \*\*$(lit "${CUDA_VERSION}")\*\* series"
 expect README.md "EXECUTORCH_VERSION" "${EXECUTORCH_VERSION}" \
     "^\| \*\*ExecuTorch\*\* \| \*\*$(lit "${EXECUTORCH_VERSION}")\*\* \|"
+expect README.md "LITERT_VERSION" "${LITERT_VERSION}" \
+    "^\| \*\*LiteRT\*\* \| \*\*$(lit "${LITERT_VERSION}")\*\* \|"
 expect README.md "DALI_VERSION" "${DALI_VERSION}" \
     "^\| NVIDIA DALI \| $(lit "${DALI_VERSION}") \(staged from .nvcr\.io/nvidia/tritonserver:$(lit "${NGC_CONTAINER_TAG}")-py3."
 expect README.md "FFMPEG_VERSION/SDL_VERSION" "${FFMPEG_VERSION}/${SDL_VERSION}" \
@@ -104,10 +106,12 @@ expect README.md "OPENCV_VERSION" "${OPENCV_VERSION}" \
 expect README.md "GTEST_VERSION" "${GTEST_VERSION}" "^\| GoogleTest \| $(lit "${GTEST_VERSION}") "
 expect README.md "GOOGLE_BENCHMARK_VERSION" "${GOOGLE_BENCHMARK_VERSION}" \
     "^\| Google Benchmark \| $(lit "${GOOGLE_BENCHMARK_VERSION}") \|"
-for extra in onnx executorch tensorrt; do
+for extra in onnx executorch tensorrt litert; do
     expect README.md "RFDETR_VERSION [${extra}]" "${RFDETR_VERSION}" \
         "^\| .rfdetr\[${extra}\]. \| .==$(lit "${RFDETR_VERSION}"). \|"
 done
+expect README.md "LITERT_TORCH_VERSION" "${LITERT_TORCH_VERSION}" \
+    "^\| .litert-torch. \| .==$(lit "${LITERT_TORCH_VERSION}"). \|"
 expect README.md "ONNX_OPSET_VERSION" "${ONNX_OPSET_VERSION}" \
     "^\| .rfdetr\[onnx\]. \|.*ONNX opset $(lit "${ONNX_OPSET_VERSION}") \|"
 expect README.md "EXECUTORCH_VERSION [pip]" "${EXECUTORCH_VERSION}" \

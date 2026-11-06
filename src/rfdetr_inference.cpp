@@ -229,6 +229,20 @@ std::vector<KeypointResult> decode_query_keypoints(const std::vector<float> &kp_
     return kp_results;
 }
 
+std::vector<float> preprocess_image_data(const rfdetr::media::Image &bgr_image, int &orig_h, int &orig_w,
+                                         const Config &config) {
+    if (bgr_image.empty()) {
+        throw std::runtime_error("Input image is empty");
+    }
+    orig_h = bgr_image.height;
+    orig_w = bgr_image.width;
+
+    const auto res = static_cast<size_t>(config.resolution);
+    std::vector<float> input_tensor_values(3 * res * res);
+    rfdetr::media::preprocess_bgr_image(bgr_image, input_tensor_values, config.resolution, config.means, config.stds);
+    return input_tensor_values;
+}
+
 } // namespace
 
 RFDETRInference::RFDETRInference(const std::filesystem::path &model_path, const std::filesystem::path &label_file_path,
@@ -312,21 +326,11 @@ std::vector<float> RFDETRInference::preprocess_image(const std::filesystem::path
     }
 
     auto image = rfdetr::media::load_image(image_path);
-    return preprocess_image(image, orig_h, orig_w);
+    return preprocess_image_data(image, orig_h, orig_w, config_);
 }
 
 std::vector<float> RFDETRInference::preprocess_image(const rfdetr::media::Image &bgr_image, int &orig_h, int &orig_w) {
-    if (bgr_image.empty()) {
-        throw std::runtime_error("Input image is empty");
-    }
-    orig_h = bgr_image.height;
-    orig_w = bgr_image.width;
-
-    const auto res = static_cast<size_t>(config_.resolution);
-    std::vector<float> input_tensor_values(3 * res * res);
-    rfdetr::media::preprocess_bgr_image(bgr_image, input_tensor_values, config_.resolution, config_.means,
-                                        config_.stds);
-    return input_tensor_values;
+    return preprocess_image_data(bgr_image, orig_h, orig_w, config_);
 }
 
 void RFDETRInference::run_inference(std::span<const float> input_data) {

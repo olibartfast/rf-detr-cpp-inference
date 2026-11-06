@@ -6,7 +6,8 @@ Work this project has committed to, as a phased queue. Phases are ordered so eac
 
 ## Status
 
-- Last tag **v0.6.1** (2026-10-09). **Phase 7 in progress**: only the `--display` real-screen and DALI item is open; v0.6.1 shipped with it open by decision. Flow is git-flow: `develop` → `release/vX.Y.Z` → `master`, merged back.
+- Last tag **v0.7.0** (2026-11-06). **Phase 7 in progress**: only the `--display` real-screen and DALI item is open; v0.6.1 shipped with it open by decision. Flow is git-flow: `develop` → `release/vX.Y.Z` → `master`, merged back.
+- **v0.7.0 is released** — Phase 8: the exclusive LiteRT CPU backend for detection, pose and instance segmentation, direct `.tflite` export tooling, and a LiteRT CI build job. No change to the default ONNX Runtime path.
 - **v0.6.1 is released** — Phase 7 hardening (enforced clang-tidy, `rfdetr::cli`, `PROFILING`), the Colab GPU gate and the measured CPU profile. No behaviour change.
 - **v0.6.0 is released** — Phase 6 (CUDA preprocessing as the default GPU preprocessor, DALI as the
   alternative), TensorRT 11 only on NGC 26.08, the rfdetr 1.11.2 export alignment, and ONNX Runtime
@@ -160,6 +161,17 @@ Spec: [`features/2026-10-07-phase-7-release-hardening/`](features/2026-10-07-pha
     (`specs/features/2026-10-08-colab-gpu-gate/validation.md`). A watched real display and the
     DALI build's display remain open.
 - [x] `PROFILING` option and CPU benchmarks merged; measured profiling results published
+
+---
+
+## Phase 8 — LiteRT CPU backend (Complete)
+
+Spec: [features/2026-11-06-litert-backend/](features/2026-11-06-litert-backend/).
+
+- [x] Add an exclusive LiteRT backend behind InferenceBackend, CPU float32 detection, pose and segmentation
+- [x] Stage the pinned native SDK and provide direct RF-DETR LiteRT export tooling
+- [x] Pass contract tests, strict builds and real-model native/Python parity
+- [x] Update constitution, README, build/export documentation and CHANGELOG; merge into develop
 
 ---
 

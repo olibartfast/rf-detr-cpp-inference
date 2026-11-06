@@ -293,6 +293,39 @@ Error: ExecuTorch forward() failed with error code 20
 
 ---
 
+## LiteRT Model Export
+
+Install the `rfdetr[litert]` extra at `RFDETR_VERSION` from `versions.env` in an export environment:
+
+```bash
+source scripts/versions.sh
+python -m pip install "rfdetr[litert]==${RFDETR_VERSION}" "ai-edge-litert==${LITERT_VERSION}" "litert-torch==${LITERT_TORCH_VERSION}"
+python deploy/export_litert.py --model_type nano --output_dir output
+python deploy/export_litert.py --model_type nano --segmentation --output_dir output
+python deploy/export_litert.py --keypoint --input_size 384 --output_name rfdetr-keypoint --output_dir output
+./build-litert/inference_app output/rfdetr-nano.tflite data/dog.jpg data/coco-labels-91.txt
+./build-litert/inference_app output/rfdetr-seg-nano.tflite data/dog.jpg data/coco-labels-91.txt --segmentation
+./build-litert/inference_app output/rfdetr-keypoint.tflite person.jpg data/coco-labels-91.txt --keypoint
+```
+
+This uses upstream `model.export(format="litert", batch_size=1)`, directly from PyTorch through
+litert-torch. Keep its default model resolution or set `--input_size` to a supported square size.
+Use `--output_name` to override the filename stem. Unlike the ONNX-to-TFLite conversion route,
+this direct export preserves NCHW input and needs no custom ONNX operator kernels.
+
+The [upstream LiteRT contract](https://github.com/roboflow/rf-detr/blob/1.11.2/docs/exports/litert.md)
+is fixed float32 input `[1,3,H,H]` with the same ImageNet normalization as other backends;
+positional outputs are normalized cxcywh boxes, class logits and optional NQHW mask logits.
+The C++ backend validates these shapes before compilation. Quantized inputs/outputs, GPU/NPU delegates, dynamic shapes and batch sizes above 1 are unsupported.
+For pose, use this project's `deploy/export_litert.py --keypoint` helper. The upstream converter
+rejects the keypoint head's rank-4 matrix multiplication. The helper reshapes Linear inputs to
+rank 2 and restores their output shape in the private export copy; weights and live models are
+unchanged. Before conversion it checks the full model's eager outputs at `atol=rtol=1e-5`.
+The runtime consumes the same keypoint tensor contract as the other backends. The exported
+filename follows the upstream variant name; `--output_name` can override it.
+
+Export remains experimental upstream; a `.tflite` extension alone does not imply compatibility.
+
 ## TensorRT Export (Optional)
 
 For GPU deployment, you can convert the ONNX model to TensorRT format for optimized performance.
@@ -394,4 +427,4 @@ Then build from `model_fp16.onnx` as usual — `trtexec --onnx=model_fp16.onnx -
 without `--fp16`, or pass it straight to `inference_app`.
 
 > [!NOTE]
-> TensorRT optimization works for both detection and segmentation models. The C++ inference engine supports ONNX Runtime, TensorRT, and ExecuTorch backends with compile-time backend selection — exactly one is compiled in.
+> TensorRT optimization works for both detection and segmentation models. The C++ inference engine supports ONNX Runtime, TensorRT, ExecuTorch, and LiteRT backends with compile-time backend selection — exactly one is compiled in.
