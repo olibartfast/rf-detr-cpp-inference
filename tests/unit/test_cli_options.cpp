@@ -74,6 +74,13 @@ TEST(CliOptionsBasics, SimpleBooleanFlagsSetTheirFields) {
     EXPECT_TRUE(outcome.options.display);
 }
 
+TEST(CliOptionsBasics, SegmentationAndDisplayFlagsSetTheirFields) {
+    const auto outcome = run({"--segmentation", "--display"});
+    ASSERT_EQ(outcome.status, ParseStatus::Ok);
+    EXPECT_TRUE(outcome.options.segmentation);
+    EXPECT_TRUE(outcome.options.display);
+}
+
 #if defined(USE_CUDA_PREPROCESS) || defined(USE_DALI)
 TEST(CliOptionsBasics, GpuPreprocessFlagSetsField) {
     const auto outcome = run({"--gpu-preprocess"});

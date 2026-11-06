@@ -18,6 +18,9 @@ namespace {
 #if defined(USE_TENSORRT)
 constexpr std::array kModelExtensions = {".engine", ".trt", ".onnx"};
 constexpr const char *kModelFormatName = "TensorRT engine or ONNX model (.engine/.trt/.onnx)";
+#elif defined(USE_LITERT)
+constexpr std::array kModelExtensions = {".tflite"};
+constexpr const char *kModelFormatName = "LiteRT model (.tflite)";
 #elif defined(USE_EXECUTORCH)
 constexpr std::array kModelExtensions = {".pte"};
 constexpr const char *kModelFormatName = "ExecuTorch program (.pte)";
@@ -168,10 +171,10 @@ TEST_F(RFDETRIntegrationTest, EndToEndPipeline) {
     ASSERT_FALSE(image.empty());
 
     // Draw detections
-    inference.draw_detections(image, boxes, class_ids, scores);
+    RFDETRInference::draw_detections(image, boxes, class_ids, scores);
 
     // Save output
-    EXPECT_TRUE(inference.save_output_image(image, output_path_).has_value());
+    EXPECT_TRUE(RFDETRInference::save_output_image(image, output_path_).has_value());
     EXPECT_TRUE(std::filesystem::exists(output_path_));
 }
 
@@ -295,7 +298,7 @@ TEST_F(RFDETRKeypointIntegrationTest, EndToEndKeypointPipeline) {
 
     inference.draw_keypoints(image, boxes, class_ids, scores, keypoints);
 
-    EXPECT_TRUE(inference.save_output_image(image, output_path_).has_value());
+    EXPECT_TRUE(RFDETRInference::save_output_image(image, output_path_).has_value());
     EXPECT_TRUE(std::filesystem::exists(output_path_));
 }
 

@@ -14,6 +14,10 @@
 #include "executorch_backend.hpp"
 #endif
 
+#ifdef USE_LITERT
+#include "litert_backend.hpp"
+#endif
+
 namespace rfdetr::backend {
 
 namespace {
@@ -43,8 +47,11 @@ std::unique_ptr<InferenceBackend> create_backend() {
     return std::make_unique<TensorRTBackend>();
 #elif defined(USE_EXECUTORCH)
     return std::make_unique<ExecuTorchBackend>();
+#elif defined(USE_LITERT)
+    return std::make_unique<LiteRTBackend>();
 #else
-#error "No backend enabled. Build with -DUSE_ONNX_RUNTIME=ON, -DUSE_TENSORRT=ON, or -DUSE_EXECUTORCH=ON"
+#error                                                                                                                 \
+    "No backend enabled. Build with -DUSE_ONNX_RUNTIME=ON, -DUSE_TENSORRT=ON, -DUSE_EXECUTORCH=ON, or -DUSE_LITERT=ON"
 #endif
 }
 

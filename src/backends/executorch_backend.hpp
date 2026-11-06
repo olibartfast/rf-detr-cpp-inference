@@ -46,7 +46,7 @@ class ExecuTorchBackend : public InferenceBackend {
     [[nodiscard]] executorch::aten::Tensor output_tensor(size_t output_index) const;
 
     /// Confirm the program returns boxes then logits, the order postprocessing assumes.
-    void validate_output_order(const executorch::runtime::MethodMeta &meta) const;
+    static void validate_output_order(const executorch::runtime::MethodMeta &meta);
 
     std::unique_ptr<executorch::extension::Module> module_;
 

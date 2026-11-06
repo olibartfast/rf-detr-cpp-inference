@@ -78,3 +78,23 @@ jobs:
 
       - name: Run unit tests under Valgrind memcheck
         run: cmake --build build --target memcheck
+
+  litert:
+    name: LiteRT CPU Build & Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-deps
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Stage LiteRT native SDK
+        run: ./scripts/fetch_litert.sh "$RUNNER_TEMP/litert"
+      - name: Configure LiteRT
+        run: >-
+          cmake -S . -B build-litert -DUSE_ONNX_RUNTIME=OFF -DUSE_LITERT=ON
+          -DLITERT_ROOTDIR="$RUNNER_TEMP/litert" -DWERROR=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build-litert --parallel
+      - name: Run unit tests
+        run: ctest --test-dir build-litert --output-on-failure -R UnitTests
