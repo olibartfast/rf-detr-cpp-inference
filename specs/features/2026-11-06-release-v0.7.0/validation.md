@@ -35,9 +35,11 @@ No claim of GPU/NPU LiteRT support is allowed.
 - [x] Changelog reads as a concise list of user-visible changes; known limitations included.
 - [x] Detection/segmentation-only showcase fully decodes, with the rejected pose section absent.
 - [x] Feature merged to develop (merge commit `2689ea8`); Phase 8 marked complete.
-- [ ] Git-flow release merged/tagged; master merged back into develop.
+- [x] Git-flow release merged/tagged; master merged back into develop. The release commit is
+      `d145031`, merged into `master` by `156373f`, which the annotated tag `v0.7.0` (`97d5de0`)
+      points at; `master` was merged back into `develop` by `f401f59`.
 - [x] Mandatory lint gates rerun before every commit and push.
-- [ ] Authorized remote branches/tag and GitHub release verified.
+- [x] Authorized remote branches/tag and GitHub release verified; see [Publication](#publication).
 
 ## Results
 
@@ -95,8 +97,8 @@ The FFmpeg/SDL2 default configure on this host needed the staged SDL2 developmen
 
 ### Fresh tagged checkout
 
-PASS. `git clone` of the release commit `15ac269` (the commit amended only by this record) into
-`/tmp/rfdetr-fresh`, then:
+PASS. `git clone` of release commit `15ac269` into `/tmp/rfdetr-fresh`. That commit differs from
+the tagged release commit `d145031` only in this record. Then:
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DWERROR=ON
@@ -105,5 +107,37 @@ ctest --test-dir build --output-on-failure -R UnitTests
 ```
 
 Configured with ONNX Runtime 1.28.0 and FFmpeg/SDL2 media (`USE_OPENCV=OFF`); the binary links
-the cloned tree's ONNX Runtime, system FFmpeg and SDL2. 109/109 gtest cases pass. The post-tag
-remote checks are recorded on `develop` after publication.
+the cloned tree's ONNX Runtime, system FFmpeg and SDL2. 109/109 gtest cases pass.
+
+### Publication
+
+Verified after the push from `develop` on 2026-11-06.
+
+| Ref | Expected | Verified |
+|-----|----------|----------|
+| `develop` | `f401f59` | `origin/develop` = `f401f599bd9e…` |
+| `master` | `156373f` | `origin/master` = `156373f07851…` |
+| Tag `v0.7.0` | annotated object `97d5de0` → `156373f` | `git ls-remote --tags origin` returns the same object and peeled commit |
+| GitHub release | <https://github.com/olibartfast/rf-detr-cpp-inference/releases/tag/v0.7.0> | published 2026-11-06T17:05:36Z, target `master`, not a draft or pre-release |
+
+The local `release/v0.7.0` and `feature/litert-backend` branches were deleted after the merge.
+
+#### CI on the published commits
+
+| Commit | Build & Test | GPU Backend Compile | C++ Lint & Build |
+|--------|--------------|---------------------|------------------|
+| `master` `156373f` (tag `v0.7.0`) | PASS | PASS | **FAIL**: Format Check and Clang-Tidy |
+| `develop` `f401f59` | PASS | PASS | **FAIL**: Format Check and Clang-Tidy |
+| `develop` `9c95c35` (fix) | PASS | PASS | PASS |
+
+The two lint jobs failed before reaching the source: `ubuntu-latest` had moved to Ubuntu 26.04,
+which no longer ships `clang-format-18` / `clang-tidy-18`, so both commands exited 127. The same
+gates passed locally with clang 18.1.8 (see [Results](#results)); this was an image/toolchain
+failure, not a finding in the release tree. `9c95c35` pins every `lint.yml` job to `ubuntu-24.04`,
+installs clang 18 explicitly and adds a `v*` tag trigger; all three workflows are green on it.
+
+`v0.7.0` itself was **not** linted by CI: the tag trigger landed in `9c95c35`, after the tag was
+published. The tag therefore stays at `156373f` with a red Format Check / Clang-Tidy run on its
+commit. Moving a published tag would rewrite it; the alternatives (move `v0.7.0` with explicit
+maintainer approval, or let the fix ship in the next release) are left to the maintainer rather
+than decided here.
