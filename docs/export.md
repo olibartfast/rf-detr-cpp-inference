@@ -6,7 +6,7 @@ Follow the procedure listed at https://rfdetr.roboflow.com/learn/deploy/
 > [!IMPORTANT]
 > - Python version: **3.10+** (upstream `rfdetr` at the pinned version; Python 3.11 venv still recommended here)
 > - Starting with RF-DETR 1.6.0, the export extra was renamed: use `pip install rfdetr[onnx]`
-> - **Tested version**: the `rfdetr[onnx]` pin in [`deploy/requirements.txt`](../deploy/requirements.txt) (`RFDETR_VERSION` in [`versions.env`](../versions.env))
+> - **Export package**: the `rfdetr[onnx]` pin in [`deploy/requirements.txt`](../deploy/requirements.txt) (`RFDETR_VERSION` in [`versions.env`](../versions.env))
 > - Starting with RF-DETR 1.7.0, ONNX exports use variant filenames (e.g. `rfdetr-medium.onnx`, `rfdetr-seg-medium.onnx`) instead of the generic `inference_model.onnx`
 > - The `--simplify` flag was removed in 1.8.0 (already deprecated in 1.7.0). Export scripts no longer accept it.
 > - RF-DETR 1.8.x adds keypoint model export support via `RFDETRKeypointPreview`.
@@ -25,13 +25,38 @@ Follow the procedure listed at https://rfdetr.roboflow.com/learn/deploy/
 > - 1.10.0 is primarily training and Python `predict()` performance work. Exported input/output names, order, shapes, dtypes, and decode semantics are unchanged. It adds `output_name` to `RFDETR.export()`; this repository's scripts pass it explicitly and report the returned path so their documented filenames stay stable.
 > - Without `output_name`, 1.10.0 encodes load-bearing details in generated names: ExecuTorch adds its delegate (for example `_xnnpack.pte`) and TensorRT adds its resolved precision (`_fp16.trt` or `_fp32.trt`).
 > - The remaining 1.9.2–1.9.4 fixes are training, augmentation, dataset, and TFLite-conversion changes with no bearing on an exported detection/segmentation/keypoint model.
-> - 1.11.0 restructures export internals into one `Exporter` class per format (`rfdetr.export._onnx.exporter.export_onnx` → `OnnxExporter`, and so on) and removes `RFDETR.optimize_for_inference()`. `RFDETR.export()` is unchanged, and it is the only export API the `deploy/` scripts call. It also adds OpenVINO, LiteRT and Core AI export and dynamic-batch TensorRT engines; this project consumes none of those (every tensor contract here is batch 1).
+> - 1.11.0 restructures export internals into one `Exporter` class per format (`rfdetr.export._onnx.exporter.export_onnx` → `OnnxExporter`, and so on) and removes `RFDETR.optimize_for_inference()`. `RFDETR.export()` is unchanged, and it is the only export API the `deploy/` scripts call. It also adds OpenVINO, LiteRT and Core AI export and dynamic-batch TensorRT engines; this project now consumes direct LiteRT exports, while every tensor contract here remains batch 1.
 > - 1.11.0 makes `export(format="tensorrt", fp16=True)` build a real FP16 engine on TensorRT 11 by casting the ONNX graph to FP16 with float32 I/O; see [TensorRT 11 and FP16](#tensorrt-11-and-fp16).
 > - 1.11.2 rewrites three ONNX patterns that ONNX Runtime's CoreML provider rejects, including the segmentation head's `Einsum` (now a `MatMul`), and 1.11.0 reshapes the keypoint decode. Exported input/output names, order, shapes, dtypes and opset are unchanged, and detection, segmentation and keypoint exports give bit-identical outputs to 1.10.1.
 > - 1.11.2 caps the `[executorch]` extra at ExecuTorch `>=1.3,<1.4`; see [ExecuTorch Model Export](#executorch-model-export).
 > - The rest of 1.11.0–1.11.2 is training, dataset, evaluation, threading and Python-side inference work (LoRA checkpoint loading, crowd-region mAP, `predict()` thread safety, `class_names` validation) with no bearing on an exported model.
 
-### Setup Virtual Environment
+### Upstream export changes
+
+The alignment to [RF-DETR 1.12.0](https://github.com/roboflow/rf-detr/releases/tag/1.12.0)
+keeps the default ImageNet preprocessing and raw boxes/class-logits/masks/keypoints contract.
+The final segmentation masks are unchanged; auxiliary evaluation masks are no longer returned
+unless requested. Python's opt-in antialiased resize does not change this application's defaults.
+
+- ONNX export no longer runs the old optimizer/simplifier. The `[onnx]` extra no longer installs
+  `onnxsim`, `polygraphy` or `onnx_graphsurgeon`; use `[tensorrt]` for Python engine export and
+  `[tflite]` for the separate ONNX conversion route. Existing plain ONNX export helpers need no
+  replacement dependency.
+- Export metadata is embedded in ONNX and written as `<artifact>.rfdetr.json` beside other
+  formats. The C++ application does not consume it: continue supplying the matching labels,
+  task flags and keypoint schema. Keep sidecars when using upstream's Python runtime.
+- XNNPACK export decomposes attention and folds constants before delegation. Re-exporting can
+  change delegate coverage and required runtime operators, so verify new `.pte` files against
+  the pinned native runtime rather than extending earlier parity measurements to them.
+- Direct LiteRT export uses pixel-row deformable-attention sampling. The experimental pose
+  helper adapts the new early keypoint rejection, retains real keypoint output metadata and
+  applies the existing Linear reshape check. Detection and segmentation use upstream conversion.
+
+New Python inference/streaming APIs and optional INT8 exports do not add C++ runtime features.
+Compatibility of regenerated models must be established by the alignment's real-model checks;
+see [the validation record](../specs/features/2026-11-07-rfdetr-1.12.0/validation.md).
+
+## Setup Virtual Environment
 
 ```bash
 # install python3.11 on Ubuntu 24.04
@@ -313,12 +338,13 @@ litert-torch. Keep its default model resolution or set `--input_size` to a suppo
 Use `--output_name` to override the filename stem. Unlike the ONNX-to-TFLite conversion route,
 this direct export preserves NCHW input and needs no custom ONNX operator kernels.
 
-The [upstream LiteRT contract](https://github.com/roboflow/rf-detr/blob/1.11.2/docs/exports/litert.md)
+The [upstream LiteRT contract](https://github.com/roboflow/rf-detr/blob/1.12.0/docs/exports/litert.md)
 is fixed float32 input `[1,3,H,H]` with the same ImageNet normalization as other backends;
 positional outputs are normalized cxcywh boxes, class logits and optional NQHW mask logits.
 The C++ backend validates these shapes before compilation. Quantized inputs/outputs, GPU/NPU delegates, dynamic shapes and batch sizes above 1 are unsupported.
-For pose, use this project's `deploy/export_litert.py --keypoint` helper. The upstream converter
-rejects the keypoint head's rank-4 matrix multiplication. The helper reshapes Linear inputs to
+For pose, use this project's `deploy/export_litert.py --keypoint` helper. Upstream now rejects keypoints before conversion because of the keypoint head's rank-4 matrix
+multiplication. The helper bypasses that refusal only inside its export context, keeps the
+upstream pixel-row sampling conversion and keypoint metadata, and reshapes Linear inputs to
 rank 2 and restores their output shape in the private export copy; weights and live models are
 unchanged. Before conversion it checks the full model's eager outputs at `atol=rtol=1e-5`.
 The runtime consumes the same keypoint tensor contract as the other backends. The exported
