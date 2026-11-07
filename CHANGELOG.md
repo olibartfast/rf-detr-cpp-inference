@@ -5,6 +5,20 @@ Validation records live in `specs/features/`, not here.
 
 ## [Unreleased]
 
+## [v0.7.1] - 2026-11-07
+
+### Changed
+- Export tooling aligned with [RF-DETR 1.12.0](https://github.com/roboflow/rf-detr/releases/tag/1.12.0), including updated ONNX dependencies and export guidance.
+
+### Fixed
+- Experimental LiteRT pose export handles upstream's early keypoint rejection while preserving keypoint metadata and sampling.
+
+### Known issues
+- Regenerated ExecuTorch and TensorRT models remain unverified on their native runtimes.
+- LiteRT supports CPU float32 inference only; experimental pose can include false positives at low confidence thresholds.
+- ONNX Runtime runs on one CPU thread; GPU JPEG decoding can differ from CPU decoding.
+- DALI preview and GPU playback on a real screen remain unverified.
+
 ## [v0.7.0] - 2026-11-06
 
 ### Added
@@ -146,7 +160,8 @@ Validation records live in `specs/features/`, not here.
 ## [v0.1.0] - 2026-02-14
 - Initial release.
 
-[Unreleased]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.7.0...develop
+[Unreleased]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.7.1...develop
+[v0.7.1]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.7.0...v0.7.1
 [v0.7.0]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.6.1...v0.7.0
 [v0.6.1]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.6.0...v0.6.1
 [v0.6.0]: https://github.com/olibartfast/rf-detr-cpp-inference/compare/v0.5.1...v0.6.0

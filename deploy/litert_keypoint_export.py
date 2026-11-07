@@ -6,6 +6,7 @@ keeps that operation rank 2; its original output shape is restored immediately.
 No trained parameter, live model, or installed package file is modified.
 """
 from contextlib import contextmanager
+import inspect
 
 
 @contextmanager
@@ -23,7 +24,32 @@ def keypoint_linear_export():
             result = functional.linear(flat, self.weight, self.bias)
             return result.reshape(*value.shape[:-1], self.out_features)
 
+    # These are private upstream hooks: refuse a changed interface rather than
+    # silently exporting through a path that no longer applies the rewrite.
+    hooks = {
+        '_convert': ('self', 'graph'),
+        '_prepare_module_for_tracing': ('self', 'graph'),
+        '_import_converter': ('self',),
+        '_prepare_output_dir': ('self',),
+        '_resolve_export_name': ('self', 'backbone_only'),
+        '_convert_and_save': ('self', 'litert_torch', 'wrapped_model', 'input_tensors', 'output_file'),
+    }
+    for name, parameters in hooks.items():
+        method = getattr(LiteRTExporter, name, None)
+        if not callable(method):
+            raise RuntimeError(f'Incompatible RF-DETR LiteRT exporter hook: {name}')
+        # Bind the arguments we pass before installing either replacement.
+        try:
+            signature = inspect.signature(method)
+            if name == '_resolve_export_name':
+                signature.bind(None, backbone_only=False)
+            else:
+                signature.bind(*([None] * len(parameters)))
+        except (TypeError, ValueError) as error:
+            raise RuntimeError(f'Incompatible RF-DETR LiteRT exporter hook: {name}') from error
+
     original_prepare = LiteRTExporter._prepare_module_for_tracing
+    original_convert = LiteRTExporter._convert
 
     def prepare(exporter, graph):
         wrapped, sample = original_prepare(exporter, graph)
@@ -40,8 +66,24 @@ def keypoint_linear_export():
         print('LiteRT keypoint export: Linear reshape parity passed (atol=rtol=1e-5)')
         return wrapped, sample
 
+    def convert(exporter, graph):
+        if 'keypoints' not in graph.output_names:
+            return original_convert(exporter, graph)
+        # RF-DETR rejects keypoints before preparation. Repeat only its conversion
+        # orchestration, retaining the real output names and metadata for the
+        # base exporter's sidecar writer. The upstream save hook still installs
+        # pixel_row_sampling and handles converter errors.
+        converter = exporter._import_converter()
+        output_dir = exporter._prepare_output_dir()
+        output_file = output_dir / f"{exporter._resolve_export_name(backbone_only=graph.backbone_only)}.tflite"
+        wrapped, sample = exporter._prepare_module_for_tracing(graph)
+        exporter._convert_and_save(converter, wrapped, sample, output_file)
+        return output_file
+
     LiteRTExporter._prepare_module_for_tracing = prepare
+    LiteRTExporter._convert = convert
     try:
         yield
     finally:
         LiteRTExporter._prepare_module_for_tracing = original_prepare
+        LiteRTExporter._convert = original_convert

@@ -3,7 +3,7 @@
 [![C++](https://img.shields.io/badge/language-C++20-blue.svg)](https://en.cppreference.com/w/cpp)
 [![CMake](https://img.shields.io/badge/build%20system-CMake-blue.svg)](https://cmake.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.7.0-blue.svg)](https://github.com/olibartfast/rf-detr-cpp-inference/releases/tag/v0.7.0)
+[![Version](https://img.shields.io/badge/version-0.7.1-blue.svg)](https://github.com/olibartfast/rf-detr-cpp-inference/releases/tag/v0.7.1)
 
 Object detection, instance segmentation, and keypoint inference with the
 [RF-DETR](https://github.com/roboflow/rf-detr) model, in C++20.
@@ -205,11 +205,16 @@ backend is CPU-only as shipped — are in
 
 | Package | Pin | Provides |
 |---------|-----|----------|
-| `rfdetr[onnx]` | `==1.11.2` | `.onnx` export, ONNX opset 17 |
-| `rfdetr[executorch]` | `==1.11.2` | `.pte` export — resolves ExecuTorch 1.3.x, whose `.pte` runs on the pinned v1.4.0 runtime |
-| `rfdetr[litert]` | `==1.11.2` | Direct float32 `.tflite` export through litert-torch |
+| `rfdetr[onnx]` | `==1.12.0` | `.onnx` export, ONNX opset 17 |
+| `rfdetr[executorch]` | `==1.12.0` | `.pte` export — resolves ExecuTorch 1.3.x; revalidate new exports on the pinned v1.4.0 runtime |
+| `rfdetr[litert]` | `==1.12.0` | Direct float32 `.tflite` export through litert-torch |
 | `litert-torch` | `==0.10.0` | Pinned direct converter; pose uses the project Linear reshape adapter |
-| `rfdetr[tensorrt]` | `==1.11.2` | in-process engine builds (`tensorrt` + `polygraphy`) |
+| `rfdetr[tensorrt]` | `==1.12.0` | in-process engine builds (`tensorrt` + `polygraphy`) |
+
+The ONNX extra no longer installs `onnxsim`, `polygraphy` or `onnx_graphsurgeon`.
+Use the format-specific extra for other exports. Exports now carry inference metadata, but this
+C++ application still uses its label file and CLI settings. LiteRT pose uses the project's
+experimental adapter; see [export details and validation limits](docs/export.md#upstream-export-changes).
 
 These two tables are the only prose that states pinned versions; everything else in `docs/`
 and `specs/` points at `versions.env`. The tables, the `ARG` defaults in the backend Dockerfiles,
