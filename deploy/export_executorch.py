@@ -126,12 +126,11 @@ def main():
     print("  - labels: Class logits [batch, num_queries, num_classes]")
     if args.segmentation:
         print("  - masks: Segmentation masks [batch, num_queries, H, W]")
-    print("\nNote: ExecuTorch export requires 'pip install rfdetr[executorch]==1.11.2'.")
-    print("      Since rfdetr 1.11.2 the extra caps ExecuTorch at >=1.3,<1.4, so it")
-    print("      exports with 1.3.x; that .pte runs on the C++ runtime this project")
-    print("      pins to v1.4.0. Run with the venv activated: export needs its 'flatc'.")
-    print("      1.9.1 recombines undelegated addmm into aten.linear (~2.5x faster XNNPACK")
-    print("      inference); re-export .pte files produced with 1.9.0 to pick it up.")
+    print("\nNote: install rfdetr[executorch] at RFDETR_VERSION from versions.env.")
+    print("      The extra selects the supported exporter runtime; EXECUTORCH_VERSION")
+    print("      pins this project's C++ runtime. Activate the export venv so flatc is found.")
+    print("      XNNPACK export decomposes attention and folds constants to keep more")
+    print("      operations in the delegate. Re-export older .pte files to pick this up.")
     if args.backend == 'xnnpack':
         print("      Build the C++ side with -DUSE_ONNX_RUNTIME=OFF -DUSE_EXECUTORCH=ON")
         print("      -DEXECUTORCH_DELEGATE=xnnpack (the default).")

@@ -5,6 +5,18 @@ Validation records live in `specs/features/`, not here.
 
 ## [Unreleased]
 
+### Changed
+- Export tooling aligned with [RF-DETR 1.12.0](https://github.com/roboflow/rf-detr/releases/tag/1.12.0), including updated ONNX dependencies and export guidance.
+
+### Fixed
+- Experimental LiteRT pose export handles upstream's early keypoint rejection while preserving keypoint metadata and sampling.
+
+### Known issues
+- Regenerated ExecuTorch and TensorRT models remain unverified on their native runtimes.
+- LiteRT supports CPU float32 inference only; experimental pose can include false positives at low confidence thresholds.
+- ONNX Runtime runs on one CPU thread; GPU JPEG decoding can differ from CPU decoding.
+- DALI preview and GPU playback on a real screen remain unverified.
+
 ## [v0.7.0] - 2026-11-06
 
 ### Added

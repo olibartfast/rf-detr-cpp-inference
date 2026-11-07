@@ -103,6 +103,10 @@ dependencies, since a bare `python3` cannot `import torchgen`).
 The full prefix recipe, including why exactly one op library may be linked, is in
 [Building the ExecuTorch install prefix](building.md#building-the-executorch-install-prefix).
 
+New XNNPACK exports decompose attention and fold constants before delegation. Earlier model
+parity measurements do not validate these newly lowered programs; see
+[upstream export changes](export.md#upstream-export-changes).
+
 ---
 
 ### LiteRT
@@ -122,6 +126,12 @@ conversion operators are unsupported. Shared CPU preprocessing/postprocessing re
 LiteRT requires no CUDA installation and cannot enable the TensorRT GPU pipeline flags.
 The staging helper supports Linux wheel targets; other platforms need a supplied SDK and are unverified.
 There is no dedicated LiteRT Dockerfile.
+The experimental pose export helper adapts upstream's early keypoint refusal while preserving
+keypoint metadata, pixel-row sampling and the Linear reshape parity check. New exports require
+runtime validation; see [LiteRT export](export.md#litert-model-export).
+
+Exports may carry embedded ONNX metadata or `.rfdetr.json` sidecars. Native backends keep their
+existing tensor checks and do not infer labels or task settings from that metadata.
 
 ## Media & Display Backends
 
