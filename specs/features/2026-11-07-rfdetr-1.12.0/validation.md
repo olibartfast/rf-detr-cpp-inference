@@ -21,7 +21,7 @@ No C++/CUDA changes planned; GPU tests must retain GTEST_SKIP without hardware.
 
 ## Definition of done
 - [x] CHANGELOG and README updated; all required validation passed or exact UNRUN limitations recorded.
-- [ ] Alignment merged to develop and branch deleted after review. No numbered roadmap phase to tick.
+- [x] Alignment merged to develop and branch deleted after review. No numbered roadmap phase to tick.
 
 ## Evidence (2026-11-07)
 
@@ -59,3 +59,5 @@ Real-model parity XML: `/tmp/rfdetr-align-litert-{detection,pose,seg}.xml`; conv
 Implementation and validation files are copied into the primary workspace on feature/rfdetr-1.12.0, based on origin/develop. The divergent local develop ref is preserved. The maintainer authorized pushing the alignment and a release bump after green CI on 2026-11-07; alternate runtime gates remain explicitly UNRUN. Merge/publication evidence is recorded below as it becomes available.
 
 - `rfdetr-seg-nano.tflite` SHA256: `cd2f759e956a1070985a4909bd6f44e8b06543cbb24b7bdfc92dee6fccd82573`
+
+Published in v0.7.1 after alignment PR #27, release PR #28, master CI and tag lint all passed. Feature branch removed after publication; see the release validation for run identifiers.

@@ -22,3 +22,5 @@ Out: new Python inference features, quantization, new models, metadata ingestion
 
 ## Context
 Baseline origin/develop ddc2a90, tracking RFDETR_VERSION=1.11.2. Local develop diverges; work occurs in an isolated checkout without rewriting it. Upstream tag 1.12.0 is 639eac4555ceb89ef399ccda3fde716bbcfe34cb. Mission commitments: exclusive backends, CPU/GPU parity, model-free unit tests. Actual export environments and device availability determine which runtime checks can execute; missing checks remain UNRUN.
+
+Release metadata: this alignment ships in project v0.7.1. The mission and runtime architecture are unchanged.
