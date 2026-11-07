@@ -6,7 +6,8 @@ Work this project has committed to, as a phased queue. Phases are ordered so eac
 
 ## Status
 
-- Last tag **v0.7.0** (2026-11-06). **Phase 7 in progress**: only the `--display` real-screen and DALI item is open; v0.6.1 shipped with it open by decision. Flow is git-flow: `develop` → `release/vX.Y.Z` → `master`, merged back.
+- Release baseline **v0.7.1** (2026-11-07). **Phase 7 in progress**: only the `--display` real-screen and DALI item is open; v0.6.1 shipped with it open by decision. Flow is git-flow: `develop` → `release/vX.Y.Z` → `master`, merged back.
+- **v0.7.1** aligns export tooling with upstream RF-DETR and repairs experimental LiteRT pose export; native runtime architecture is unchanged. Alternate-runtime limits remain explicit in its release spec.
 - **v0.7.0 is released** — Phase 8: the exclusive LiteRT CPU backend for detection, pose and instance segmentation, direct `.tflite` export tooling, and a LiteRT CI build job. No change to the default ONNX Runtime path.
 - **v0.6.1 is released** — Phase 7 hardening (enforced clang-tidy, `rfdetr::cli`, `PROFILING`), the Colab GPU gate and the measured CPU profile. No behaviour change.
 - **v0.6.0 is released** — Phase 6 (CUDA preprocessing as the default GPU preprocessor, DALI as the
