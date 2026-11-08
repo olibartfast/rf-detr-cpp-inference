@@ -3,6 +3,7 @@
 #include "rfdetr_inference.hpp"
 #include "video_pipeline.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -960,11 +961,13 @@ class KeypointPostprocessTest : public ::testing::Test {
 
     std::unique_ptr<RFDETRInference> make_inference(std::vector<std::vector<float>> output_data,
                                                     std::vector<std::vector<int64_t>> output_shapes,
-                                                    float threshold = 0.5f, int resolution = 560) {
+                                                    float threshold = 0.5f, int resolution = 560,
+                                                    float uncertainty_alpha = 0.0f) {
         Config config;
         config.resolution = resolution;
         config.threshold = threshold;
         config.model_type = ModelType::KEYPOINT;
+        config.keypoint_uncertainty_alpha = uncertainty_alpha;
 
         // RFDETRKeypointPreview: background has 0 keypoints, person has 17 COCO keypoints.
         config.keypoint_counts = {0, 17};
@@ -985,11 +988,12 @@ class KeypointPostprocessTest : public ::testing::Test {
                                                     std::vector<std::vector<int64_t>> output_shapes,
                                                     std::vector<int> keypoint_counts,
                                                     std::optional<int> background_class_id, float threshold = 0.5f,
-                                                    int resolution = 560) {
+                                                    int resolution = 560, float uncertainty_alpha = 0.0f) {
         Config config;
         config.resolution = resolution;
         config.threshold = threshold;
         config.model_type = ModelType::KEYPOINT;
+        config.keypoint_uncertainty_alpha = uncertainty_alpha;
         config.keypoint_counts = std::move(keypoint_counts);
         config.background_class_id = background_class_id;
 
@@ -1342,4 +1346,86 @@ TEST_F(KeypointPostprocessTest, RejectsKeypointCountExceedingStride) {
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
+}
+
+TEST(KeypointScoreFusion, NormalizedWeightedTrace) {
+    // Traces are 2 and 8, with findabilities 0.75 and 0.25: weighted mean 3.5.
+    const std::vector<float> params = {
+        0, 0, std::log(3.0f), 0, 0, 0, 0, 0, 0, 0, -std::log(3.0f), 0, -std::log(2.0f), 0, -std::log(2.0f), 0};
+    const float expected = 0.8f / (0.8f + 3.5f);
+    EXPECT_NEAR(rfdetr::processing::fuse_keypoint_score(0.8f, params, 1.0f), expected, 1e-6f);
+    EXPECT_FLOAT_EQ(rfdetr::processing::fuse_keypoint_score(0.8f, params, 0.0f), 0.8f);
+}
+
+TEST(KeypointScoreFusion, EmptyActiveClassAndMalformedShape) {
+    EXPECT_NEAR(rfdetr::processing::fuse_keypoint_score(0.8f, {}, 0.2f), 0.8f / 1.8f, 1e-6f);
+    EXPECT_FLOAT_EQ(rfdetr::processing::fuse_keypoint_score(0.8f, {}, 0.0f), 0.8f);
+    const std::vector<float> malformed(7, 0.0f);
+    EXPECT_THROW(static_cast<void>(rfdetr::processing::fuse_keypoint_score(0.8f, malformed, 1.0f)),
+                 std::invalid_argument);
+}
+
+TEST(KeypointScoreFusion, ExtremePrecisionsAndFindabilityRemainBounded) {
+    std::vector<float> params(8, 0.0f);
+    for (float findability : {-1000.0f, 1000.0f}) {
+        params[2] = findability;
+        params[4] = 1000.0f;
+        params[6] = 1000.0f;
+        const float sharp = rfdetr::processing::fuse_keypoint_score(0.8f, params, 1.0f);
+        EXPECT_FLOAT_EQ(sharp, std::nextafter(1.0f, 0.0f));
+        params[4] = -1000.0f;
+        params[6] = -1000.0f;
+        EXPECT_FLOAT_EQ(rfdetr::processing::fuse_keypoint_score(0.8f, params, 1.0f), 0.0f);
+        params[5] = std::numeric_limits<float>::max();
+        EXPECT_FLOAT_EQ(rfdetr::processing::fuse_keypoint_score(0.8f, params, 1.0f), 0.0f);
+        params[5] = 0.0f;
+    }
+    EXPECT_FLOAT_EQ(rfdetr::processing::fuse_keypoint_score(0.0f, params, 1.0f), 0.0f);
+}
+
+TEST_F(KeypointPostprocessTest, FusionFiltersFinalScoreAndIgnoresImageSizeAndPadding) {
+    // Object scores 0.9 and 0.4: uncertain first pose drops, precise second promotes.
+    std::vector<float> params(2 * 4 * 8, std::numeric_limits<float>::quiet_NaN());
+    for (size_t query = 0; query < 2; ++query) {
+        const size_t offset = query * 32 + 16; // class 1, first of two padded slots
+        std::fill_n(params.begin() + static_cast<ptrdiff_t>(offset), 8, 0.0f);
+        params[offset + 4] = query == 0 ? -2.0f : 2.0f;
+        params[offset + 6] = query == 0 ? -2.0f : 2.0f;
+    }
+    auto inference = make_inference({{0.5f, 0.5f, 0.2f, 0.2f, 0.5f, 0.5f, 0.2f, 0.2f},
+                                     {-10.0f, std::log(9.0f), -10.0f, std::log(2.0f / 3.0f)},
+                                     params},
+                                    {{1, 2, 4}, {1, 2, 2}, {1, 2, 4, 8}}, {0, 1}, 0, 0.5f, 100, 1.0f);
+    std::vector<float> scores;
+    std::vector<int> classes;
+    std::vector<BoundingBox> boxes;
+    std::vector<std::vector<KeypointResult>> keypoints;
+    inference->postprocess_keypoint_outputs(1, 1, 100, 200, scores, classes, boxes, keypoints);
+    ASSERT_EQ(scores.size(), 1u);
+    EXPECT_NEAR(scores[0], 0.4f / (0.4f + 2.0f * std::exp(-4.0f)), 1e-6f);
+    ASSERT_EQ(keypoints[0].size(), 1u);
+    const float score = scores[0];
+    scores.clear();
+    classes.clear();
+    boxes.clear();
+    keypoints.clear();
+    inference->postprocess_keypoint_outputs(1, 1, 1000, 2000, scores, classes, boxes, keypoints);
+    ASSERT_EQ(scores.size(), 1u);
+    EXPECT_FLOAT_EQ(scores[0], score);
+}
+
+TEST_F(KeypointPostprocessTest, FusionTreatsInactiveAndUnknownClassesLikeUpstream) {
+    const std::vector<float> params(16, std::numeric_limits<float>::quiet_NaN());
+    auto inference = make_inference({{0.5f, 0.5f, 0.2f, 0.2f}, {std::log(4.0f), -10.0f, std::log(4.0f)}, params},
+                                    {{1, 1, 4}, {1, 1, 3}, {1, 1, 2, 8}}, {0, 1}, std::nullopt, 0.4f, 100, 1.0f);
+    std::vector<float> scores;
+    std::vector<int> classes;
+    std::vector<BoundingBox> boxes;
+    std::vector<std::vector<KeypointResult>> keypoints;
+    inference->postprocess_keypoint_outputs(1, 1, 100, 100, scores, classes, boxes, keypoints);
+    ASSERT_EQ(scores.size(), 2u);
+    EXPECT_EQ(classes[0], 0);
+    EXPECT_NEAR(scores[0], 0.8f / 1.8f, 1e-6f);
+    EXPECT_EQ(classes[1], 2);
+    EXPECT_NEAR(scores[1], 0.8f, 1e-6f);
 }

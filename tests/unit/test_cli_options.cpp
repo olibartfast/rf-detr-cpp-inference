@@ -1,3 +1,4 @@
+#include "backends/inference_backend.hpp"
 #include "cli_options.hpp"
 
 #include <cmath>
@@ -400,3 +401,36 @@ TEST(CliOptionsEdgeCases, ThresholdOutOfFloatRangeIsAnError) {
     ASSERT_EQ(outcome.status, ParseStatus::Error);
     EXPECT_EQ(outcome.error, "Error: --threshold expects a number, got '1e40'");
 }
+
+#if defined(USE_ONNX_RUNTIME)
+TEST(CliOptionsThreads, AcceptsAutomaticAndExplicitCounts) {
+    for (const char *count : {"0", "1", "2", "4"}) {
+        const auto outcome = run({"--onnx-threads", count});
+        ASSERT_EQ(outcome.status, ParseStatus::Ok);
+        ASSERT_TRUE(outcome.options.onnx_threads.has_value());
+        EXPECT_EQ(*outcome.options.onnx_threads, std::stoi(count));
+    }
+}
+#else
+TEST(CliOptionsThreads, RejectsOnNonOnnxBackend) {
+    for (const char *count : {"0", "1"}) {
+        const auto outcome = run({"--onnx-threads", count});
+        EXPECT_EQ(outcome.status, ParseStatus::Error);
+        EXPECT_NE(outcome.error.find("ONNX Runtime backend"), std::string::npos);
+    }
+}
+#endif
+
+TEST(CliOptionsThreads, RejectsInvalidCounts) {
+    for (const char *count : {"-1", "2.5", "abc", "999999999999999999999"}) {
+        const auto outcome = run({"--onnx-threads", count});
+        EXPECT_EQ(outcome.status, ParseStatus::Error);
+        EXPECT_NE(outcome.error.find("--onnx-threads"), std::string::npos);
+    }
+}
+
+#ifdef USE_ONNX_RUNTIME
+TEST(OnnxThreadOptions, RejectsNegativeBackendCountWithoutModel) {
+    EXPECT_THROW((void)rfdetr::backend::create_backend({-1}), std::invalid_argument);
+}
+#endif

@@ -13,11 +13,11 @@ namespace rfdetr::backend {
  * @brief ONNX Runtime implementation of InferenceBackend
  *
  * This backend uses Microsoft's ONNX Runtime for cross-platform inference.
- * Supports CPU and GPU execution providers.
+ * Uses the CPU execution provider.
  */
 class OnnxRuntimeBackend : public InferenceBackend {
   public:
-    OnnxRuntimeBackend();
+    explicit OnnxRuntimeBackend(int intra_op_threads = 0);
     ~OnnxRuntimeBackend() override = default;
     OnnxRuntimeBackend(const OnnxRuntimeBackend &) = delete;
     OnnxRuntimeBackend &operator=(const OnnxRuntimeBackend &) = delete;
@@ -39,6 +39,7 @@ class OnnxRuntimeBackend : public InferenceBackend {
     [[nodiscard]] std::string get_backend_name() const override { return "ONNX Runtime"; }
 
   private:
+    int intra_op_threads_;
     std::unique_ptr<Ort::Env> env_;
     std::unique_ptr<Ort::Session> session_;
     Ort::AllocatorWithDefaultOptions allocator_;

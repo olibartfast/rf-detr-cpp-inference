@@ -9,9 +9,14 @@
 
 namespace rfdetr::backend {
 
-OnnxRuntimeBackend::OnnxRuntimeBackend()
-    : env_(std::make_unique<Ort::Env>(ORT_LOGGING_LEVEL_WARNING, "RFDETRInference")),
-      memory_info_(Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)) {}
+OnnxRuntimeBackend::OnnxRuntimeBackend(int intra_op_threads)
+    : intra_op_threads_(intra_op_threads),
+      env_(std::make_unique<Ort::Env>(ORT_LOGGING_LEVEL_WARNING, "RFDETRInference")),
+      memory_info_(Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)) {
+    if (intra_op_threads < 0) {
+        throw std::invalid_argument("ONNX thread count must be nonnegative (0 = automatic)");
+    }
+}
 
 std::vector<int64_t> OnnxRuntimeBackend::initialize(const std::filesystem::path &model_path,
                                                     const std::vector<int64_t> &input_shape) {
@@ -22,7 +27,9 @@ std::vector<int64_t> OnnxRuntimeBackend::initialize(const std::filesystem::path 
 
     // Initialize ONNX Runtime session
     Ort::SessionOptions session_options;
-    session_options.SetIntraOpNumThreads(1);
+    session_options.SetIntraOpNumThreads(intra_op_threads_);
+    // Video preprocessing shares the CPU with inference; idle workers should sleep.
+    session_options.AddConfigEntry("session.intra_op.allow_spinning", "0");
     session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_EXTENDED);
 
     session_ = std::make_unique<Ort::Session>(*env_, model_path.c_str(), session_options);

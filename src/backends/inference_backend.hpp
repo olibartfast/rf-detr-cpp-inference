@@ -126,6 +126,10 @@ class InferenceBackend {
  * The backend is determined at compile time based on USE_ONNX_RUNTIME or USE_TENSORRT
  * preprocessor definitions. Only one backend is compiled into the binary.
  */
-std::unique_ptr<InferenceBackend> create_backend();
+struct BackendOptions {
+    int onnx_threads{0}; ///< 0 lets ONNX Runtime select its intra-op thread count.
+};
+
+std::unique_ptr<InferenceBackend> create_backend(BackendOptions options = {});
 
 } // namespace rfdetr::backend

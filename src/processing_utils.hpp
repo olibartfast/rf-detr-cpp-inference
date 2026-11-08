@@ -13,6 +13,12 @@ namespace rfdetr::processing {
 /// Sigmoid activation: maps logit to probability [0, 1]
 [[nodiscard]] float sigmoid(float x) noexcept;
 
+/// Fuse a probability with the findability-weighted covariance trace of active
+/// normalized [K,8] keypoint parameters, matching RF-DETR PostProcess. An empty
+/// active schema has log mean trace zero. Alpha <= 0 leaves the score unchanged.
+/// Throws std::invalid_argument when the span is not a whole number of keypoints.
+[[nodiscard]] float fuse_keypoint_score(float score, std::span<const float> raw_keypoints, float alpha);
+
 /// Normalize CHW image data in-place: (pixel - mean) / std per channel
 void normalize_image(std::span<float> data, size_t channel_size, std::span<const float, 3> means,
                      std::span<const float, 3> stds);

@@ -40,9 +40,14 @@ const void *InferenceBackend::get_output_device_ptr(size_t /*output_index*/) con
     no_device_io("get_output_device_ptr");
 }
 
-std::unique_ptr<InferenceBackend> create_backend() {
+std::unique_ptr<InferenceBackend> create_backend(BackendOptions options) {
+#ifndef USE_ONNX_RUNTIME
+    if (options.onnx_threads != 0) {
+        throw std::invalid_argument("ONNX thread configuration requires the ONNX Runtime backend");
+    }
+#endif
 #ifdef USE_ONNX_RUNTIME
-    return std::make_unique<OnnxRuntimeBackend>();
+    return std::make_unique<OnnxRuntimeBackend>(options.onnx_threads);
 #elif defined(USE_TENSORRT)
     return std::make_unique<TensorRTBackend>();
 #elif defined(USE_EXECUTORCH)

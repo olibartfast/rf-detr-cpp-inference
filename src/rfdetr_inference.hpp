@@ -37,6 +37,7 @@ struct Config {
     std::array<float, 3> stds{0.229f, 0.224f, 0.225f};
     ModelType model_type{ModelType::DETECTION};
     int max_detections{300}; ///< Cap on ranked query/class candidates, upstream's `num_select`
+    int onnx_threads{0};     ///< ONNX Runtime intra-op threads: 0 = automatic, 1 = single-threaded.
     float mask_threshold{0.0f};
 
     /// Exported logit slot that holds background, excluded before ranking.
