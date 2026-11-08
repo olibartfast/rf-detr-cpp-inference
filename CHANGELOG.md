@@ -16,6 +16,7 @@ Validation records live in `specs/features/`, not here.
 ### Fixed
 - Experimental LiteRT pose export handles upstream's early keypoint rejection while preserving keypoint metadata and sampling.
 - LiteRT export dependencies pinned for a reproducible, compatible environment.
+- TensorRT backend throws `std::runtime_error` instead of segfaulting when no CUDA device is present.
 
 ### Known issues
 - ExecuTorch and TensorRT models remain unverified on their native runtimes.

@@ -39,7 +39,34 @@ runtime). No passwordless sudo, so the default build ran inside the project's ow
   GPU inference path can build here. A TRT-11-capable x86+GPU host (Colab) remains the
   route for the full gate.
 
-No GPU tests may fail solely because the device is absent; existing skip behavior remains. Raw-output parity alone does not prove decoded pose parity.
+## NGC TensorRT container verification (CPU-only host) — 2026-11-08
+
+Image `neuriplo-infer:tensorrt-2026-11-01-full-coverage-1` (already on the host):
+CUDA 13.0 + nvcc, TensorRT **11.2.1.2** at `/opt/TensorRT-11.2.1.2`, nvJPEG, no GPU device.
+Source mounted read-only at the exact HEAD; builds in container `/tmp`.
+
+- TensorRT-only configure (`-DUSE_ONNX_RUNTIME=OFF -DUSE_TENSORRT=ON
+  -DTENSORRT_ROOTDIR=/opt/TensorRT-11.2.1.2 -DWERROR=ON`): PASS against the real
+  pinned headers and libraries.
+- TensorRT-only build: PASS, no warnings.
+- `ctest`: unit tests and catalog tests PASS; `integration_tests` exposed a real defect —
+  `TensorRTBackend()` segfaulted inside `createInferRuntime` (CUDA error 35) instead of
+  throwing, killing the whole test binary. Fixed by probing `cudaGetDeviceCount` in the
+  constructor and throwing `std::runtime_error` when no device exists
+  (`src/backends/tensorrt_backend.cpp`). After the fix, `InvalidModelPath` (which
+  `EXPECT_THROW`s construction) passes and model-gated tests SKIP as designed.
+- Full GPU pipeline matrix (CUDA pre/post, DALI pre) still to run in this container;
+  DALI staging (`DALI_SOURCE=pip`) in progress on the host.
+- Build matrix in this container (all `-DWERROR=ON`, all against the real pinned
+  TRT 11.2.1.2 + nvcc + pip-staged DALI 2.2.0): TRT-only, CUDA-pre-only,
+  CUDA-post-only, full CUDA pipeline, DALI-only, full DALI pipeline — configure and
+  build all PASS (12/12 including both negative guards: CUDA-pre+DALI and
+  GPU-opts-with-ONNX both fail at configure as designed).
+- GPU unit tests (`GpuParity*`, `GpuSegPostprocess*`) report SKIPPED, not FAILED, in
+  both the full-CUDA and full-DALI builds without a device.
+- Full `ctest` on the TRT-only build from a writable source copy: 11/11 PASS.
+- Still needs a real GPU: engine build/run, the four pre/post parity combinations,
+  the 1000-frame compute-sanitizer run, and stage benchmarks (Colab gate).
 
 ## LiteRT dependency evidence — 2026-11-08
 

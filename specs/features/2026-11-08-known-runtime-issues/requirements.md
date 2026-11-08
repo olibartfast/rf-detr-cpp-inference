@@ -6,6 +6,7 @@ User explicitly requested technical fixes for known issues on 2026-11-08, after 
 | In | Paths |
 |---|---|
 | ONNX thread control | src/backends/inference_backend.*, src/backends/onnx_runtime_backend.*, src/cli_options.*, src/main.cpp, src/rfdetr_inference.* |
+| TensorRT no-device guard | src/backends/tensorrt_backend.cpp (probe `cudaGetDeviceCount` in the constructor; throw instead of crashing in `createInferRuntime`) |
 | Upstream-correct pose scoring and threshold | src/rfdetr_inference.cpp, src/processing_utils.*, tests/unit/test_rfdetr_inference.cpp |
 | Reproducible LiteRT export dependencies | versions.env, deploy/, scripts/check_version_sync.sh, docs/export.md, README.md |
 | Reproducible runtime checks | tests/integration/, scripts/colab/, this spec |
