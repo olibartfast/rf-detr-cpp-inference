@@ -5,8 +5,11 @@ Validation records live in `specs/features/`, not here.
 
 ## [Unreleased]
 
+## [v0.7.1] - 2026-11-08
+
 ### Added
 - `--onnx-threads <n>` option to control ONNX Runtime intra-op threads (0 = automatic).
+- `scripts/gate_in_container.sh` runs the GPU gate inside the pinned NGC TensorRT image, so the build uses the project's TensorRT and CUDA instead of the host's.
 
 ### Changed
 - Export tooling aligned with [RF-DETR 1.12.0](https://github.com/roboflow/rf-detr/releases/tag/1.12.0), including updated ONNX dependencies and export guidance.
@@ -17,10 +20,6 @@ Validation records live in `specs/features/`, not here.
 - Experimental LiteRT pose export handles upstream's early keypoint rejection while preserving keypoint metadata and sampling.
 - LiteRT export dependencies pinned for a reproducible, compatible environment.
 - TensorRT backend throws `std::runtime_error` instead of segfaulting when no CUDA device is present.
-
-### Known issues
-- ExecuTorch and TensorRT models remain unverified on their native runtimes.
-- DALI preview and GPU playback on a real screen remain unverified.
 
 ## [v0.7.0] - 2026-11-06
 
@@ -34,13 +33,6 @@ Validation records live in `specs/features/`, not here.
 ### Fixed
 - Static-analysis failures in image utilities and OpenCV preview cleanup.
 - Format Check and Clang-Tidy CI jobs install clang 18 explicitly on a pinned Ubuntu 24.04 runner, after `ubuntu-latest` moved to Ubuntu 26.04 and stopped shipping `clang-format-18`/`clang-tidy-18`. `lint.yml` now also runs on `v*` tags.
-
-### Known issues
-- LiteRT supports CPU float32 inference only; GPU/NPU acceleration and quantized models are not supported.
-- Experimental pose output at low confidence thresholds can include false positives on background objects.
-- ONNX Runtime runs on one CPU thread.
-- GPU JPEG decoding can differ slightly from CPU decoding.
-- DALI preview and GPU playback on a real screen remain unverified.
 
 ## [v0.6.1] - 2026-10-09
 
@@ -60,11 +52,6 @@ Validation records live in `specs/features/`, not here.
 - `run_gate.sh` failed engine builds on a fresh machine (TensorRT libs not yet downloaded).
 - `run_gate.sh` reported a missing DALI as `FAIL` instead of `UNRUN`.
 - Documented clang-tidy command now excludes `tensorrt_backend.cpp`, as CI does.
-
-### Known issues
-- ONNX Runtime runs single-threaded (`SetIntraOpNumThreads(1)` is hardcoded).
-- GPU-decoded JPEGs (nvJPEG) do not bit-match the CPU tensor (stb); within GPU-preprocess tolerances.
-- `--display` unverified on the DALI build and on a real (non-Xvfb) screen.
 
 ## [v0.6.0] - 2026-10-07
 
@@ -123,8 +110,6 @@ Validation records live in `specs/features/`, not here.
 - CPU/CUDA postprocessing contract mismatches (score filter, background, mask borders).
 - Hardcoded image/video output paths.
 
-### Known issues
-- DALI's JPEG path does not bit-match the CPU tensor (nvJPEG vs stb).
 
 ## [v0.4.0] - 2026-08-04
 

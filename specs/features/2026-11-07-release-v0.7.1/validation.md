@@ -1,5 +1,10 @@
 # Validation
 
+> **Superseded.** The v0.7.1 tag and GitHub release described below were withdrawn. The
+> re-cut, with its own verification record, is
+> [`../2026-11-08-release-v0.7.1/validation.md`](../2026-11-08-release-v0.7.1/validation.md).
+> Everything from "Publication observed" onward describes a tag that no longer exists.
+
 ## Automated — no GPU
 - [x] Alignment PR #27: Build & Test, C++ Lint & Build, GPU Backend Compile all green.
 - [x] Version statements agree; ./scripts/check_version_sync.sh and Dockerfile parity pass.
