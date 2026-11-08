@@ -19,6 +19,13 @@ void TensorRTBackend::Logger::log(Severity severity, const char *msg) noexcept {
 }
 
 TensorRTBackend::TensorRTBackend() {
+    // Probe for a device first: without one, createInferRuntime aborts the process
+    // (CUDA error 35), which no caller or test can catch. Throw instead.
+    int device_count = 0;
+    if (cudaGetDeviceCount(&device_count) != cudaSuccess || device_count == 0) {
+        throw std::runtime_error("TensorRT backend requires a CUDA device, none found");
+    }
+
     // Initialize TensorRT runtime
     runtime_.reset(nvinfer1::createInferRuntime(logger_));
     if (!runtime_) {

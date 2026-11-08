@@ -247,7 +247,7 @@ std::vector<float> preprocess_image_data(const rfdetr::media::Image &bgr_image, 
 
 RFDETRInference::RFDETRInference(const std::filesystem::path &model_path, const std::filesystem::path &label_file_path,
                                  Config config)
-    : backend_(create_backend()), config_(std::move(config)),
+    : backend_(create_backend({config.onnx_threads})), config_(std::move(config)),
       input_shape_({1, 3, config_.resolution, config_.resolution}) {
 
     validate_config(config_);
@@ -544,6 +544,9 @@ void RFDETRInference::postprocess_keypoint_outputs(float scale_w, float scale_h,
     const auto num_classes = static_cast<size_t>(labels_shape[2]);
 
     const KeypointLayout layout = resolve_keypoint_layout(kp_shape, config_.keypoint_counts);
+    if (layout.query_stride != 0 && num_queries > kp_data.size() / layout.query_stride) {
+        throw std::runtime_error("Keypoint tensor data is shorter than its declared shape");
+    }
 
     const float res = static_cast<float>(config_.resolution);
 
@@ -565,10 +568,6 @@ void RFDETRInference::postprocess_keypoint_outputs(float scale_w, float scale_h,
 
     for (const size_t flat : ranked) {
         const float best_score = score_grid_[flat];
-        if (!(best_score > config_.threshold)) {
-            continue;
-        }
-
         const size_t q = flat / num_foreground;
         const auto class_id = static_cast<int>(flat % num_foreground);
         if (static_cast<size_t>(class_id) >= coco_labels_.size()) {
@@ -576,6 +575,20 @@ void RFDETRInference::postprocess_keypoint_outputs(float scale_w, float scale_h,
         }
         // kp_counts / kp_map are indexed by exported logit slot, not by label index.
         const int best_class_idx = rfdetr::processing::slot_for_foreground_column(class_id, background_slot);
+
+        // Score from normalized raw precision parameters, never pixel covariance.
+        // Classes outside the keypoint schema retain their object score upstream.
+        float final_score = best_score;
+        if (best_class_idx >= 0 && static_cast<size_t>(best_class_idx) < layout.class_map.size()) {
+            const auto [count, offset] = layout.class_map[static_cast<size_t>(best_class_idx)];
+            const auto raw_keypoints =
+                std::span<const float>(kp_data).subspan(q * layout.query_stride + offset, count * kKeypointChannels);
+            final_score =
+                rfdetr::processing::fuse_keypoint_score(best_score, raw_keypoints, config_.keypoint_uncertainty_alpha);
+        }
+        if (!(final_score > config_.threshold)) {
+            continue;
+        }
 
         const size_t det_offset = q * static_cast<size_t>(dets_shape[2]);
 
@@ -593,19 +606,6 @@ void RFDETRInference::postprocess_keypoint_outputs(float scale_w, float scale_h,
 
         std::vector<KeypointResult> kp_results =
             decode_query_keypoints(kp_data, q, layout, best_class_idx, orig_w, orig_h);
-
-        // Step h: Uncertainty-weighted score fusion
-        float final_score = best_score;
-        if (config_.keypoint_uncertainty_alpha > 0.0f && !kp_results.empty()) {
-            const float trace_sum =
-                std::accumulate(kp_results.begin(), kp_results.end(), 0.0f,
-                                [](float sum, const KeypointResult &kpr) { return sum + kpr.cov[0] + kpr.cov[3]; });
-            const float avg_trace = trace_sum / static_cast<float>(kp_results.size());
-            if (avg_trace > 0.0f) {
-                const float penalty = config_.keypoint_uncertainty_alpha * std::log(avg_trace);
-                final_score *= std::exp(-penalty);
-            }
-        }
 
         scores.push_back(final_score);
         class_ids.push_back(class_id);

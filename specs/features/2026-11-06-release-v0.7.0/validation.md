@@ -39,7 +39,8 @@ No claim of GPU/NPU LiteRT support is allowed.
       `d145031`, merged into `master` by `156373f`, which the annotated tag `v0.7.0` (`97d5de0`)
       points at; `master` was merged back into `develop` by `f401f59`.
 - [x] Mandatory lint gates rerun before every commit and push.
-- [x] Authorized remote branches/tag and GitHub release verified; see [Publication](#publication).
+- [x] Authorized remote branches/tag and GitHub release verified; see [Publication](#publication). The
+      tag and release were later re-cut on a green commit; see [Re-cut publication](#re-cut-publication).
 
 ## Results
 
@@ -109,9 +110,10 @@ ctest --test-dir build --output-on-failure -R UnitTests
 Configured with ONNX Runtime 1.28.0 and FFmpeg/SDL2 media (`USE_OPENCV=OFF`); the binary links
 the cloned tree's ONNX Runtime, system FFmpeg and SDL2. 109/109 gtest cases pass.
 
-### Publication
+### Publication (first cut, superseded)
 
-Verified after the push from `develop` on 2026-11-06.
+Verified after the push from `develop` on 2026-11-06. This tag object and release were later removed
+and recreated; see [Re-cut publication](#re-cut-publication).
 
 | Ref | Expected | Verified |
 |-----|----------|----------|
@@ -126,9 +128,12 @@ The local `release/v0.7.0` and `feature/litert-backend` branches were deleted af
 
 | Commit | Build & Test | GPU Backend Compile | C++ Lint & Build |
 |--------|--------------|---------------------|------------------|
-| `master` `156373f` (tag `v0.7.0`) | PASS | PASS | **FAIL**: Format Check and Clang-Tidy |
+| `master` `156373f` (first tag `v0.7.0`) | PASS | PASS | **FAIL**: Format Check and Clang-Tidy |
 | `develop` `f401f59` | PASS | PASS | **FAIL**: Format Check and Clang-Tidy |
 | `develop` `9c95c35` (fix) | PASS | PASS | PASS |
+| `master` `bc06231` (re-cut tag `v0.7.0`) | PASS | PASS | PASS |
+| `develop` `994c933` | PASS | PASS | PASS |
+| Tag `v0.7.0` `c201b12` → `bc06231` | not triggered on tags | not triggered on tags | PASS, all five jobs |
 
 The two lint jobs failed before reaching the source: `ubuntu-latest` had moved to Ubuntu 26.04,
 which no longer ships `clang-format-18` / `clang-tidy-18`, so both commands exited 127. The same
@@ -140,7 +145,26 @@ installs clang 18 explicitly and adds a `v*` tag trigger; all three workflows ar
 tag was published, so the red Format Check / Clang-Tidy run stays in the history of `156373f`.
 
 The maintainer approved re-cutting the release rather than publishing a tag with red gates. The
-published tag and GitHub release are removed once `develop` and `master` are green, and `v0.7.0` is
-recreated on the `master` merge commit that contains the fix. Because `lint.yml` now runs on `v*`
-tags, the tag itself is linted before the release is republished; the exact objects and run results
-are recorded under [Re-cut publication](#re-cut-publication) once they exist.
+published tag and GitHub release were removed once `develop` and `master` were green, and `v0.7.0`
+was recreated on the `master` merge commit that contains the fix. Because `lint.yml` now runs on
+`v*` tags, the tag itself was linted before the release was republished.
+
+### Re-cut publication
+
+Verified 2026-11-06 after `9c95c35` turned both long-lived branches green. The first tag object
+`97d5de0` (→ `156373f`) and its GitHub release were deleted, then the tag was recreated on the
+`master` merge commit that contains the fix.
+
+| Ref | Expected | Verified |
+|-----|----------|----------|
+| `develop` | `994c933` at re-cut (this record is committed on top) | `origin/develop` = `994c933…` |
+| `master` | `bc06231` | `origin/master` = `bc062316…` |
+| Tag `v0.7.0` | annotated object `c201b12` → `bc06231` | `git ls-remote --tags origin` returns the same object and peeled commit |
+| GitHub release | <https://github.com/olibartfast/rf-detr-cpp-inference/releases/tag/v0.7.0> | republished 2026-11-06T19:54:38Z on the new tag, target `master`, not a draft or pre-release |
+
+The `v*` trigger linted the tag itself: [run 42274688377](https://github.com/olibartfast/rf-detr-cpp-inference/actions/runs/42274688377)
+passed Format Check, Clang-Tidy, Cppcheck, Version Sync and Build with Strict Warnings. Its Build
+with Strict Warnings job took 27m19s because `apt-get install` stalled on the runner's package
+mirror; the two preceding runs on `develop` showed the same 20-30 minute delay, so this is runner
+infrastructure, not the change. Build & Test and GPU Backend Compile do not trigger on tags; they
+were green on the identical `master` commit `bc06231`.

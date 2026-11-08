@@ -21,6 +21,7 @@ struct CliOptions {
     std::filesystem::path dali_pipeline_dir = "data/dali";
     std::optional<int> resolution;
     std::optional<int> max_detections;
+    std::optional<int> onnx_threads;
     std::optional<float> threshold;
     std::optional<float> mask_threshold;
     bool background_class_id_given = false;

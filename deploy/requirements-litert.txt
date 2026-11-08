@@ -1,0 +1,7 @@
+# Restatements of versions.env, checked by scripts/check_version_sync.sh.
+# Keep Pydantic compatible with litert-torch's typing-extensions requirement.
+rfdetr[litert]==1.12.0
+ai-edge-litert==2.3.0
+litert-torch==0.10.0
+pydantic==2.11.7
+backports.strenum==1.2.8

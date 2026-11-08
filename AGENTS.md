@@ -1,6 +1,8 @@
 # AGENTS.md
 
 ## Project Specs
+
+Project release baseline: **v0.7.1**; `CMakeLists.txt`, `vcpkg.json`, and the README badge agree.
 Read these before starting work; this file covers commands, the specs cover intent.
 - [specs/mission.md](specs/mission.md) — what this project is and the architectural commitments not to break
 - [specs/tech-stack.md](specs/tech-stack.md) — pinned versions and where each pin lives, CMake options, CI coverage
