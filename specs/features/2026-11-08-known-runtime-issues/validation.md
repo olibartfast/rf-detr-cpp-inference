@@ -9,6 +9,36 @@
 - [ ] Colab: CPU/GPU preprocess and segmentation parity, GPU sanitizer, DALI and CUDA headless display using existing numeric tolerances.
 - [x] Documentation/changelog reflects actual fixes and remaining blockers; no release/tag is created.
 
+## Jetson Orin verification — 2026-11-08
+
+Device `192.168.0.16` (`jetson-nano`, aarch64, 6 cores, 7 GB RAM, CUDA toolkit 13.2,
+TensorRT **10.16.2**, nvJPEG + compute-sanitizer + Xvfb present, Docker 29.6.1 with nvidia
+runtime). No passwordless sudo, so the default build ran inside the project's own
+`dockerfile.onnxrt` (ffmpeg media backend) built from the exact HEAD `6e07157`.
+
+- Docker build (builder + runtime images): PASS. The aarch64 ONNX Runtime archive
+  self-downloads; only `libsdl2-dev` was missing on the host, which the container provides.
+- Full `ctest`: 11/11 PASS (117 unit tests; model-gated integration tests SKIP without env vars).
+- `PoseScoreReference` (real `rfdetr-keypoint-preview.tflite` raw outputs vs upstream PyTorch
+  PostProcess): PASS on ARM.
+- `OnnxThreading` 1/2/4/auto on the real Nano ONNX model: PASS, outputs **bit-identical**
+  (all deltas 0.0, tighter than the 1e-4/1e-3 gates). Median latency: `1 -> 4636 ms`,
+  `2 -> 2377 ms`, `4 -> 1251 ms`, `auto(0) -> 1888 ms`. Near-linear scaling to 4 threads
+  (~3.7x over 1 thread); on this 6-core ARM, explicit `--onnx-threads 4` beats auto.
+- End-to-end `inference_app` on `data/dog.jpg`: 4 detections, boxes and scores identical to
+  the x86 run to printed precision (bicycle 0.939584, dog 0.926562, car 0.829679,
+  motorbike 0.598269).
+- Headless display: SDL window `RF-DETR Inference` (256x192, the video's size) opens under
+  host Xvfb with the containerized app; x11grab screenshot shows real content
+  (std 52.1, 15606 distinct colours); 21 frames processed, `output_video.mp4` written.
+  The `q`-to-quit path is UNRUN (no `xdotool` on the device).
+- TensorRT/CUDA/DALI execution, GPU parity and compute-sanitizer are **blocked on this
+  device**: it ships TensorRT 10.16.2, but `src/backends/tensorrt_backend.hpp:14` rejects
+  `NV_TENSORRT_MAJOR < 11` and the project pins `TENSORRT_VERSION=11.2.1.2` (JetPack 6
+  cannot provide TRT 11). The CUDA pre/post pipeline requires the TensorRT backend, so no
+  GPU inference path can build here. A TRT-11-capable x86+GPU host (Colab) remains the
+  route for the full gate.
+
 No GPU tests may fail solely because the device is absent; existing skip behavior remains. Raw-output parity alone does not prove decoded pose parity.
 
 ## LiteRT dependency evidence — 2026-11-08
