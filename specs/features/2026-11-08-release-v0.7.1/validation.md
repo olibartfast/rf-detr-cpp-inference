@@ -29,14 +29,14 @@ Recorded in full, with hardware and driver versions, in
 - [x] README version table and build options re-read against `versions.env`, `CMakeLists.txt`,
       `CMakePresets.json` and `dockerfile.*`.
 - [x] Roadmap status corrected to the release that actually exists.
-- [ ] Release notes published with the tag.
+- [x] Release notes published with the tag.
 
 ## Definition of done
 
 - [x] `[Unreleased]` moved to `[v0.7.1] - 2026-11-08`, a fresh `[Unreleased]` opened.
 - [x] Version statements agree at `0.7.1` in all four locations.
-- [ ] `release/v0.7.1` merged to `master`, tagged, merged back to `develop`, branch deleted.
-- [ ] `master`, `develop` and the tag pushed after maintainer approval.
+- [x] `release/v0.7.1` merged to `master`, tagged, merged back to `develop`, branch deleted.
+- [x] `master`, `develop` and the tag pushed after maintainer approval.
 
 ## Note on tolerance divergence
 
@@ -47,3 +47,12 @@ measured worst case on `data/dog.jpg` is scores 0.0187, centre 2.42 px, mask IoU
 test's bound, outside the tighter numbers the GPU-preprocess path cannot meet for the reason
 documented at the `preprocess_tolerance` declaration. Recording the numbers here keeps the bound
 that was actually enforced visible next to the result.
+
+## Publication
+
+- Tag `v0.7.1` -> `01d57f0`; `master` merged as `01d57f0`, `develop` merged back as `9163d48`.
+- CI on `master`, `develop` and the `v0.7.1` tag: Build & Test, GPU Backend Compile and
+  C++ Lint & Build all succeeded before the GitHub release was created.
+- [v0.7.1 published](https://github.com/olibartfast/rf-detr-cpp-inference/releases/tag/v0.7.1).
+- Fresh clone of the tag (`git clone --branch v0.7.1 --depth 1`) configured and built under the
+  default ONNX Runtime backend, and all 11 CTest entries pass.
