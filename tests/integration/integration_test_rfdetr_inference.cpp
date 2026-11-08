@@ -1,6 +1,11 @@
+#include "../unit/mock_backend.hpp"
+#include "processing_utils.hpp"
 #include "rfdetr_inference.hpp"
 
+#include <algorithm>
 #include <array>
+#include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <gtest/gtest.h>
@@ -301,6 +306,141 @@ TEST_F(RFDETRKeypointIntegrationTest, EndToEndKeypointPipeline) {
     EXPECT_TRUE(RFDETRInference::save_output_image(image, output_path_).has_value());
     EXPECT_TRUE(std::filesystem::exists(output_path_));
 }
+
+namespace {
+std::vector<float> read_pose_tensor(const std::filesystem::path &path, size_t count) {
+    std::vector<float> values(count);
+    std::ifstream input(path, std::ios::binary);
+    if (!input.read(reinterpret_cast<char *>(values.data()), static_cast<std::streamsize>(count * sizeof(float))) ||
+        input.peek() != std::char_traits<char>::eof()) {
+        throw std::runtime_error("Invalid pose reference tensor: " + path.string());
+    }
+    return values;
+}
+} // namespace
+
+TEST(PoseScoreReference, MatchesUpstreamDecodedScoresAndCoordinates) {
+    const char *reference = std::getenv("RFDETR_POSE_REFERENCE");
+    if (reference == nullptr) {
+        GTEST_SKIP() << "Set RFDETR_POSE_REFERENCE from generate_pose_reference.py";
+    }
+    const std::filesystem::path directory(reference);
+    size_t queries = 0;
+    int resolution = 0;
+    std::ifstream metadata(directory / "metadata.txt");
+    ASSERT_TRUE(static_cast<bool>(metadata >> queries >> resolution));
+    ASSERT_GT(queries, 0U);
+    ASSERT_GT(resolution, 0);
+    auto backend = std::make_unique<MockBackend>();
+    const auto query_count = static_cast<int64_t>(queries);
+    backend->set_outputs({read_pose_tensor(directory / "output_0.bin", queries * 4),
+                          read_pose_tensor(directory / "output_1.bin", queries * 2),
+                          read_pose_tensor(directory / "output_2.bin", queries * 34 * 8)},
+                         {{1, query_count, 4}, {1, query_count, 2}, {1, query_count, 34, 8}});
+    Config config;
+    config.model_type = ModelType::KEYPOINT;
+    config.resolution = resolution;
+    config.threshold = 0.0F;
+    RFDETRInference inference(std::move(backend), directory / "labels.txt", config);
+    inference.run_inference({});
+    std::vector<float> scores;
+    std::vector<int> classes;
+    std::vector<BoundingBox> boxes;
+    std::vector<std::vector<KeypointResult>> keypoints;
+    const float scale_width = 640.0F / static_cast<float>(resolution);
+    const float scale_height = 480.0F / static_cast<float>(resolution);
+    inference.postprocess_keypoint_outputs(scale_width, scale_height, 480, 640, scores, classes, boxes, keypoints);
+    ASSERT_EQ(scores.size(), queries);
+    std::ifstream expected(directory / "expected.txt");
+    ASSERT_TRUE(expected.is_open());
+    for (size_t i = 0; i < queries; ++i) {
+        float value = 0;
+        ASSERT_TRUE(static_cast<bool>(expected >> value));
+        EXPECT_NEAR(scores[i], value, 1e-5F) << "score " << i;
+        EXPECT_EQ(classes[i], 0);
+        for (float actual : {boxes[i].x_min, boxes[i].y_min, boxes[i].x_max, boxes[i].y_max}) {
+            ASSERT_TRUE(static_cast<bool>(expected >> value));
+            EXPECT_NEAR(actual, value, 1e-3F);
+        }
+        ASSERT_EQ(keypoints[i].size(), 17U);
+        for (const auto &keypoint : keypoints[i]) {
+            for (float actual : {keypoint.x, keypoint.y}) {
+                ASSERT_TRUE(static_cast<bool>(expected >> value));
+                EXPECT_NEAR(actual, value, 1e-3F);
+            }
+        }
+    }
+}
+
+#ifdef USE_ONNX_RUNTIME
+TEST(OnnxThreading, ConfigurableThreadsPreserveOutputs) {
+    const char *model = std::getenv("RFDETR_TEST_MODEL");
+    if (model == nullptr) {
+        GTEST_SKIP() << "Set RFDETR_TEST_MODEL to run ONNX thread parity and timing";
+    }
+    std::vector<std::vector<float>> baseline;
+    for (int threads : {1, 2, 4, 0}) {
+        auto backend = rfdetr::backend::create_backend({threads});
+        const auto shape = backend->initialize(model, {1, 3, 0, 0});
+        size_t count = 1;
+        for (int64_t dimension : shape) {
+            ASSERT_GT(dimension, 0);
+            count *= static_cast<size_t>(dimension);
+        }
+        std::vector<float> input(count);
+        for (size_t i = 0; i < count; ++i) {
+            input[i] = static_cast<float>(i % 251) / 125.0F - 1.0F;
+        }
+        (void)backend->run_inference(input, shape);
+        std::vector<double> durations;
+        for (int repeat = 0; repeat < 5; ++repeat) {
+            const auto start = std::chrono::steady_clock::now();
+            (void)backend->run_inference(input, shape);
+            durations.push_back(
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+        }
+        std::ranges::sort(durations);
+        RecordProperty("median_ms_threads_" + std::to_string(threads), std::to_string(durations[2]));
+        std::vector<std::vector<float>> outputs;
+        for (size_t index = 0; index < backend->get_output_count(); ++index) {
+            size_t size = 1;
+            for (int64_t dimension : backend->get_output_shape(index)) {
+                ASSERT_GT(dimension, 0);
+                size *= static_cast<size_t>(dimension);
+            }
+            outputs.emplace_back(size);
+            backend->get_output_data(index, outputs.back().data(), size);
+        }
+        if (threads == 1) {
+            baseline = std::move(outputs);
+            continue;
+        }
+        ASSERT_EQ(outputs.size(), baseline.size());
+        for (size_t index = 0; index < outputs.size(); ++index) {
+            ASSERT_EQ(outputs[index].size(), baseline[index].size());
+            float maximum = 0;
+            for (size_t i = 0; i < outputs[index].size(); ++i) {
+                ASSERT_TRUE(std::isfinite(outputs[index][i]));
+                ASSERT_TRUE(std::isfinite(baseline[index][i]));
+                maximum = std::max(maximum, std::abs(outputs[index][i] - baseline[index][i]));
+            }
+            const float tolerance = index == 0 ? 1.0F / static_cast<float>(shape[2]) : 1e-3F;
+            EXPECT_LE(maximum, tolerance) << "threads=" << threads << " output=" << index;
+            if (index == 1) {
+                float score_delta = 0;
+                for (size_t i = 0; i < outputs[index].size(); ++i) {
+                    score_delta = std::max(score_delta, std::abs(rfdetr::processing::sigmoid(outputs[index][i]) -
+                                                                 rfdetr::processing::sigmoid(baseline[index][i])));
+                }
+                EXPECT_LE(score_delta, 1e-4F);
+                RecordProperty("max_score_delta_threads_" + std::to_string(threads), std::to_string(score_delta));
+            }
+            RecordProperty("max_abs_delta_threads_" + std::to_string(threads) + "_output_" + std::to_string(index),
+                           std::to_string(maximum));
+        }
+    }
+}
+#endif
 
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);

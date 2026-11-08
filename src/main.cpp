@@ -41,7 +41,7 @@ void print_usage(const char *program) {
               << " <path_to_model> <path_to_image_or_video> <path_to_coco_labels> [--segmentation|--keypoint] "
                  "[--threshold <val>] [--resolution <px>] [--max-detections <n>] [--mask-threshold <val>] "
                  "[--background-class-id <n|none>] [--keypoint-counts <n[,n...]>] [--output <path>] "
-                 "[--display] [--gpu-preprocess] [--gpu-postprocess] [--dali-pipeline-dir <dir>]"
+                 "[--onnx-threads <n>] [--display] [--gpu-preprocess] [--gpu-postprocess] [--dali-pipeline-dir <dir>]"
               << '\n';
     std::cerr << "Examples:" << '\n';
     std::cerr << "  Detection:    " << program << " " << kExampleModel << " ./image.jpg ./coco_labels.txt" << '\n';
@@ -74,6 +74,7 @@ void print_usage(const char *program) {
 Config build_config(const rfdetr::cli::CliOptions &opts) {
     Config config;
     config.resolution = opts.resolution.value_or(0); // 0 = auto-detect from model
+    config.onnx_threads = opts.onnx_threads.value_or(0);
     if (opts.keypoint) {
         config.model_type = ModelType::KEYPOINT;
     } else {

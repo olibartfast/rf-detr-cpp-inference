@@ -119,6 +119,10 @@ std::optional<std::string> handle_max_detections(const char *value, CliOptions &
     return parse_int_option("--max-detections", value, opts.max_detections);
 }
 
+std::optional<std::string> handle_onnx_threads(const char *value, CliOptions &opts) {
+    return parse_int_option("--onnx-threads", value, opts.onnx_threads);
+}
+
 std::optional<std::string> handle_background_class_id(const char *value, CliOptions &opts) {
     opts.background_class_id_given = true;
     if (std::strcmp(value, "none") == 0) {
@@ -151,11 +155,12 @@ struct ValueFlag {
     ValueHandler handler;
 };
 
-constexpr std::array<ValueFlag, 8> kValueFlags = {{
+constexpr std::array<ValueFlag, 9> kValueFlags = {{
     {"--dali-pipeline-dir", &handle_dali_pipeline_dir},
     {"--threshold", &handle_threshold},
     {"--resolution", &handle_resolution},
     {"--max-detections", &handle_max_detections},
+    {"--onnx-threads", &handle_onnx_threads},
     {"--background-class-id", &handle_background_class_id},
     {"--mask-threshold", &handle_mask_threshold},
     {"--output", &handle_output},
@@ -198,6 +203,14 @@ std::optional<std::string> validate(const CliOptions &opts) {
     if (opts.max_detections && *opts.max_detections <= 0) {
         return "Error: --max-detections must be positive";
     }
+    if (opts.onnx_threads && *opts.onnx_threads < 0) {
+        return "Error: --onnx-threads must be nonnegative (0 = automatic)";
+    }
+#if !defined(USE_ONNX_RUNTIME)
+    if (opts.onnx_threads) {
+        return "Error: --onnx-threads requires the ONNX Runtime backend";
+    }
+#endif
     if (opts.gpu_postprocess && !opts.segmentation) {
         return "Error: --gpu-postprocess applies to segmentation only; add --segmentation";
     }

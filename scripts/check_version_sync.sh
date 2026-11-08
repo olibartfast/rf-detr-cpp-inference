@@ -82,6 +82,16 @@ expect conanfile.txt "OPENCV_VERSION" "${OPENCV_VERSION}" "opencv/$(lit "${OPENC
 # --- Python export tooling ----------------------------------------------------
 expect deploy/requirements.txt "RFDETR_VERSION" "${RFDETR_VERSION}" \
     "^rfdetr\[onnx\]==$(lit "${RFDETR_VERSION}")$"
+expect deploy/requirements-litert.txt "RFDETR_VERSION [litert]" "${RFDETR_VERSION}" \
+    "^rfdetr\[litert\]==$(lit "${RFDETR_VERSION}")$"
+expect deploy/requirements-litert.txt "LITERT_VERSION" "${LITERT_VERSION}" \
+    "^ai-edge-litert==$(lit "${LITERT_VERSION}")$"
+expect deploy/requirements-litert.txt "LITERT_TORCH_VERSION" "${LITERT_TORCH_VERSION}" \
+    "^litert-torch==$(lit "${LITERT_TORCH_VERSION}")$"
+expect deploy/requirements-litert.txt "LITERT_PYDANTIC_VERSION" "${LITERT_PYDANTIC_VERSION}" \
+    "^pydantic==$(lit "${LITERT_PYDANTIC_VERSION}")$"
+expect deploy/requirements-litert.txt "LITERT_STRENUM_VERSION" "${LITERT_STRENUM_VERSION}" \
+    "^backports[.]strenum==$(lit "${LITERT_STRENUM_VERSION}")$"
 for f in deploy/export_detection.py deploy/export_segmentation.py; do
     expect "${f}" "ONNX_OPSET_VERSION" "${ONNX_OPSET_VERSION}" \
         "--opset_version', default=$(lit "${ONNX_OPSET_VERSION}"),"
@@ -112,6 +122,10 @@ for extra in onnx executorch tensorrt litert; do
 done
 expect README.md "LITERT_TORCH_VERSION" "${LITERT_TORCH_VERSION}" \
     "^\| .litert-torch. \| .==$(lit "${LITERT_TORCH_VERSION}"). \|"
+expect README.md "LITERT_PYDANTIC_VERSION" "${LITERT_PYDANTIC_VERSION}" \
+    "^\| .pydantic. \| .==$(lit "${LITERT_PYDANTIC_VERSION}"). \|"
+expect README.md "LITERT_STRENUM_VERSION" "${LITERT_STRENUM_VERSION}" \
+    "^\| .backports[.]strenum. \| .==$(lit "${LITERT_STRENUM_VERSION}"). \|"
 expect README.md "ONNX_OPSET_VERSION" "${ONNX_OPSET_VERSION}" \
     "^\| .rfdetr\[onnx\]. \|.*ONNX opset $(lit "${ONNX_OPSET_VERSION}") \|"
 expect README.md "EXECUTORCH_VERSION [pip]" "${EXECUTORCH_VERSION}" \

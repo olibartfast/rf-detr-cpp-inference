@@ -12,6 +12,43 @@ namespace rfdetr::processing {
 
 float sigmoid(float x) noexcept { return 1.0f / (1.0f + std::exp(-x)); }
 
+namespace {
+double log_add_exp(double lhs, double rhs) {
+    if (lhs == -std::numeric_limits<double>::infinity()) {
+        return rhs;
+    }
+    const double largest = std::max(lhs, rhs);
+    return largest + std::log1p(std::exp(std::min(lhs, rhs) - largest));
+}
+} // namespace
+
+float fuse_keypoint_score(float score, std::span<const float> raw_keypoints, float alpha) {
+    constexpr size_t channels = 8;
+    if (raw_keypoints.size() % channels != 0) {
+        throw std::invalid_argument("Keypoint score fusion requires complete [K,8] parameters");
+    }
+    if (alpha <= 0.0f) {
+        return score;
+    }
+    double log_weighted_trace = -std::numeric_limits<double>::infinity();
+    double log_weights = -std::numeric_limits<double>::infinity();
+    for (size_t offset = 0; offset < raw_keypoints.size(); offset += channels) {
+        const double log_t1 = -2.0 * static_cast<double>(raw_keypoints[offset + 4]);
+        const double log_t2 = -2.0 * static_cast<double>(raw_keypoints[offset + 6]);
+        const double log_t3 =
+            2.0 * std::log(std::max(std::abs(static_cast<double>(raw_keypoints[offset + 5])), 1e-12)) + log_t1 + log_t2;
+        const double log_trace = log_add_exp(log_add_exp(log_t1, log_t2), log_t3);
+        const double log_weight = std::log(std::max(static_cast<double>(sigmoid(raw_keypoints[offset + 2])), 1e-12));
+        log_weighted_trace = log_add_exp(log_weighted_trace, log_trace + log_weight);
+        log_weights = log_add_exp(log_weights, log_weight);
+    }
+    const double log_mean_trace = raw_keypoints.empty() ? 0.0 : log_weighted_trace - log_weights;
+    const double log_fused = std::log(static_cast<double>(score)) - static_cast<double>(alpha) * log_mean_trace;
+    const double normalized =
+        log_fused >= 0.0 ? 1.0 / (1.0 + std::exp(-log_fused)) : std::exp(log_fused) / (1.0 + std::exp(log_fused));
+    return std::min(static_cast<float>(normalized), std::nextafter(1.0f, 0.0f));
+}
+
 void normalize_image(std::span<float> data, size_t channel_size, std::span<const float, 3> means,
                      std::span<const float, 3> stds) {
     for (size_t c = 0; c < 3; ++c) {

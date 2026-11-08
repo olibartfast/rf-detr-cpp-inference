@@ -320,11 +320,12 @@ Error: ExecuTorch forward() failed with error code 20
 
 ## LiteRT Model Export
 
-Install the `rfdetr[litert]` extra at `RFDETR_VERSION` from `versions.env` in an export environment:
+Install the checked LiteRT export requirements in a fresh Python 3.11 environment:
 
 ```bash
-source scripts/versions.sh
-python -m pip install "rfdetr[litert]==${RFDETR_VERSION}" "ai-edge-litert==${LITERT_VERSION}" "litert-torch==${LITERT_TORCH_VERSION}"
+python3.11 -m venv .venv-litert
+source .venv-litert/bin/activate
+python -m pip install -r deploy/requirements-litert.txt
 python deploy/export_litert.py --model_type nano --output_dir output
 python deploy/export_litert.py --model_type nano --segmentation --output_dir output
 python deploy/export_litert.py --keypoint --input_size 384 --output_name rfdetr-keypoint --output_dir output
@@ -332,6 +333,17 @@ python deploy/export_litert.py --keypoint --input_size 384 --output_name rfdetr-
 ./build-litert/inference_app output/rfdetr-seg-nano.tflite data/dog.jpg data/coco-labels-91.txt --segmentation
 ./build-litert/inference_app output/rfdetr-keypoint.tflite person.jpg data/coco-labels-91.txt --keypoint
 ```
+
+`deploy/requirements-litert.txt` restates `RFDETR_VERSION`, `LITERT_VERSION`,
+`LITERT_TORCH_VERSION`, `LITERT_PYDANTIC_VERSION` and `LITERT_STRENUM_VERSION` from
+`versions.env`; version sync checks all five. The Pydantic constraint is required because the converter constrains
+`typing-extensions` to a release without `Sentinel`, which newer Pydantic core imports.
+Install these requirements together so the resolver chooses a compatible Pydantic core;
+do not edit installed packages or bypass their dependency requirements. The StrEnum backport
+constraint selects a release whose declared Python range includes Python 3.11; the newer
+backport release excludes it.
+For a CPU-only export environment, select the matching PyTorch CPU wheels using the
+[official PyTorch installation instructions](https://pytorch.org/get-started/locally/).
 
 This uses upstream `model.export(format="litert", batch_size=1)`, directly from PyTorch through
 litert-torch. Keep its default model resolution or set `--input_size` to a supported square size.

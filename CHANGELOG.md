@@ -5,18 +5,20 @@ Validation records live in `specs/features/`, not here.
 
 ## [Unreleased]
 
-## [v0.7.1] - 2026-11-07
+### Added
+- `--onnx-threads <n>` option to control ONNX Runtime intra-op threads (0 = automatic).
 
 ### Changed
 - Export tooling aligned with [RF-DETR 1.12.0](https://github.com/roboflow/rf-detr/releases/tag/1.12.0), including updated ONNX dependencies and export guidance.
+- ONNX Runtime uses automatic intra-op thread selection by default instead of one thread.
+- Keypoint score fusion matches upstream RF-DETR PostProcess (findability-weighted covariance trace, sigmoid normalization, threshold on the fused score).
 
 ### Fixed
 - Experimental LiteRT pose export handles upstream's early keypoint rejection while preserving keypoint metadata and sampling.
+- LiteRT export dependencies pinned for a reproducible, compatible environment.
 
 ### Known issues
-- Regenerated ExecuTorch and TensorRT models remain unverified on their native runtimes.
-- LiteRT supports CPU float32 inference only; experimental pose can include false positives at low confidence thresholds.
-- ONNX Runtime runs on one CPU thread; GPU JPEG decoding can differ from CPU decoding.
+- ExecuTorch and TensorRT models remain unverified on their native runtimes.
 - DALI preview and GPU playback on a real screen remain unverified.
 
 ## [v0.7.0] - 2026-11-06
